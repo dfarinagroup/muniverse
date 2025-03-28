@@ -16,7 +16,9 @@ RUN git clone https://github.com/pranavm19/NeuroMotion
 WORKDIR /opt/NeuroMotion
 
 # Create the conda environment
-RUN mamba env create -f env.yml
+RUN mamba env create -f env.yml && \
+    mamba clean --all -f -y && \
+    rm -rf ~/.cache ~/.conda
 
 # Install extra dependencies into the conda env
 RUN mamba run -n NeuroMotion pip install \
@@ -25,8 +27,4 @@ RUN mamba run -n NeuroMotion pip install \
 
 RUN mamba run -n NeuroMotion bash get_data.sh
 
-# Run the shell script and Python conversion
-COPY run_neuromotion_test.sh /opt/NeuroMotion/run_neuromotion_test.sh
-RUN chmod +x run_neuromotion_test.sh
-
-ENTRYPOINT ["mamba", "run", "--no-capture-output", "-n", "NeuroMotion", "./run_neuromotion_test.sh"]
+CMD ["/bin/bash"]
