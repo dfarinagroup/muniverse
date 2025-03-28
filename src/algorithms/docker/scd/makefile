@@ -1,5 +1,5 @@
 IMAGE_NAME = muniverse-test
-TAG ?= neuromotion
+TAG ?= scd
 REGISTRY = docker.io/pranavm19
 
 # Full image tag
