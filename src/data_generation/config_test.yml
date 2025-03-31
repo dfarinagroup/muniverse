@@ -1,0 +1,40 @@
+# Container engine configuration
+engine: "docker"  # or "singularity"
+container_name: "pranavm19/muniverse-test:neuromotion"
+
+# Paths
+sim_script: "src/data_generation/run_neuromotion.py"
+output_dir: "src/data_generation/"
+input_config: "src/data_generation/config_test.yml"
+
+# NeuroMotion configuration
+model_pth: "./ckp/model_linear.pth"
+device: "cpu"  # "cuda" or "cpu"
+morph: false
+muap_file: "./ckp/muap_examples.pkl"
+
+# Movement configuration
+# poses: ["default", "default+flex", "default", "default+ext", "default"]
+# durations: [1.5, 1.5, 1.5, 1.5]
+# fs_mov: 5
+
+# Muscle configuration
+# ms_labels: ["ECRB", "ECRL", "PL", "FCU", "ECU", "EDCI", "FDSI"]
+target_muscle: "FDSI"
+fibre_density: 200
+
+# Physiological properties
+# iz: [0.5, 0.1]
+# len: [1.0, 0.05]
+# cv: [4, 0.3]
+
+# Signal processing
+fs: 2048
+time_length: 96
+cutoff: 800
+filter_order: 4
+
+# BioMime model configuration
+# Model:
+#   Generator:
+#     Latent: 128  # Add other model parameters as needed
