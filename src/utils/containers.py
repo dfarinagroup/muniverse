@@ -28,10 +28,11 @@ def check_singularity_image_exists(image_name):
     # Convert Docker image name to Singularity image name
     sif_name = f"{image_name.split('/')[-1].replace(':', '_')}.sif"
     
-    # Get the path to src/environment directory
-    current_dir = Path(__file__).parent.parent
+    # Get the path to environment directory
+    current_dir = Path(__file__).parent.parent.parent
     environment_dir = current_dir / "environment"
-    
+
+    print(sif_name, environment_dir)
     # Check if the image exists in the environment directory
     image_path = environment_dir / sif_name
     return image_path.exists()
@@ -48,7 +49,7 @@ def pull_docker_image(image_name):
 
 def pull_singularity_image(image_name):
     """
-    Pull a Singularity image and save it to src/environment directory.
+    Pull a Singularity image and save it to environment directory.
     
     Args:
         image_name (str): The Docker image name to pull
@@ -56,8 +57,8 @@ def pull_singularity_image(image_name):
     # Convert Docker image name to Singularity image name
     sif_name = f"{image_name.split('/')[-1].replace(':', '_')}.sif"
     
-    # Get the path to src/environment directory
-    current_dir = Path(__file__).parent.parent
+    # Get the path to environment directory
+    current_dir = Path(__file__).parent.parent.parent
     environment_dir = current_dir / "environment"
     
     # Create environment directory if it doesn't exist
@@ -108,7 +109,7 @@ def pull_container(name, engine="docker"):
         if not check_singularity_image_exists(name):
             pull_singularity_image(name)
         else:
-            print(f"[INFO] Singularity image for '{name}' already exists in src/environment")
+            print(f"[INFO] Singularity image for '{name}' already exists in environment")
 
 def verify_container_engine(engine):
     """

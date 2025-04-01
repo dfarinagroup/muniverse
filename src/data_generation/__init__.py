@@ -6,6 +6,14 @@ import yaml
 from .generate_data import generate_dataset
 from src.utils.containers import pull_container, verify_container_engine
 
+from easydict import EasyDict as edict
+
+def load_config(config_path):
+    """Load configuration from YAML file."""
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return edict(config)
+
 def init(config=None):
     """
     Initialize the datasets module.
@@ -49,5 +57,5 @@ def generate(config):
         str: The path to the generated dataset.
     """
     # Initialize containers before generating data
-    init(config)
+    init(load_config(config))
     return generate_dataset(config)

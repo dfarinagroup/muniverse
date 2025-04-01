@@ -5,9 +5,10 @@ set -e
 # ./run.sh docker|singularity path/to/run_neuromotion.py path/to/input_config path/to/output_dir
 
 ENGINE=$1
-SCRIPT_PATH=$2
-CONFIG_PATH=$3
-OUTPUT_DIR=$4
+CONTAINER_NAME=$2
+SCRIPT_PATH=$3
+CONFIG_PATH=$4
+OUTPUT_DIR=$5
 
 if [ "$ENGINE" == "docker" ]; then
   echo "[INFO] Running with Docker"
@@ -16,7 +17,7 @@ if [ "$ENGINE" == "docker" ]; then
     -v $(realpath $SCRIPT_PATH):/opt/NeuroMotion/run_neuromotion.py \
     -v $(realpath $CONFIG_PATH):/data/input_config.yml \
     -v $(realpath $OUTPUT_DIR):/output/ \
-    pranavm19/muniverse-test:neuromotion \
+    $CONTAINER_NAME \
     bash -c "source /opt/mambaforge/etc/profile.d/conda.sh && \
              conda activate NeuroMotion && \
              cd /opt/NeuroMotion/ && \
@@ -27,7 +28,7 @@ elif [ "$ENGINE" == "singularity" ]; then
     -B $(realpath $SCRIPT_PATH):/opt/NeuroMotion/run_neuromotion.py \
     -B $(realpath $CONFIG_PATH):/data/input_config.yml \
     -B $(realpath $OUTPUT_DIR):/output/ \
-    muniverse-test_neuromotion.sif \
+    $CONTAINER_NAME.sif \
     bash -c "source /opt/mambaforge/etc/profile.d/conda.sh && \
              conda activate NeuroMotion && \
              cd /opt/NeuroMotion/ && \

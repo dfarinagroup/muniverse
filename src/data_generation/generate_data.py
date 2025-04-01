@@ -28,14 +28,17 @@ def generate_dataset(config_path):
     
     # Get required parameters with defaults
     engine = config.get("engine", "docker")
+    container = os.path.abspath(config["container_name"])
     sim_script = os.path.abspath(config["sim_script"])
     output_dir = os.path.abspath(config["output_dir"])
     input_config = os.path.abspath(config["input_config"])
 
+    print(engine, container, sim_script, output_dir, input_config)
+
     # Execute the shell script using subprocess
     try:
         subprocess.run(
-            ["./run.sh", engine, sim_script, input_config, output_dir],
+            ["./run.sh", engine, container, sim_script, input_config, output_dir],
             check=True,
             cwd=os.path.dirname(os.path.abspath(__file__))
         )

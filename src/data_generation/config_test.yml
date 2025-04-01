@@ -1,6 +1,6 @@
 # Container engine configuration
-engine: "docker"  # or "singularity"
-container_name: "pranavm19/muniverse-test:neuromotion"
+engine: "singularity"  # "docker" or "singularity"
+container_name: "environment/muniverse-test_neuromotion"
 
 # Paths
 sim_script: "src/data_generation/run_neuromotion.py"
@@ -9,7 +9,7 @@ input_config: "src/data_generation/config_test.yml"
 
 # NeuroMotion configuration
 model_pth: "./ckp/model_linear.pth"
-device: "cpu"  # "cuda" or "cpu"
+device: "cuda"  # "cuda" or "cpu"
 morph: false
 muap_file: "./ckp/muap_examples.pkl"
 
