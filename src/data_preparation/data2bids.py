@@ -98,58 +98,51 @@ def openOTB(inputname,ngrid):
 
     return (data, metadata)
 
-def make_channel_tsv(bids_path, name, data_type, units, **kwargs):
+def make_channel_tsv(bids_path, channel_metadata):
     # Make *_channels.tsv file
     # 
-    # Essentials: 
-    #   - name (string) 
-    #   - type (string)
-    #   - units (string) 
+    # channel_metadata (dict) needs to contain the  
+    # followinh essential keys in correct order:
+    #   [0] name (string) 
+    #   [1] type (string)
+    #   [2] units (string) 
 
-    # Set the essential columns of the _channel.tsv file in the correct order
-    essentials = {'name': name, 'type': data_type, 'unit': units}
-    # Add additional metadata columns to the _channels.tsv file
-    other = {k: v for k, v in kwargs.items()}
-        
-    # Save channel metadata as tsv
-    channel_metadata = {**essentials, **other}
-    df_meta = pd.DataFrame(data=channel_metadata)
+    if not isinstance(channel_metadata, dict):
+        raise ValueError('channel_metadata is not class <dict>')
 
+    keys = list(channel_metadata.keys())[0:3]    
+    if not keys == ['name', 'type', 'unit']:
+        raise ValueError('essential keys are missing or incorrectly ordered')
+   
     path = bids_path['root'] + '/' + bids_path['datatype'] + '/' 
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'channels'
 
-    df_meta.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
+    df = pd.DataFrame(data=channel_metadata)
+    df.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
 
     return()
 
-def make_electrode_tsv(bids_path, name, x, y, coordinate_system, **kwargs):
+def make_electrode_tsv(bids_path, el_metadata):
     # Make *_electrodes.tsv file
     # 
-    # Essentials: 
+    # Essentials (must be correctly ordered): 
     #   - name (string) 
     #   - x (number)
     #   - y (number)
+    #   - z (number) -- if exists
     #   - coordinate_system (string) 
 
-    # Set the essential columns of the _electrodes.tsv file in the correct order
-    essentials = {'name': name, 'x': x, 'y': y, 'coordinate_system': coordinate_system}
-    # Add additional metadata columns to the _electrodes.tsv file
-    other = {k: v for k, v in kwargs.items()}
-        
-    # Save channel metadata as tsv
-    el_metadata = {**essentials, **other}
-    df_meta = pd.DataFrame(data=el_metadata)
+    # ToDo: Add check routines
 
     path = bids_path['root'] + '/' + bids_path['datatype'] + '/' 
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'electrodes'
 
-    df_meta.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
+    df = pd.DataFrame(data=el_metadata)
+    df.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
 
     return()
 
-def make_emg_json(bids_path, EMGPlacemnetScheme, EMGReference, 
-                  SamplingFrequency, PowerLineFrequency, SoftwareFilters, 
-                  TaskName, **kwargs):
+def make_emg_json(bids_path, emg_metadata):
     # Make *_emg.json file
     # 
     # Essentials: 
@@ -160,23 +153,14 @@ def make_emg_json(bids_path, EMGPlacemnetScheme, EMGReference,
     #   - SoftwareFilters (object of objects or "n/a")
     #   - TaskName (string)
 
-    essentials = {'EMGPlacemnetScheme': EMGPlacemnetScheme, 
-                  'EMGReference': EMGReference,
-                  'SamplingFrequency': SamplingFrequency,
-                  'PowerLineFrequency': PowerLineFrequency,
-                  'SoftwareFilters': SoftwareFilters,
-                  'TaskName': TaskName
-                  }
-    
-    other = {k: v for k, v in kwargs.items()}
-
-    metadata = {**essentials, **other}
+    # ToDo: Test if essential keys are defined
 
     path = bids_path['root'] + '/' + bids_path['datatype'] + '/' 
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + bids_path['datatype']
 
     with open(path + name + '.json', 'w') as f:
-        json.dump(metadata, f)
+        json.dump(emg_metadata, f)
+
     return()
 
 def make_coordinate_system_json():
@@ -198,6 +182,8 @@ def make_participant_tsv(bids_path, subject_metadata):
     #   - hand (string or "n/a") 
     #   - weight (string or "n/a") 
     #   - height (string or "n/a")
+
+    # ToDo: Check if the essential fields are defined
 
     filename = bids_path['root'] + '/' + 'participants.tsv'
      
