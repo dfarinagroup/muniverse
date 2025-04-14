@@ -46,10 +46,19 @@ def emg_sidecar_template(ID):
 
     return(emg_sidecar)
 
-def dataset_sidecar_template():
+def dataset_sidecar_template(ID):
 
     dataset_sidecar = {}
-    dataset_sidecar['Name'] = 'n/a'
-    dataset_sidecar['BIDSversion'] = 'n/a'
+    if ID == 'Caillet2023':
+        dataset_sidecar['Name'] = 'Caillet_et_al_2023_eNeuro_BIDS_MUniverse' 
+        dataset_sidecar['DatasetType']  = 'raw' 
+        dataset_sidecar['License'] = 'CC0 BY 4.0'
+        dataset_sidecar['Authors'] = {['Arnault H. Caillet', 'Simon Avrillon', 'Aritra Kundu', 
+                                       'Tianyi Yu', 'Andrew T. M. Phillips', 'Luca Modenese',
+                                       'Dario Farina']}
+        dataset_sidecar['EthicsApprovals'] = 'The Ethics Committee at Imperial College London reviewed and approved all procedures and protocols (no. 18IC4685)'
+    else:     
+        dataset_sidecar['Name'] = 'n/a'
+        dataset_sidecar['BIDSversion'] = 'n/a'
 
     return(dataset_sidecar)

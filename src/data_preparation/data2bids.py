@@ -121,7 +121,7 @@ def format_otb_channel_metadata(data,metadata,ngrids):
             low_cutoff.append(int(metadata['adapter_info'][i].attrib['LowPassFilter']))
             high_cutoff.append(int(metadata['adapter_info'][i].attrib['HighPassFilter']))
             sampling_frequency.append(int(metadata['device_info']['SampleFrequency']))
-            signal_electrode.append(str(j+1))
+            signal_electrode.append('E' + str(j+1))
             grid_name.append(channel_metadata[j].attrib['ID'])
             group.append('Grid'+ str(i+1))
             reference.append('R1')
@@ -154,6 +154,8 @@ def format_otb_channel_metadata(data,metadata,ngrids):
     }
 
     return(ch_metadata)    
+
+
 
 def make_channel_tsv(bids_path, channel_metadata):
     # Make *_channels.tsv file
@@ -220,12 +222,18 @@ def make_emg_json(bids_path, emg_metadata):
 
     return()
 
-def make_coordinate_system_json():
+def make_coordinate_system_json(bids_path, coordsystem_metadata):
     # Make *_coordsystem.json file
     # 
     # Essentials: 
     #   - EMGCoordinateSystem (string) 
     #   - EMGCoordinateUnits (string)
+
+    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/' 
+    name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'coordsystem'
+
+    with open(path + name + '.json', 'w') as f:
+        json.dump(coordsystem_metadata, f)
 
     return()
 
@@ -330,6 +338,8 @@ def write_edf(data, fsamp, ch_names, bids_path):
 
 def make_bids_path(subject, task, datatype, root):
     # 
+    # ToDo: Make some form of validation?
+    #
     bids_path_info = {'subject': 'sub' + '-' + str(subject).zfill(2),
                       'task': 'task-' + task,
                       'datatype': datatype,
