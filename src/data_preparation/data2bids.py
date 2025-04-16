@@ -11,7 +11,7 @@ def open_otb(inputname,ngrid):
     Reads otb+ files and outputs stored data and metadata
 
     Args:
-        inputname (str): name and location of the inputfile /path/name.otb+
+        inputname (str): name and path of the inputfile, e.g. '/this/is/mypath/filename.otb+'
         ngrid (int): number of emg arrays used in the measurement
 
     Returns:
@@ -359,6 +359,10 @@ def make_dataset_readme():
     return()
 
 # Todo: Include CITATION.cff?
+
+def raw_to_edf(data, fsamp, ch_names):
+    edf_data = []
+    return(edf_data)
 
 def write_edf(data, fsamp, ch_names, bids_path):
     # basic version, one could add more metadata, e.g., see https://edfio.readthedocs.io/en/stable/examples.html
