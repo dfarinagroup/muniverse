@@ -18,11 +18,11 @@
     "MovementProfileParameters": {
       "EffortLevel": 10,
       "EffortProfile": "Trapezoid",
-      "TargetAngle": 0,
       "AngleProfile": "Constant",
+      "TargetAngle": 0,
       "NRepetitions": 1,
       "RestDuration": 1,
-      "RampDuration": 3,
+      "RampDuration": 4,
       "HoldDuration": 10,
       "SinFrequency": 0,
       "SinAmplitude": 0
