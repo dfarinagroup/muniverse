@@ -15,15 +15,17 @@
     "MovementType": "Isometric",
     "MovementDOF": "Flexion-extension",
     "MovementDuration": 20,
-    "EffortLevel": 10,
-    "MovementProfile": "Trapezoid",
     "MovementProfileParameters": {
-      "InitialAngle": 30,
-      "FinalAngle": 30,
-      "PreparatoryPeriod": 3,
+      "EffortLevel": 10,
+      "EffortProfile": "Trapezoid",
+      "TargetAngle": 0,
+      "AngleProfile": "Constant",
       "NRepetitions": 1,
+      "RestDuration": 1,
       "RampDuration": 3,
-      "HoldDuration": 10
+      "HoldDuration": 10,
+      "SinFrequency": 0,
+      "SinAmplitude": 0
     }
   },
 
@@ -38,12 +40,12 @@
       "NCols": 10
     },
     "FilterProperties": {
-      "_description": "Settings for low-pass filtering the simulated EMG signal.",
+      "_description": "Settings for high-pass filtering the simulated EMG signal.",
       "FilterType": "ButterWorth",
       "CutoffFrequency": 800,
       "FilterOrder": 4
     },
     "NoiseSeed": 1,
-    "NoiseLeveldb": 12
+    "NoiseLeveldb": 10
   }
 }
