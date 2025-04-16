@@ -38,6 +38,9 @@ def emg_sidecar_template(ID):
         at 5 percent per second and aplateau maintained for 20 and 15 s at 30 percent and 50 percent MVC,
         respectively. The order of the contractions was randomized.'''
         emg_sidecar['Instructions'] = 'Follow path provided via visual feedback.'
+        emg_sidecar['SubjectPosition'] = 'seated'
+        emg_sidecar['HipFlexion'] = '30 degree'
+        emg_sidecar['AnkleFlexion'] = '30 degree'
         emg_sidecar['MISCChannelCount'] = 3
         emg_sidecar['MISCChannelDescription'] = {
             '1': 'Voltage output of the dynamometer load cell',

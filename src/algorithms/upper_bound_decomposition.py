@@ -1,5 +1,6 @@
 import numpy as np
 from pre_processing import bandpass_signals, notch_signals, extension, whitening
+from source_evaluation import est_spike_times
 
 def get_upper_bound(SIG, MUAPs, fsamp, R = 12, wmethod = 'ZCA'):
     """
@@ -19,6 +20,8 @@ def get_upper_bound(SIG, MUAPs, fsamp, R = 12, wmethod = 'ZCA'):
 
     n_mu  = MUAPs.shape[0]
     ipts  = np.zeros((n_mu,SIG.shape[1]))
+    predicted_spikes = {i: [] for i in range(n_mu)}
+    sil = np.zeros(n_mu)
 
     # Step 1.1: Filter the data -- Take care if that is done also the MUAPs need to filtered accordingly
     if False:
@@ -38,8 +41,9 @@ def get_upper_bound(SIG, MUAPs, fsamp, R = 12, wmethod = 'ZCA'):
         w = muap_to_filter(MUAPs[i,:,:], Z, R)
         # Estimate source
         ipts[i,:] = w.T @ wSIG
+        predicted_spikes[i], sil[i] = est_spike_times(ipts[i,:], fsamp, cluster='kmeans')
 
-    return(ipts)
+    return(ipts, predicted_spikes)
 
 
 def muap_to_filter(MUAP, Z, R):

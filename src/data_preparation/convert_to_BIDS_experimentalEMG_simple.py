@@ -60,7 +60,7 @@ el_metadata = {'name': name, 'x': x, 'y': y, 'coordinate_system': coordinate_sys
 make_electrode_tsv(bids_path, el_metadata)        
 
 # Make the coordinate system sidecar file (here just a placeholder)
-coordsystem_metadata = {'EMGCoordinateSystem': 'local'}
+coordsystem_metadata = {'EMGCoordinateSystem': 'local', 'EMGCoordinateUnits': 'mm'}
 make_coordinate_system_json(bids_path, coordsystem_metadata)
 
 # Make the emg sidecar file

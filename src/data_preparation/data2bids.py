@@ -189,17 +189,14 @@ def make_channel_tsv(bids_path, channel_metadata):
             - units (string)
 
     """
-    # Check if the datatype is correctly specified
-    if not isinstance(channel_metadata, dict):
-        raise ValueError('channel_metadata is not class <dict>')
 
-    # Check if the essential keywords are present (ordering matters)
+    # Check if the essential keys exist (Note: ordering matters)
     keys = list(channel_metadata.keys())[0:3]    
     if not keys == ['name', 'type', 'unit']:
         raise ValueError('essential keys are missing or incorrectly ordered')
    
-    # Generate path and filename
-    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/' 
+    # Get a BIDS compatible path and filename
+    path = bids_path['datapath'] 
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'channels'
 
     # Convert metadata into a pandas data frame and save tsv-file
@@ -222,11 +219,8 @@ def make_electrode_tsv(bids_path, el_metadata):
             - coordinate_system (string)
 
     """
-    # Check if the datatype is correctly specified
-    if not isinstance(el_metadata, dict):
-        raise ValueError('channel_metadata is not class <dict>')
 
-    # Check if the essential keywords are present (ordering matters)
+    # Check if the essential keys exist (ordering matters)
     if 'z' in el_metadata:
         keys = list(el_metadata.keys())[0:5]    
         if not keys == ['name', 'x', 'y', 'z', 'coordinate_system']:
@@ -236,8 +230,8 @@ def make_electrode_tsv(bids_path, el_metadata):
         if not keys == ['name', 'x', 'y', 'coordinate_system']:
             raise ValueError('essential keys are missing or incorrectly ordered')
 
-    # Generate path and filename
-    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/' 
+    # Get a BIDS compatible path and filename
+    path = bids_path['datapath'] 
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'electrodes'
 
     # Convert metadata into a pandas data frame and save tsv-file
@@ -247,54 +241,91 @@ def make_electrode_tsv(bids_path, el_metadata):
     return()
 
 def make_emg_json(bids_path, emg_metadata):
-    # Make *_emg.json file
-    # 
-    # Essentials: 
-    #   - EMGPlacemnetScheme (string) 
-    #   - EMGReference (string)
-    #   - SamplingFrequency (number) 
-    #   - PowerLineFrequency (number or "n/a"), 
-    #   - SoftwareFilters (object of objects or "n/a")
-    #   - TaskName (string)
+    """
+    Generate a a BIDS compatible *_emg.json file
 
-    # ToDo: Test if essential keys are defined
+    Args:
+        bids_path (dict): filename and filepath information
+        emg_metadata (dict): metadata with essential keys
+            - EMGPlacementScheme (str)
+            - EMGReference (str)
+            - SamplingFrequency (float)
+            - PowerLineFrequency (float or "n/a")
+            - SoftwareFilters (dict or "n/a")
+            - TaskName (str)
 
-    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/' 
+    """
+
+    # Check if the essential keys exist
+    essentials = ['EMGPlacementScheme', 'EMGReference', 'SamplingFrequency',
+                  'PowerLineFrequency', 'SoftwareFilters', 'TaskName']
+    
+    for i in np.arange(len(essentials)):
+        if essentials[i] not in emg_metadata:
+            raise ValueError('essential keys are missing')
+
+    # Get a BIDS compatible path and filename
+    path = bids_path['datapath']
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + bids_path['datatype']
 
+    # Store the metadata in a json file
     with open(path + name + '.json', 'w') as f:
         json.dump(emg_metadata, f)
 
     return()
 
 def make_coordinate_system_json(bids_path, coordsystem_metadata):
-    # Make *_coordsystem.json file
-    # 
-    # Essentials: 
-    #   - EMGCoordinateSystem (string) 
-    #   - EMGCoordinateUnits (string)
+    """
+    Generate a a BIDS compatible *_coordsystem.json file
 
-    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/' 
+    Args:
+        bids_path (dict): filename and filepath information
+        coordsystem_metadata (dict): metadata with essential keys
+            - EMGCoordinateSystem (str)
+            - EMGCoordinateUnits (str)
+
+    """
+
+    # Check if the essential keys exist
+    essentials = ['EMGCoordinateSystem', 'EMGCoordinateUnits']
+    
+    for i in np.arange(len(essentials)):
+        if essentials[i] not in coordsystem_metadata:
+            raise ValueError('essential keys are missing')
+
+    # Get a BIDS compatible path and filename
+    path = bids_path['datapath']
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + 'coordsystem'
 
+    # Store the metadata in a json file
     with open(path + name + '.json', 'w') as f:
         json.dump(coordsystem_metadata, f)
 
     return()
 
 def make_participant_tsv(bids_path, subject_metadata):
-    # Make participants.tsv file
-    # 
-    # subject_metadata is a dictonary containing the essential fields: 
-    #   - name (string) 
-    #   - age (number or "n/a")
-    #   - sex (string or "n/a")
-    #   - hand (string or "n/a") 
-    #   - weight (string or "n/a") 
-    #   - height (string or "n/a")
+    """
+    Generate a a BIDS compatible participants.tsv file
 
-    # ToDo: Check if the essential fields are defined
+    Args:
+        bids_path (dict): filename and filepath information
+        subject_metadata (dict): metadata with essential keys
+            - name (str) 
+            - age (float or "n/a")
+            - sex (str)
+            - hand (str)
+            - weight (float or "n/a")
+            - height (float or "n/a") 
+    """
 
+    # Check if the essential keys exist
+    essentials = ['name', 'age', 'sex', 'hand', 'weight', 'height']
+    
+    for i in np.arange(len(essentials)):
+        if essentials[i] not in subject_metadata:
+            raise ValueError('essential keys are missing')
+
+    # Get a BIDS compatible path and filename
     filename = bids_path['root'] + '/' + 'participants.tsv'
      
     if os.path.isfile(filename):
@@ -311,8 +342,16 @@ def make_participant_tsv(bids_path, subject_metadata):
     return()
 
 def make_participant_json(bids_path,data_type):
-    # Make participants.json file
+    """
+    Generate a a BIDS compatible participants.json file
 
+    Args:
+        bids_path (dict): filename and filepath information
+        data_type (str): 'simulation' or 'experimental'
+
+    """
+
+    # Hardcoded dictonary 
     if data_type == 'simulation':
         metadata = {'name': {'Description': 'Unique subject identifier'},
                     'generated by': {'Description': 'This data set contains simulated data',
@@ -323,7 +362,7 @@ def make_participant_json(bids_path,data_type):
                     'age': {'Description': 'Age of the participant at time of testing', 
                             'Unit': 'years'},
                     'sex': {'Description': 'Biological sex of the participant',
-                            'Levels': {'F': 'female', 'M': 'male'}},
+                            'Levels': {'F': 'female', 'M': 'male', 'O': 'other'}},
                     'handedness': {'Description': 'handedness of the participant as reported by the participant',
                             'Levels': {'L': 'left', 'R': 'right'}},        
                     'weight': {'Description': 'Body weight of the participant', 
@@ -332,22 +371,38 @@ def make_participant_json(bids_path,data_type):
                             'Unit': 'm'}                
                     }
         
+        # Get a BIDS compatible path and filename
         filename = bids_path['root'] + '/' + 'participants.json'
 
+        # Store the metadata in a json file
         with open(filename, 'w') as f:
             json.dump(metadata, f)
     
     return()
 
 def make_dataset_description_json(bids_path, metadata):
-    # Make dataset_description.json 
-    
-    # Essentials:
-    #   - Name (string)
-    #   - BIDS Version (string)
+    """
+    Generate a a BIDS compatible dataset_description.tsv file
 
+    Args:
+        bids_path (dict): filename and filepath information
+        subject_metadata (dict): metadata with essential keys
+            - Name (str) 
+            - BIDSversion (str)
+
+    """
+
+    # Check if the essential keys exist
+    essentials = ['Name', 'BIDSversion']
+    
+    for i in np.arange(len(essentials)):
+        if essentials[i] not in metadata:
+            raise ValueError('essential keys are missing')
+
+    # Get a BIDS compatible path and filename
     filename = bids_path['root'] + '/' + 'dataset_description.json'
 
+    # Store the metadata in a json file
     with open(filename, 'w') as f:
         json.dump(metadata, f)
 
@@ -379,26 +434,59 @@ def write_edf(data, fsamp, ch_names, bids_path):
         new_signal = EdfSignal(signal[:,i], sampling_frequency=fsamp, label=ch_names[i])
         edf.append_signals(new_signal)
 
-    path = bids_path['root'] + '/' +  bids_path['subject'] + '/' + bids_path['datatype'] + '/'  
+    # Get a BIDS compatible path and filename
+    path = bids_path['datapath']  
     name = bids_path['subject'] + '_' + bids_path['task'] + '_' + bids_path['datatype']
 
     edf.write(path + name + '.edf')
     return()
 
-def make_bids_path(subject, task, datatype, root):
-    # 
-    # ToDo: Make some form of validation?
-    #
-    bids_path_info = {'subject': 'sub' + '-' + str(subject).zfill(2),
-                      'task': 'task-' + task,
-                      'datatype': datatype,
-                      'root': root}
-    
-    # make new folder
-    newpath = root + '/' + bids_path_info['subject'] + '/' + datatype
-    if not os.path.exists(newpath):
-        os.makedirs(newpath)  
+def make_bids_path(subject, task, datatype, root, session = -1, id_options=2):
+    """
+    Generate a a BIDS compatible folder structure
 
-    return(bids_path_info)
+    Args:
+            - subject (int): Unique subject ID
+            - session (int): Session ID (otional)
+            - task (str): Task description
+            - datatype (str): Recorded modality (e.g. emg)
+            - root (str): Root directory containing the dataset
+
+    Returns:
+        bids_path (dict): Dictonary containing root (str) and datapath (str)
+    """        
+
+    # Check if the function arguments are valid
+    if type(subject) is not int or subject > 10**id_options-1:
+        raise ValueError('invlaid subject ID')
+    
+    if type(session) is not int or session > 10**id_options-1:
+        raise ValueError('invlaid session ID')
+    
+    if datatype not in ['emg', 'eeg', 'ieeg', 'meg']:
+        raise ValueError('invalid datatype')
+
+    # Process name and session input
+    if session < 0:
+        sub_name = 'sub' + '-' + str(subject).zfill(id_options)
+        datapath = root + '/' + sub_name + '/' + datatype + '/'
+    else:
+        sub_name = 'sub' + '-' + str(subject).zfill(id_options)
+        ses_name = 'ses' + '-' + str(session).zfill(id_options)
+        datapath = root + '/' + sub_name + '/' + ses_name + '/' + datatype + '/'
+    
+    # Store essential information for BIDS compatible folder structure in a dictonary
+    bids_path = {'root': root,
+                 'datapath': datapath, 
+                 'task': 'task-' + task,
+                 'subject': sub_name,
+                 'datatype': datatype
+                 }
+    
+    # Generate an empty set of folders for hosting your BIDS dataset
+    if not os.path.exists(datapath):
+        os.makedirs(datapath)  
+
+    return(bids_path)
 
 
