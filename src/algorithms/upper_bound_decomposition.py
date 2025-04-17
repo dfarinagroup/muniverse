@@ -1,11 +1,11 @@
 import numpy as np
-from pre_processing import bandpass_signals, notch_signals, extension, whitening
+from pre_processing import extension, whitening
 from source_evaluation import est_spike_times
 
 class upper_bound:
 
     def __init__(self):
-        self.R = 12
+        self.ext_fact = 12
         self.whitening_method = 'ZCA'
         self.whitening_reg  = 'auto'
         self.cluster_method  = 'kmeans'
@@ -17,51 +17,47 @@ class upper_bound:
             else:
                 raise AttributeError(f"Invalid parameter: {key}")    
 
-    def decompose(self, SIG, MUAPs, fsamp):
+    def decompose(self, sig, muaps, fsamp):
         """
         Estimate the spike response of motor neurons given the 
-        motor unit responses (MUAPs)
+        motor unit action potentials (MUAPs)
 
         Parameters:
-            SIG (ndarray): Input (EMG) signal (n_channels x n_samples)
-            MUAPs (ndarray): MUAPs (mu_index x n_channels x duration)
+            sig (ndarray): Input (EMG) signal (n_channels x n_samples)
+            muaps (ndarray): MUAPs (mu_index x n_channels x duration)
             fsamp (float): Sampling rate of the data (unit: Hz)
-            R (int): Extension factor
-            wmethod (str): Whitening type 
 
         Returns:
-            ipts (ndarray): Estimated spike responses (n_mu x n_samples)
+            sources (np.ndarray): Estimated sources (n_mu x n_samples)
+            spikes (dict): Spiking instances of the motor neurons
+            sil (np.ndarray): Source quality metric
         """
 
-        n_mu  = MUAPs.shape[0]
-        ipts  = np.zeros((n_mu,SIG.shape[1]))
-        predicted_spikes = {i: [] for i in range(n_mu)}
+        n_mu  = muaps.shape[0]
+        sources  = np.zeros((n_mu, sig.shape[1]))
+        spikes = {i: [] for i in range(n_mu)}
         sil = np.zeros(n_mu)
 
-        # Step 1.1: Filter the data -- Take care if that is done also the MUAPs need to filtered accordingly
-        if False:
-            SIG = bandpass_signals(SIG, fsamp)
-            SIG = notch_signals(SIG, fsamp)
+        # Extend signals and subtract the mean
+        ext_sig = extension(sig, self.ext_fact)
+        ext_mean = np.mean(ext_sig, axis=1, keepdims=True) 
+        ext_sig -= ext_mean
 
-        # Step 1.2: Extend signals and subtract the mean
-        eSIG = extension(SIG,self.R)
-        #eSIG -= np.mean(eSIG, axis=1, keepdims=True)
-
-        # Step 1.3: Whiten the extended signals
-        wSIG, Z = whitening(Y=eSIG, method=self.whitening_method)
+        # Whiten the extended signals
+        white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
 
         # Loop over each MU
         for i in np.arange(n_mu):
             # Get the optimal MU filter
-            w = self.muap_to_filter(MUAPs[i,:,:], Z)
+            w = self.muap_to_filter(muaps[i,:,:], ext_mean, Z)
             # Estimate source
-            ipts[i,:] = w.T @ wSIG
-            predicted_spikes[i], sil[i] = est_spike_times(ipts[i,:], fsamp, cluster=self.cluster_method)
+            sources[i,:] = w.T @ white_sig
+            spikes[i], sil[i] = est_spike_times(sources[i,:], fsamp, cluster=self.cluster_method)
 
-        return(ipts, predicted_spikes)
+        return sources, spikes, sil
 
 
-    def muap_to_filter(self, MUAP, Z):
+    def muap_to_filter(self, muap, ext_mean, Z):
         """
         Get the optimal motor unit filter from the ground truth MUAP.
         Therefore, the MUAP is extended and whitened. The optimal motor unit
@@ -71,22 +67,21 @@ class upper_bound:
         Parameters:
             MUAP (ndarray): Multichannel MUAP (n_channels x duration)
             Z (ndarray): Whitening matrix
-            R (int): Extension factor
 
         Returns:
             w (ndarray): Normalized motor unit filter
         """
 
         # Extend the MUAP
-        eMUAP = extension(MUAP,self.R) 
-        # ToDo: Ideally one needs also to take care what was subtracted from the extended signal ...
+        ext_muap = extension(muap,self.ext_fact) 
+        ext_muap -= ext_mean
 
         # Whiten the MUAP
-        wMUAP = Z @ eMUAP
+        white_muap = Z @ ext_muap
 
         # Find the column with the largest L2 norm and return it as MUAP filter
-        col_norms = np.linalg.norm(wMUAP, axis=0)
-        w = wMUAP[:, np.argmax(col_norms)]
+        col_norms = np.linalg.norm(white_muap, axis=0)
+        w = white_muap[:, np.argmax(col_norms)]
 
         # Normalize w
         w = w/np.linalg.norm(w)
