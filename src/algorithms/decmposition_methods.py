@@ -1,5 +1,5 @@
 import numpy as np
-from pre_processing import extension, whitening
+from decomposition_routines import *
 from source_evaluation import est_spike_times
 
 class upper_bound:
@@ -87,3 +87,5 @@ class upper_bound:
         w = w/np.linalg.norm(w)
 
         return(w)
+    
+
