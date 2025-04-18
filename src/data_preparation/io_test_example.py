@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from edfio import *
-from data2bids import emg_bids_io
+from data2bids import emg_bids_io, decomp_derivatives_bids_io
 from otb_io import open_otb, format_otb_channel_metadata, format_subject_metadata
 from sidecar_templates import emg_sidecar_template, dataset_sidecar_template
 
@@ -33,7 +33,24 @@ print(another_bids_dataset.channels)
 print(another_bids_dataset.dataset_sidecar)
 print(another_bids_dataset.subject)
 
-print('Finished')
+print('Finished playing with emg_bids_io class')
+
+# Now let's have a look at the derivative I/O handling
+derivative_dataset = decomp_derivatives_bids_io()
+
+# Make data of two pseudo sources
+two_sources = np.random.randn(10,2)
+spikes = {'1': [3, 6], '2': [2, 8]}
+derivative_dataset.set_source_data(mysources=two_sources, fsamp=1)
+derivative_dataset.add_spikes(spikes=spikes)
+
+# And also add some metadata to your pipeline
+pipeline_info = {'PipelineParameters': {'ext_factor': 12, 'whitening_method': 'ZCA'}}
+derivative_dataset.add_dataset_sidecar_metadata(pipeline_info)
+derivative_dataset.write()
+
+
+
 
 
 

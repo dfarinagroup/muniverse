@@ -10,9 +10,10 @@ class emg_bids_io:
                  subject=1, 
                  task = 'isometric', 
                  datatype = 'emg', 
-                 root = './my_bids_project', 
+                 datasetname = 'dataset-name',
+                 root = './', 
                  session = -1, 
-                 n_digits=2):
+                 n_digits = 2):
       
         # Check if the function arguments are valid
         if type(subject) is not int or subject > 10**n_digits-1:
@@ -27,13 +28,13 @@ class emg_bids_io:
         # Process name and session input
         sub_name = 'sub' + '-' + str(subject).zfill(n_digits)
         if session < 0:
-            datapath = root + '/' + sub_name + '/' + datatype + '/'
+            datapath = root + datasetname + '/' + sub_name + '/' + datatype + '/'
         else:
             ses_name = 'ses' + '-' + str(session).zfill(n_digits)
-            datapath = root + '/' + sub_name + '/' + ses_name + '/' + datatype + '/'
+            datapath = root + datasetname + '/' + sub_name + '/' + ses_name + '/' + datatype + '/'
         
         # Store essential information for BIDS compatible folder structure in a dictonary
-        self.root = root
+        self.root = root + datasetname
         self.datapath = datapath
         self.task = 'task-' + task
         self.subject_id = sub_name
@@ -45,8 +46,9 @@ class emg_bids_io:
         self.emg_sidecar = {'EMGPlacementScheme': [], 'EMGReference': [], 'SamplingFrequency': [],
                     'PowerLineFrequency': [], 'SoftwareFilters': [], 'TaskName': []}
         self.coord_sidecar = {'EMGCoordinateSystem': [], 'EMGCoordinateUnits': []}
-        self.dataset_sidecar = {'Name': [], 'BIDSversion': 'unpublished'}
+        self.dataset_sidecar = {'Name': datasetname, 'BIDSversion': 'unpublished'}
         self.subject_sidecar = {'name': []} 
+
   
 
     def write(self):
@@ -127,7 +129,8 @@ class emg_bids_io:
                 self.dataset_sidecar = json.load(f) 
         # read edf file
         name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype + '.edf'
-        self.data = read_edf(name)      
+        if os.path.isfile(name):
+            self.data = read_edf(name)      
               
         return()  
                       
@@ -370,7 +373,201 @@ class emg_bids_io:
         for i in np.arange(len(idx)):
             data_out[:,i] = self.data.signals[idx[i]].data
 
-        return(data_out)    
+        return(data_out)  
+
+
+class decomp_derivatives_bids_io:
+
+    def __init__(self, 
+                 subject=1, 
+                 task = 'isometric', 
+                 datatype = 'emg', 
+                 datasetname = 'dataset-name',
+                 pipelinename = 'pipeline-name',
+                 root = './', 
+                 session = -1, 
+                 n_digits = 2):
+      
+        # Check if the function arguments are valid
+        if type(subject) is not int or subject > 10**n_digits-1:
+            raise ValueError('invlaid subject ID')
+        
+        if type(session) is not int or session > 10**n_digits-1:
+            raise ValueError('invlaid session ID')
+        
+        if datatype not in ['emg']:
+            raise ValueError('datatype must be emg')
+
+        # Process name and session input
+        sub_name = 'sub' + '-' + str(subject).zfill(n_digits)
+        if session < 0:
+            datapath = sub_name + '/' + datatype + '/'
+        else:
+            ses_name = 'ses' + '-' + str(session).zfill(n_digits)
+            datapath = sub_name + '/' + ses_name + '/' + datatype + '/'
+        
+        # Store essential information for BIDS compatible folder structure in a dictonary
+        self.pipelinename = pipelinename
+        self.root = root + datasetname + '_' + pipelinename
+        self.datapath = self.root + '/' + datapath
+        self.task = 'task-' + task
+        self.subject_id = sub_name
+        self.datatype = datatype
+        self.source = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
+        self.spikes = pd.DataFrame(columns=['source_id', 'spike_time'])
+        self.pipeline_sidecar = {'PipelineName': pipelinename, 
+                                 'PipelineParameters': [],
+                                 'PipelineDescription': [], 
+                                 'SamplingFrequency': []}
+        self.dataset_sidecar = {'Name': datasetname + '_' + pipelinename, 
+                                'BIDSversion': 'unpublished', 
+                                'GeneratedBy': pipelinename}
+        
+
+    def write(self):
+        """
+        Save dataset in BIDS format
+
+        """
+        # Generate an empty set of folders for your BIDS dataset
+        if not os.path.exists(self.datapath):
+            os.makedirs(self.datapath)
+        # write *predictedspikes.tsv
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedspikes' 
+        self.spikes.to_csv(name + '.tsv', sep='\t', index=False, header=True)
+        # write *_pipeline.json  
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'pipeline'
+        with open(name + '.json', 'w') as f:
+            json.dump(self.pipeline_sidecar, f)
+        # write dataset.json
+        name = self.root + '/' + 'dataset.json'
+        with open(name, 'w') as f:
+            json.dump(self.dataset_sidecar, f) 
+        # write edf file 
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedsources'
+        self.source.write(name + '.edf') 
+
+        return()
+    
+    def read(self):
+        """
+        Import data from BIDS dataset
+
+        """
+        # read *_predictedspikes.tsv
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedspikes.tsv' 
+        if os.path.isfile(name):
+            self.spikes = pd.read_table(name)
+        # read *_pipeline.json  
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'pipeline.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.pipeline_sidecar = json.load(f)
+        # read dataset.json
+        name = self.root + '/' + 'dataset.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.dataset_sidecar = json.load(f) 
+        # read edf file
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedsources.edf'
+        if os.path.isfile(name):
+            self.source = read_edf(name)    
+              
+        return()
+    
+    def add_spikes(self,spikes):
+        """
+        Convert a dictionary of spike times to long-format TSV-style DataFrame.
+
+        Parameters:
+            spike_dict (dict): {source_id: list of spike times}
+
+        """
+        rows = []
+        for unit_id, spike_times in spikes.items():
+            for t in spike_times:
+                rows.append({'source_id': unit_id, 'spike_time': t})
+
+        frames = [self.spikes, pd.DataFrame(rows)]
+        self.spikes = pd.concat(frames, ignore_index=True)
+        self.spikes = self.spikes.drop_duplicates(subset=['source_id', 'spike_time'])
+
+        return()
+    
+    def add_dataset_sidecar_metadata(self, new_metadata):
+        """
+        Add metadata to dataset_sidecar 
+
+        Args:
+            new_metadata (dict or path): metadata
+
+            List of essential keys
+                - Name (str) 
+                - BIDSversion (str)
+                - GeneratedBy (str)
+
+        """
+
+        if type(new_metadata) == dict:
+            self.dataset_sidecar.update(new_metadata)
+        elif type(new_metadata) == str and os.path.isfile(new_metadata):
+            with open(new_metadata, 'r') as f:
+                tmp = json.load(f)
+            self.dataset_sidecar.update(tmp)
+        else:
+            raise ValueError('input has incorrect datatype')
+
+        return()
+    
+    def add_dataset_sidecar_metadata(self, new_metadata):
+        """
+        Add metadata to pipeline_sidecar 
+
+        Args:
+            new_metadata (dict or path): metadata
+
+            List of essential keys
+                - ...
+                - ...
+
+        """
+
+        if type(new_metadata) == dict:
+            self.pipeline_sidecar.update(new_metadata)
+        elif type(new_metadata) == str and os.path.isfile(new_metadata):
+            with open(new_metadata, 'r') as f:
+                tmp = json.load(f)
+            self.pipeline_sidecar.update(tmp)
+        else:
+            raise ValueError('input has incorrect datatype')
+
+        return()
+    
+    def set_source_data(self, mysources, fsamp):
+        """
+        Add raw data and convert it into edf format
+
+        Args:
+            data (np.ndarry): emg_data (n_samples x n_channels)
+            fsamp (float): Sampling frequency in Hz
+
+        """
+
+        # Add zeros to the signal such that the total length is in full seconds 
+        seconds = np.ceil(mysources.shape[0]/fsamp)
+        signal = np.zeros([int(seconds*fsamp), mysources.shape[1]])
+        signal[0:mysources.shape[0],:] = mysources
+
+        # Initalize
+        edf = Edf([EdfSignal(signal[:,0], sampling_frequency=fsamp)])
+
+        for i in np.arange(1,signal.shape[1]):
+            new_signal = EdfSignal(signal[:,i], sampling_frequency=fsamp)
+            edf.append_signals(new_signal)
+
+        self.source = edf
+
+        return()
 
 
 
