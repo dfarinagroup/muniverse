@@ -1,20 +1,21 @@
-from data2bids import emg_bids_generator
-from otb_io import open_otb, format_otb_channel_metadata
-from sidecar_templates import emg_sidecar_template, dataset_sidecar_template
-from edfio import *
 import numpy as np
+import pandas as pd
+from edfio import *
+from data2bids import emg_bids_generator
+from otb_io import open_otb, format_otb_channel_metadata, format_subject_metadata
+from sidecar_templates import emg_sidecar_template, dataset_sidecar_template
+
 
 # Define path and name of the BIDS structure
 #bids_path = make_bids_path(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
 bids_gen = emg_bids_generator(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
-
 # Import daata from otb+ file
 ngrids = 4
 (data, metadata) = open_otb('./../utils/MVC_30MVC.otb+',ngrids)
 
 # Get and write channel metadata
 ch_metadata = format_otb_channel_metadata(data,metadata,ngrids)
-bids_gen.make_channel_tsv(ch_metadata)
+bids_gen.add_channel_metadata(ch_metadata)
 
 # Helper function for getting electrode coordinates
 def get_grid_coordinates(grid_name):
@@ -67,19 +68,16 @@ bids_gen.make_coordinate_system_json(coordsystem_metadata)
 
 # Make the emg sidecar file
 emg_sidecar = emg_sidecar_template('Caillet2023')
+emg_sidecar['SamplingFrequency'] =  int(metadata['device_info']['SampleFrequency'])
+emg_sidecar['SoftwareVersions'] = metadata['subject_info']['software_version']
+emg_sidecar['ManufacturerModelName'] = metadata['device_info']['Name']
 bids_gen.make_emg_json(emg_sidecar)
 
 # Make subject sidecar file 
 bids_gen.make_participant_json('exp')
 
 # Save individual subject file
-subject = {}
-subject['name'] = bids_path['subject']
-subject['age']  = 'n/a'
-subject['sex'] = 'M'
-subject['hand'] = 'n/a'
-subject['weight'] = 'n/a'
-subject['height'] = 'n/a'
+subject = format_subject_metadata(bids_gen.subject, metadata)
 bids_gen.make_participant_tsv(subject)
 
 # Make dataset sidecar file
@@ -87,7 +85,56 @@ dataset_metadata = dataset_sidecar_template('n/a')
 bids_gen.make_dataset_description_json(dataset_metadata)
 
 # Convert the raw data to an .edf file
-write_edf(data = data, fsamp = 2048, ch_names = ch_metadata['name'], bids_path = bids_path)
+bids_gen.emg_to_edf(data = data[:,:ngrids*64], 
+                    fsamp = int(metadata['device_info']['SampleFrequency']), 
+                    ch_names = ch_metadata['name'], 
+                    units=ch_metadata['unit'])
+
+# Make metadata for the aux channels
+name = []
+type = []
+unit = []
+description = []
+
+for i in np.arange(len(metadata['aux_info'])):
+    name.append('AUX' + str(i+1))
+    type.append('Torque')
+    unit.append(metadata['aux_info'][i]['unity_of_measurement'])
+    description.append(metadata['aux_info'][i]['description'])
+
+aux_ch_metadata = {'name': name, 'type': type, 'unit': unit, 'description': description}     
+
+# Get a BIDS compatible path and filename
+path = bids_gen.datapath
+name = bids_gen.subject + '_' + bids_gen.task + '_' + 'torque'
+
+# Convert metadata into a pandas data frame and save tsv-file
+df = pd.DataFrame(data=aux_ch_metadata)
+df.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
+
+
+# fsamp = 2048
+# # Get duration of the signal in seconds
+# seconds = np.ceil(data.shape[0]/fsamp)
+# # Add zeros to the signal such that the total length is in full seconds
+# signal = np.zeros([int(seconds*fsamp), data.shape[1]])
+# signal[0:data.shape[0],:] = data
+
+# edf = Edf([EdfSignal(signal[:,0], sampling_frequency=fsamp, label=ch_names[0])])
+
+# for i in np.arange(1,signal.shape[1]):
+#     new_signal = EdfSignal(signal[:,i], 
+#                             sampling_frequency=fsamp, 
+#                             label=ch_names[i],
+#                             physical_dimension=units[i])
+# edf.append_signals(new_signal)
+
+# Get a BIDS compatible path and filename
+#path = self.datapath  
+#name = self.subject + '_' + self.task + '_' + self.datatype
+
+#edf.write(path + name + '.edf')
+
 
 
 

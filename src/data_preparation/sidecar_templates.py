@@ -41,12 +41,12 @@ def emg_sidecar_template(ID):
         emg_sidecar['SubjectPosition'] = 'seated'
         emg_sidecar['HipFlexion'] = '30 degree'
         emg_sidecar['AnkleFlexion'] = '30 degree'
-        emg_sidecar['MISCChannelCount'] = 3
-        emg_sidecar['MISCChannelDescription'] = {
-            '1': 'Voltage output of the dynamometer load cell',
-            '2': 'Requested ankle torque trajectory',
-            '3': 'Performed ankle torque trajectory'
-        }
+        #emg_sidecar['MISCChannelCount'] = 3
+        #emg_sidecar['MISCChannelDescription'] = {
+        #    '1': 'Voltage output of the dynamometer load cell',
+        #    '2': 'Requested ankle torque trajectory',
+        #    '3': 'Performed ankle torque trajectory'
+        #}
         emg_sidecar['InstitutionName'] = 'Imperial Collage London'
         emg_sidecar['InstitutionAddress'] = 'London SW7 2AZ, United Kingdom'
         emg_sidecar['InstitutionalDepartmentName'] = 'Department of Bioengineering'

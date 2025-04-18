@@ -2,6 +2,7 @@ import numpy as np
 import os
 import tarfile as tf
 import xml.etree.ElementTree as ET
+from dateutil import parser
 
 def open_otb(inputname,ngrid):
     """
@@ -173,3 +174,37 @@ def format_otb_channel_metadata(data,metadata,ngrids):
     }
 
     return(ch_metadata) 
+
+def format_subject_metadata(sub_id, metadata):
+
+    """
+    Extract subject metadata given the output of the open_otb function
+
+    Args:
+        sub_id (str): array of recorded data (samples x channels)
+        metadata (dict): metadata of the recording
+
+    Returns:
+        subject (dict): subject metadata
+    """
+
+    # Calculate the subject age
+    start = parser.parse(metadata['subject_info']['birth_date'])
+    end = parser.parse(metadata['subject_info']['time'])
+
+    age = end.year - start.year
+
+    if (end.month, end.day) < (start.month, start.day):
+        age -= 1
+
+    # Create dictonary with subject metadata
+    subject = {}
+    subject['name'] = sub_id
+    subject['age']  = age
+    subject['sex'] = metadata['subject_info']['sex']
+    subject['hand'] = 'n/a'
+    subject['weight'] = metadata['subject_info']['weight']
+    subject['height'] = metadata['subject_info']['height']
+
+
+    return(subject)

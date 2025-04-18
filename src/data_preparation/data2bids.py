@@ -31,47 +31,100 @@ class emg_bids_generator:
         self.root = root
         self.datapath = datapath
         self.task = 'task-' + task
-        self.subject = sub_name
+        self.subject_id = sub_name
         self.datatype = datatype
+        self.data = np.empty
+        self.fsamp = float()
+        self.channels = pd.DataFrame(columns=['name', 'type', 'unit'])
+        self.electrodes = pd.DataFrame(columns=['name','x','y','z', 'coordinate_system'])
+        self.subject = pd.DataFrame(columns=['name', 'age', 'sex', 'hand', 'weight', 'height'])
+        self.emg_sidecar = {'EMGPlacementScheme': [], 'EMGReference': [], 'SamplingFrequency': [],
+                    'PowerLineFrequency': [], 'SoftwareFilters': [], 'TaskName': []}
+        self.coord_sidecar = {'EMGCoordinateSystem': [], 'EMGCoordinateUnits': []}
+        self.dataset_sidecar = {'Name': [], 'BIDSversion': []}
+        self.subject_sidecar = {} 
 
         # Generate an empty set of folders for hosting your BIDS dataset
         if not os.path.exists(datapath):
             os.makedirs(datapath)  
 
-    def make_channel_tsv(self, channel_metadata):
+    def write(self):
+
+        # write *_channels.tsv
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'channels' 
+        self.channels.to_csv(name + '.tsv', sep='\t', index=False, header=True)
+        # write *_electrode.tsv
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'electrodes' 
+        self.electrodes.to_csv(name + '.tsv', sep='\t', index=False, header=True)
+        # write *_emg.json  
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype
+        with open(name + '.json', 'w') as f:
+            json.dump(self.emg_sidecar, f)
+        # write *_coordsystem.json     
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'coordsystem'
+        with open(name + '.json', 'w') as f:
+            json.dump(self.coord_sidecar, f)
+        # write participant.tsv
+        name = self.root + '/' + 'participants.tsv'
+        self.subject.to_csv(name + '.tsv', sep='\t', index=False, header=True)
+        # write participant.json
+        name = self.root + '/' + 'participants.json'
+        with open(name, 'w') as f:
+            json.dump(self.subject_sidecar, f)  
+        # write dataset.json
+        name = self.root + '/' + 'dataset.json'
+        with open(name, 'w') as f:
+            json.dump(self.dataset_sidecar, f) 
+
+        # Convert data into edf format 
+        seconds = np.ceil(self.data.shape[0]/self.fsamp)
+        # Add zeros to the signal such that the total length is in full seconds
+        signal = np.zeros([int(seconds*self.fsamp), self.data.shape[1]])
+        signal[0:self.data.shape[0],:] = self.data
+
+        edf = Edf([EdfSignal(signal[:,0], sampling_frequency=self.fsamp, 
+                             label=self.channels.loc[0, 'name'],
+                             physical_dimension=self.channels.loc[0, 'unit'])])
+
+        for i in np.arange(1,signal.shape[1]):
+            new_signal = EdfSignal(signal[:,i], 
+                                   sampling_frequency=self.fsamp, 
+                                   label=self.channels.loc[i, 'name'],
+                                   physical_dimension=self.channels.loc[i, 'unit'])
+            edf.append_signals(new_signal)
+
+        # Get a BIDS compatible path and filename 
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype
+        edf.write(name + '.edf')  
+
+        return()  
+                      
+
+    def add_channel_metadata(self, channel_metadata):
         """
-        Generate a BIDS compatible *_channels.tsv file
+        Add channel metadata
 
         Args:
-            bids_path (dict): filename and filepath information
             channel_metadata (dict): Channel metadata with essential keys
                 - name (string)
                 - type (string)
                 - units (string)
 
         """
-
-        # Check if the essential keys exist (Note: ordering matters)
-        keys = list(channel_metadata.keys())[0:3]    
-        if not keys == ['name', 'type', 'unit']:
-            raise ValueError('essential keys are missing or incorrectly ordered')
     
-        # Get a BIDS compatible path and filename
-        path = self.datapath
-        name = self.subject + '_' + self.task + '_' + 'channels'
-
-        # Convert metadata into a pandas data frame and save tsv-file
-        df = pd.DataFrame(data=channel_metadata)
-        df.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
+        # If an electrode already exists overwrite existing metadata
+        df_new = pd.DataFrame(data=channel_metadata)
+        frames = [self.channels, df_new]
+        self.channels = pd.concat(frames)
+        self.channels = self.channels.drop_duplicates(subset='name', keep='last')
 
         return()
 
-    def make_electrode_tsv(self, el_metadata):
+    def add_electrode_metadata(self, el_metadata):
         """
-        Generate a a BIDS compatible *_electrodes.tsv file
+        Add electrode metadata
 
         Args:
-            bids_path (dict): filename and filepath information
             el_metadata (dict): electrode metadata with essential keys
                 - name (string)
                 - x (float)
@@ -81,32 +134,24 @@ class emg_bids_generator:
 
         """
 
-        # Check if the essential keys exist (ordering matters)
-        if 'z' in el_metadata:
-            keys = list(el_metadata.keys())[0:5]    
-            if not keys == ['name', 'x', 'y', 'z', 'coordinate_system']:
-                raise ValueError('essential keys are missing or incorrectly ordered')
-        else:    
-            keys = list(el_metadata.keys())[0:4]    
-            if not keys == ['name', 'x', 'y', 'coordinate_system']:
-                raise ValueError('essential keys are missing or incorrectly ordered')
+        # If an electrode already exists overwrite existing metadata
+        df_new = pd.DataFrame(data=el_metadata)
+        frames = [self.electrodes, df_new]
+        self.electrodes = pd.concat(frames)
+        self.electrodes = self.subject.drop_duplicates(subset=['name', 'coordinate_system'], keep='last')
 
-        # Get a BIDS compatible path and filename
-        path = self.datapath 
-        name = self.subject + '_' + self.task + '_' + 'electrodes'
-
-        # Convert metadata into a pandas data frame and save tsv-file
-        df = pd.DataFrame(data=el_metadata)
-        df.to_csv(path + name + '.tsv', sep='\t', index=False, header=True)
+        # If the z coordinate exist set it at the right position
+        if 'z' in self.electrodes.columns:
+            col = self.electrodes.pop('z')
+            self.electrodes.insert(3, 'z', col)    
 
         return()
 
-    def make_emg_json(self, emg_metadata):
+    def set_emg_sidecar(self, emg_metadata):
         """
-        Generate a a BIDS compatible *_emg.json file
+        Update metadata of the emg sidecar file 
 
         Args:
-            bids_path (dict): filename and filepath information
             emg_metadata (dict): metadata with essential keys
                 - EMGPlacementScheme (str)
                 - EMGReference (str)
@@ -117,27 +162,13 @@ class emg_bids_generator:
 
         """
 
-        # Check if the essential keys exist
-        essentials = ['EMGPlacementScheme', 'EMGReference', 'SamplingFrequency',
-                    'PowerLineFrequency', 'SoftwareFilters', 'TaskName']
-        
-        for i in np.arange(len(essentials)):
-            if essentials[i] not in emg_metadata:
-                raise ValueError('essential keys are missing')
-
-        # Get a BIDS compatible path and filename
-        path = self.datapath
-        name = self.subject + '_' + self.task + '_' + self.datatype
-
-        # Store the metadata in a json file
-        with open(path + name + '.json', 'w') as f:
-            json.dump(emg_metadata, f)
+        self.emg_sidecar.update(emg_metadata)
 
         return()
 
-    def make_coordinate_system_json(self, coordsystem_metadata):
+    def set_coordsystem_sidecar(self, coordsystem_metadata):
         """
-        Generate a a BIDS compatible *_coordsystem.json file
+        Add metadata that should be stored in coordsystem.json 
 
         Args:
             bids_path (dict): filename and filepath information
@@ -147,29 +178,15 @@ class emg_bids_generator:
 
         """
 
-        # Check if the essential keys exist
-        essentials = ['EMGCoordinateSystem', 'EMGCoordinateUnits']
-        
-        for i in np.arange(len(essentials)):
-            if essentials[i] not in coordsystem_metadata:
-                raise ValueError('essential keys are missing')
-
-        # Get a BIDS compatible path and filename
-        path = self.datapath
-        name = self.subject + '_' + self.task + '_' + 'coordsystem'
-
-        # Store the metadata in a json file
-        with open(path + name + '.json', 'w') as f:
-            json.dump(coordsystem_metadata, f)
+        self.coord_sidecar.update(coordsystem_metadata)
 
         return()
 
-    def make_participant_tsv(self, subject_metadata):
+    def add_subject(self, subject_metadata):
         """
-        Generate a a BIDS compatible participants.tsv file
+        Add new subject 
 
         Args:
-            bids_path (dict): filename and filepath information
             subject_metadata (dict): metadata with essential keys
                 - name (str) 
                 - age (float or "n/a")
@@ -179,36 +196,20 @@ class emg_bids_generator:
                 - height (float or "n/a") 
         """
 
-        # Check if the essential keys exist
-        essentials = ['name', 'age', 'sex', 'hand', 'weight', 'height']
-        
-        for i in np.arange(len(essentials)):
-            if essentials[i] not in subject_metadata:
-                raise ValueError('essential keys are missing')
-
-        # Get a BIDS compatible path and filename
-        filename = self.root + '/' + 'participants.tsv'
-     
-        if os.path.isfile(filename):
-            df1 = pd.read_table(filename)
-            df2 = pd.DataFrame(data=subject_metadata, index=[0])
-            frames = [df1, df2]
-            df = pd.concat(frames)
-            df = df.drop_duplicates(subset='name', keep='first')
-            df.to_csv(filename, sep='\t', index=False, header=True)
-        else:
-            df = pd.DataFrame(data=subject_metadata, index=[0])
-            df.to_csv(filename, sep='\t', index=False, header=True)
+        # If a subject already exist only overwrite existing metadata
+        df_new = pd.DataFrame(data=subject_metadata, index=[0])
+        frames = [self.subject, df_new]
+        self.subject = pd.concat(frames)
+        self.subject = self.subject.drop_duplicates(subset='name', keep='last')
 
         return()
 
-    def make_participant_json(self,data_type):
+    def set_participant_sidecar_temp(self,data_type):
         """
-        Generate a a BIDS compatible participants.json file
+        Add metadata for a a BIDS compatible participants.json file from a predined template
 
         Args:
-            bids_path (dict): filename and filepath information
-            data_type (str): 'simulation' or 'experimental'
+            data_type (str): select from predefined template 'simulation' or 'experimental'
 
         """
 
@@ -232,40 +233,22 @@ class emg_bids_generator:
                                 'Unit': 'm'}                
                         }
             
-            # Get a BIDS compatible path and filename
-            filename = self.root + '/' + 'participants.json'
-
-            # Store the metadata in a json file
-            with open(filename, 'w') as f:
-                json.dump(metadata, f)
+            self.subject_sidecar.update(metadata)
         
         return()
 
-    def make_dataset_description_json(self, metadata):
+    def set_dataset_sidecar(self, metadata):
         """
-        Generate a a BIDS compatible dataset_description.tsv file
+        Add metadata to dataset_sidecar 
 
         Args:
-            bids_path (dict): filename and filepath information
-            subject_metadata (dict): metadata with essential keys
+            metadata (dict): metadata with essential keys
                 - Name (str) 
                 - BIDSversion (str)
 
         """
 
-        # Check if the essential keys exist
-        essentials = ['Name', 'BIDSversion']
-        
-        for i in np.arange(len(essentials)):
-            if essentials[i] not in metadata:
-                raise ValueError('essential keys are missing')
-
-        # Get a BIDS compatible path and filename
-        filename = self.root + '/' + 'dataset_description.json'
-
-        # Store the metadata in a json file
-        with open(filename, 'w') as f:
-            json.dump(metadata, f)
+        self.dataset_sidecar.update(metadata)
 
         return()
 
@@ -274,26 +257,19 @@ class emg_bids_generator:
 
         return()
     
-    def emg_to_edf(self, data, fsamp, ch_names):
-        # basic version, one could add more metadata, e.g., see https://edfio.readthedocs.io/en/stable/examples.html
+    def set_raw_data(self, data, fsamp):
+        """
+        Add raw data
 
-        # Get duration of the signal in seconds
-        seconds = np.ceil(data.shape[0]/fsamp)
-        # Add zeros to the signal such that the total length is in full seconds
-        signal = np.zeros([int(seconds*fsamp), data.shape[1]])
-        signal[0:data.shape[0],:] = data
+        Args:
+            data (np.ndarry): emg_data (n_samples x n_channels)
+            fsamp (float): Sampling frequency in Hz
 
-        edf = Edf([EdfSignal(signal[:,0], sampling_frequency=fsamp, label=ch_names[0])])
+        """
 
-        for i in np.arange(1,signal.shape[1]):
-            new_signal = EdfSignal(signal[:,i], sampling_frequency=fsamp, label=ch_names[i])
-            edf.append_signals(new_signal)
+        self.data = data
+        self.fsamp = fsamp
 
-        # Get a BIDS compatible path and filename
-        path = self.datapath  
-        name = self.subject + '_' + self.task + '_' + self.datatype
-
-        edf.write(path + name + '.edf')
         return()
 
 
