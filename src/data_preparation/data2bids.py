@@ -41,14 +41,18 @@ class emg_bids_generator:
         self.emg_sidecar = {'EMGPlacementScheme': [], 'EMGReference': [], 'SamplingFrequency': [],
                     'PowerLineFrequency': [], 'SoftwareFilters': [], 'TaskName': []}
         self.coord_sidecar = {'EMGCoordinateSystem': [], 'EMGCoordinateUnits': []}
-        self.dataset_sidecar = {'Name': [], 'BIDSversion': []}
-        self.subject_sidecar = {} 
+        self.dataset_sidecar = {'Name': [], 'BIDSversion': 'unpublished'}
+        self.subject_sidecar = {'name': []} 
 
         # Generate an empty set of folders for hosting your BIDS dataset
         if not os.path.exists(datapath):
             os.makedirs(datapath)  
 
     def write(self):
+        """
+        Save dataset in BIDS format
+
+        """
 
         # write *_channels.tsv
         name = self.datapath + self.subject_id + '_' + self.task + '_' + 'channels' 
@@ -66,7 +70,7 @@ class emg_bids_generator:
             json.dump(self.coord_sidecar, f)
         # write participant.tsv
         name = self.root + '/' + 'participants.tsv'
-        self.subject.to_csv(name + '.tsv', sep='\t', index=False, header=True)
+        self.subject.to_csv(name, sep='\t', index=False, header=True)
         # write participant.json
         name = self.root + '/' + 'participants.json'
         with open(name, 'w') as f:
@@ -97,6 +101,54 @@ class emg_bids_generator:
         name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype
         edf.write(name + '.edf')  
 
+        return()
+
+    def read(self):
+        """
+        Import data from BIDS dataset
+
+        """
+        # read *_channels.tsv
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'channels.tsv' 
+        if os.path.isfile(name):
+            self.channels = pd.read_table(name)
+        # read *_electrodes.tsv    
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'electrodes.tsv'
+        if os.path.isfile(name):
+            self.electrodes = pd.read_table(name)  
+        # read *_emg.json  
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype + '.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.emg_sidecar = json.load(f)
+        # read *_coordsystem.json     
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'coordsystem.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.coord_sidecar = json.load(f)
+        # read participant.tsv
+        name = self.root + '/' + 'participants.tsv'
+        if os.path.isfile(name):
+            self.subject = pd.read_table(name)
+        # read participant.json
+        name = self.root + '/' + 'participants.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.subject_sidecar = json.load(f) 
+        # read dataset.json
+        name = self.root + '/' + 'dataset.json'
+        if os.path.isfile(name):
+            with open(name, 'r') as f:
+                self.dataset_sidecar = json.load(f) 
+        # read edf file
+        name = self.datapath + self.subject_id + '_' + self.task + '_' + self.datatype + '.edf'        
+        if os.path.isfile(name):
+            edf = read_edf(name)
+            self.fsamp = edf.signals[0].sampling_frequency
+            self.data = np.zeros((edf.signals[0].data.shape[0], edf.num_signals))
+            for i in np.arange(edf.num_signals):
+                self.data[:,i] = edf.signals[i].data
+  
         return()  
                       
 
