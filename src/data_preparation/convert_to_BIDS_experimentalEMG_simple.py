@@ -1,14 +1,15 @@
 import numpy as np
 import pandas as pd
 from edfio import *
-from data2bids import emg_bids_generator
+from data2bids import emg_bids_io
 from otb_io import open_otb, format_otb_channel_metadata, format_subject_metadata
 from sidecar_templates import emg_sidecar_template, dataset_sidecar_template
 
 
 # Define path and name of the BIDS structure
 #bids_path = make_bids_path(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
-bids_gen = emg_bids_generator(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
+bids_gen = emg_bids_io(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
+bids_gen.read()
 # Import daata from otb+ file
 ngrids = 4
 (data, metadata) = open_otb('./../utils/MVC_30MVC.otb+',ngrids)
@@ -16,6 +17,8 @@ ngrids = 4
 # Get and write channel metadata
 ch_metadata = format_otb_channel_metadata(data,metadata,ngrids)
 bids_gen.add_channel_metadata(ch_metadata)
+bids_gen.set_raw_data(data,2048)
+bids_gen.write()
 
 # Helper function for getting electrode coordinates
 def get_grid_coordinates(grid_name):
