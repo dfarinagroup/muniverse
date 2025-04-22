@@ -150,7 +150,7 @@ class bids_dataset:
 
         '''
 
-        bids_version = 'unpublished proposal'
+        bids_version = 'extension proposal for electromyography (EMG) - BEP042'
 
         return bids_version         
 
@@ -164,7 +164,7 @@ class bids_emg_recording(bids_dataset):
                 datatype = 'emg', 
                 session = -1, 
                 run = 1,
-                dataset = None,
+                data_obj = None,
                 root = './',
                 datasetname = 'my-data',
                 overwrite = False,
@@ -176,9 +176,9 @@ class bids_emg_recording(bids_dataset):
             overwrite = overwrite,
             )
         
-        if isinstance(dataset, bids_dataset):
-            self.root = dataset.root
-            self.datasetname = dataset.datasetname
+        if isinstance(data_obj, bids_dataset):
+            self.root = data_obj.root
+            self.datasetname = data_obj.datasetname
             
         # Check if the function arguments are valid
         if type(subject) is not int or subject > 10**n_digits-1:
@@ -321,7 +321,7 @@ class bids_emg_recording(bids_dataset):
 
 
 
-class simulated_emg_bids_io(emg_bids_io):
+class simulated_emg_bids_io(bids_emg_recording):
     def __init__(self, config_path, hdf5_path, root='./data', datasetname='simulated-dataset'):
         # Parse config file first
         self.config = self._parse_config(config_path)
@@ -519,43 +519,66 @@ class simulated_emg_bids_io(emg_bids_io):
                 self.internals_sidecar = json.load(f)
 
 
-class decomp_derivatives_bids_io:
+class bids_decomp_derivatives(bids_emg_recording):
 
     def __init__(self, 
+                 pipelinename = 'pipeline-name',
+                 format = 'standalone',
+                 data_obj = None, 
+                 datasetname = 'dataset-name',
+                 datatype = 'emg',
                  subject=1, 
                  task = 'isometric', 
-                 datatype = 'emg', 
-                 datasetname = 'dataset-name',
-                 pipelinename = 'pipeline-name',
-                 root = './', 
+                 run = 1,
                  session = -1, 
+                 root = './',
+                 overwrite = False,              
                  n_digits = 2):
       
-        # Check if the function arguments are valid
-        if type(subject) is not int or subject > 10**n_digits-1:
-            raise ValueError('invlaid subject ID')
-        
-        if type(session) is not int or session > 10**n_digits-1:
-            raise ValueError('invlaid session ID')
-        
-        if datatype not in ['emg']:
-            raise ValueError('datatype must be emg')
+        super().__init__(
+            subject=subject, 
+            task = task, 
+            datatype = datatype, 
+            session = session, 
+            run = run,
+            data_obj = None,
+            root = root,
+            datasetname = datasetname,
+            overwrite = overwrite,
+            n_digits = n_digits
+        )
 
-        # Process name and session input
-        sub_name = 'sub' + '-' + str(subject).zfill(n_digits)
-        if session < 0:
-            datapath = sub_name + '/' + datatype + '/'
-        else:
-            ses_name = 'ses' + '-' + str(session).zfill(n_digits)
-            datapath = sub_name + '/' + ses_name + '/' + datatype + '/'
-        
+        if isinstance(data_obj, bids_emg_recording):
+            self.root = data_obj.root
+            self.datasetname = data_obj.datasetname
+            self.datapath = data_obj.datapath
+            self.n_digits = data_obj.n_digits
+            self.subject_id = data_obj.subject_id
+            self.subject_name = data_obj.subject_name
+            self.task = data_obj.task
+            self.run = data_obj.task
+            self.datatype = data_obj.datatype
+            self.emg_data = data_obj.emg_data
+            self.channels = data_obj.channels
+            self.electrodes = data_obj.electrodes
+            self.emg_sidecar = data_obj.emg_sidecar
+            self.coord_sidecar = data_obj.coord_sidecar
+            self.dataset_sidecar = data_obj.dataset_sidecar
+            self.subjects_data = data_obj.subjects_data
+            self.subjects_sidecar = data_obj.subjects_sidecar
+
+
         # Store essential information for BIDS compatible folder structure in a dictonary
+        if format == 'standalone':
+            self.datasetname = self.datasetname + '-' + pipelinename
+            self.derivative_root = root + self.datasetname + '/'
+            self.derivative_datapath = self.derivative_root + self.subject_name + '/' + self.datatype + '/' 
+        else:
+            self.derivative_root = self.root + + 'derivatives/' + pipelinename + '/'
+            self.derivative_datapath = self.derivative_root + self.subject_name + './' + self.datatype + '/' 
+
         self.pipelinename = pipelinename
-        self.root = root + datasetname + '_' + pipelinename
-        self.datapath = self.root + '/' + datapath
-        self.task = 'task-' + task
-        self.subject_id = sub_name
-        self.datatype = datatype
+
         self.source = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
         self.spikes = pd.DataFrame(columns=['source_id', 'spike_time'])
         self.pipeline_sidecar = {'PipelineName': pipelinename, 
@@ -563,7 +586,7 @@ class decomp_derivatives_bids_io:
                                  'PipelineDescription': [], 
                                  'SamplingFrequency': []}
         self.dataset_sidecar = {'Name': datasetname + '_' + pipelinename, 
-                                'BIDSversion': 'unpublished', 
+                                'BIDSversion': self._get_bids_version(), 
                                 'GeneratedBy': pipelinename}
         
 
@@ -573,24 +596,28 @@ class decomp_derivatives_bids_io:
 
         """
         # Generate an empty set of folders for your BIDS dataset
-        if not os.path.exists(self.datapath):
-            os.makedirs(self.datapath)
-        # write *predictedspikes.tsv
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedspikes' 
-        self.spikes.to_csv(name + '.tsv', sep='\t', index=False, header=True)
-        # write *_pipeline.json  
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'pipeline'
-        with open(name + '.json', 'w') as f:
-            json.dump(self.pipeline_sidecar, f)
-        # write dataset.json
-        name = self.root + '/' + 'dataset.json'
-        with open(name, 'w') as f:
-            json.dump(self.dataset_sidecar, f) 
-        # write edf file 
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedsources'
-        self.source.write(name + '.edf') 
+        if not os.path.exists(self.derivative_datapath):
+            os.makedirs(self.derivative_datapath)
 
-        return()
+        name = self.derivative_datapath + self.subject_name + '_' + self.task + '_'
+        if self.run > 0:
+            name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
+
+        # write *_predictedspikes.tsv
+        self.spikes.to_csv(name + 'predictedspikes.tsv', sep='\t', index=False, header=True)
+        # write *_pipeline.json 
+        fname = name + 'pipeline.json' 
+        with open(fname, 'w') as f:
+            json.dump(self.pipeline_sidecar, f)
+        # write *_predictedsources.edf file 
+        self.source.write(name + 'predictedsources.edf')     
+        # write dataset.json
+        fname = self.derivative_root + '/' + 'dataset.json'
+        if self.overwrite or not os.path.isfile(fname):
+            with open(fname, 'w') as f:
+                json.dump(self.dataset_sidecar, f) 
+
+        
     
     def read(self):
         """
@@ -598,25 +625,30 @@ class decomp_derivatives_bids_io:
 
         """
         # read *_predictedspikes.tsv
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedspikes.tsv' 
-        if os.path.isfile(name):
-            self.spikes = pd.read_table(name)
+        name = self.derivative_datapath + self.subject_name + '_' + self.task + '_'
+        if self.run > 0:
+            name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
+
+        # read *_predictedspikes.tsv
+        fname = name + 'predictedspikes.tsv' 
+        if os.path.isfile(fname):
+            self.spikes = pd.read_table(fname)
         # read *_pipeline.json  
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'pipeline.json'
-        if os.path.isfile(name):
-            with open(name, 'r') as f:
+        fname = name + 'pipeline.json'
+        if os.path.isfile(fname):
+            with open(fname, 'r') as f:
                 self.pipeline_sidecar = json.load(f)
+        # read *.edf file
+        fname = name + 'predictedsources.edf'
+        if os.path.isfile(fname):
+            self.source = read_edf(fname)         
         # read dataset.json
-        name = self.root + '/' + 'dataset.json'
-        if os.path.isfile(name):
-            with open(name, 'r') as f:
+        fname = self.derivative_root + '/' + 'dataset.json'
+        if os.path.isfile(fname):
+            with open(fname, 'r') as f:
                 self.dataset_sidecar = json.load(f) 
-        # read edf file
-        name = self.datapath + self.subject_id + '_' + self.task + '_' + 'predictedsources.edf'
-        if os.path.isfile(name):
-            self.source = read_edf(name)    
-              
-        return()
+
+           
     
     def add_spikes(self,spikes):
         """
@@ -635,83 +667,8 @@ class decomp_derivatives_bids_io:
         self.spikes = pd.concat(frames, ignore_index=True)
         self.spikes = self.spikes.drop_duplicates(subset=['source_id', 'spike_time'])
 
-        return()
     
-    def add_dataset_sidecar_metadata(self, new_metadata):
-        """
-        Add metadata to dataset_sidecar 
-
-        Args:
-            new_metadata (dict or path): metadata
-
-            List of essential keys
-                - Name (str) 
-                - BIDSversion (str)
-                - GeneratedBy (str)
-
-        """
-
-        if type(new_metadata) == dict:
-            self.dataset_sidecar.update(new_metadata)
-        elif type(new_metadata) == str and os.path.isfile(new_metadata):
-            with open(new_metadata, 'r') as f:
-                tmp = json.load(f)
-            self.dataset_sidecar.update(tmp)
-        else:
-            raise ValueError('input has incorrect datatype')
-
-        return()
     
-    def add_dataset_sidecar_metadata(self, new_metadata):
-        """
-        Add metadata to pipeline_sidecar 
-
-        Args:
-            new_metadata (dict or path): metadata
-
-            List of essential keys
-                - ...
-                - ...
-
-        """
-
-        if type(new_metadata) == dict:
-            self.pipeline_sidecar.update(new_metadata)
-        elif type(new_metadata) == str and os.path.isfile(new_metadata):
-            with open(new_metadata, 'r') as f:
-                tmp = json.load(f)
-            self.pipeline_sidecar.update(tmp)
-        else:
-            raise ValueError('input has incorrect datatype')
-
-        return()
-    
-    def set_source_data(self, mysources, fsamp):
-        """
-        Add raw data and convert it into edf format
-
-        Args:
-            data (np.ndarry): emg_data (n_samples x n_channels)
-            fsamp (float): Sampling frequency in Hz
-
-        """
-
-        # Add zeros to the signal such that the total length is in full seconds 
-        seconds = np.ceil(mysources.shape[0]/fsamp)
-        signal = np.zeros([int(seconds*fsamp), mysources.shape[1]])
-        signal[0:mysources.shape[0],:] = mysources
-
-        # Initalize
-        edf = Edf([EdfSignal(signal[:,0], sampling_frequency=fsamp)])
-
-        for i in np.arange(1,signal.shape[1]):
-            new_signal = EdfSignal(signal[:,i], sampling_frequency=fsamp)
-            edf.append_signals(new_signal)
-
-        self.source = edf
-
-        return()
-
 def edf_to_numpy(edf_data, idx):
     """
     Output data of selcetd channels as numpy array

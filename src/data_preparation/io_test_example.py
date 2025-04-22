@@ -11,7 +11,7 @@ my_dataset.set_metadata(field_name='dataset_sidecar', source={'Description': 'So
 my_dataset.write()
 
 # Make a recording that belongs to my_dataset
-my_recording = bids_emg_recording(subject=1, dataset=my_dataset)
+my_recording = bids_emg_recording(subject=1, data_obj=my_dataset)
 
 # Add some non-sense data to it
 some_data = np.random.randn(10,3)
@@ -39,18 +39,18 @@ print(another_bids_dataset.subjects_data)
 print('Finished playing with emg_bids_io class')
 
 # Now let's have a look at the derivative I/O handling
-derivative_dataset = decomp_derivatives_bids_io()
+bids_derivative_data = bids_decomp_derivatives()
 
 # Make data of two pseudo sources
-two_sources = np.random.randn(10,2)
-spikes = {'1': [3, 6], '2': [2, 8]}
-derivative_dataset.set_source_data(mysources=two_sources, fsamp=1)
-derivative_dataset.add_spikes(spikes=spikes)
+my_sources = np.random.randn(10,2)
+my_spikes = {'1': [3, 6], '2': [2, 8]}
+bids_derivative_data.set_data(field_name='source', mydata=my_sources, fsamp=1)
+bids_derivative_data.add_spikes(spikes=my_spikes)
 
 # And also add some metadata to your pipeline
 pipeline_info = {'PipelineParameters': {'ext_factor': 12, 'whitening_method': 'ZCA'}}
-derivative_dataset.add_dataset_sidecar_metadata(pipeline_info)
-derivative_dataset.write()
+bids_derivative_data.set_metadata(field_name='pipeline_sidecar', source=pipeline_info)
+bids_derivative_data.write()
 
 
 
