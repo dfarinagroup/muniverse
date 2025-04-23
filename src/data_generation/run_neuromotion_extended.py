@@ -55,7 +55,7 @@ def build_movement_profile(movement_config):
     # For MUAP generation, we always use the full range of motion
     fs_mov = 50  # temporal frequency in Hz (sampling rate for movement)
     
-    if movement_dof == "Flexion-extension":
+    if movement_dof == "Flexion-Extension":
         # For flexion-extension, we go from max extension to max flexion
         # Default range is -65 (extension) to 65 (flexion) degrees
         r_ext = -65
@@ -65,7 +65,7 @@ def build_movement_profile(movement_config):
         poses = ['ext', 'default', 'flex']
         durations = np.abs([r_ext, r_flex]) / fs_mov
         
-    elif movement_dof == "Radial-ulnar":
+    elif movement_dof == "Radial-Ulnar-deviation":
         # For radial-ulnar deviation, default values
         r_rad = -10
         r_uln = 25
@@ -352,7 +352,7 @@ def create_effort_profile(fs, movement_duration, profile_params):
                 profile_params.HoldDuration, 
                 profile_params.NRepetitions
             )
-        elif profile_params.EffortProfile == "Sinusoidal":
+        elif profile_params.EffortProfile == "Sinusoid":
             # Convert sinusoidal parameters from percentages to decimal
             sin_amplitude = getattr(profile_params, 'SinAmplitude', None)
             rest_duration = getattr(profile_params, 'RestDuration', 0)
@@ -433,7 +433,7 @@ def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, 
             target_angle = np.clip(target_angle, min_angle, max_angle)
             angle_profile = np.ones(round(fs * movement_duration)) * target_angle
         
-        elif profile_params.AngleProfile == "Sinusoidal":
+        elif profile_params.AngleProfile == "Sinusoid":
             # Sinusoidal angle variation
             target_angle_percentage = getattr(profile_params, 'TargetAnglePercentage', 0.75)
             target_angle_direction = getattr(profile_params, 'TargetAngleDirection', 1)
@@ -697,7 +697,9 @@ def generate_muaps(
         num_mus = len(db['iz'])
     else:
         num_mus = NUM_MUS[ms_label]
+    # TODO REMOVE THAT this is only for debugging purposes
 
+    num_mus = 100
     mn_pool = MotoneuronPool(num_mus, ms_label, **mn_default_settings)
     
     # Assign physiological properties
@@ -763,7 +765,6 @@ def generate_muaps(
             cv[:, sp] * ch_cv.iloc[sp, :].values,
             length[:, sp] * ch_len.iloc[sp, :].values,
         )).transpose(1, 0)
-
         if not morph:
             zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
             if device == 'cuda':
@@ -784,7 +785,6 @@ def generate_muaps(
             sim = sim.permute(0, 2, 3, 1).cpu().detach().numpy()
         else:
             sim = sim.permute(0, 2, 3, 1).detach().numpy()
-
         num_mu_dim, n_row_dim, n_col_dim, n_time_dim = sim.shape
         sim = filtfilt(b, a, sim.reshape(-1, n_time_dim))
         muaps.append(sim.reshape(num_mu_dim, n_row_dim, n_col_dim, n_time_dim).astype(np.float32))
@@ -949,7 +949,7 @@ if __name__ == '__main__':
     # Movement configuration
     movement_cfg = cfg.MovementConfiguration
     ms_label = movement_cfg.TargetMuscle
-    movement_duration = movement_cfg.MovementDuration
+    movement_duration = movement_cfg.MovementProfileParameters.MovementDuration
     
     # Recording configuration
     recording_cfg = cfg.RecordingConfiguration
