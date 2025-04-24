@@ -53,3 +53,8 @@ data/
 *.edf
 *.npy
 *.pkl
+
+
+# Results and configs folder
+**/res/
+**/configs

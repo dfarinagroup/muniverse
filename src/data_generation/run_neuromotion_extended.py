@@ -74,11 +74,10 @@ def build_movement_profile(movement_config):
         poses = ['rdev', 'default', 'udev']
         durations = np.abs([r_rad, r_uln]) / fs_mov
         
+
     else:
-        # Default movement profile for other types
-        poses = ['default', 'default+flex', 'default', 'default+ext', 'default']
-        durations = [duration/5] * 4 + [duration/5]
-    
+        raise ValueError(f"Unsupported MovementDOF: '{movement_dof}'. Only 'Flexion-Extension' and 'Radial-Ulnar-deviation' are supported.")
+
     # Calculate the total duration and number of steps
     total_duration = np.sum(durations)
     steps = int(np.round(total_duration * fs_mov))
