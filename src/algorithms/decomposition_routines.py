@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.linalg import toeplitz
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, convolve
 from sklearn.cluster import KMeans
 import sys
 sys.path.append('../evaluation/')
@@ -175,7 +175,7 @@ def gram_schmidt(w, B):
 
     return u
 
-def remove_dublicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, threshold=0.3, min_num_spikes = 10):
+def remove_duplicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, threshold=0.3, min_num_spikes = 10):
 
 
     n_source = sources.shape[0]
@@ -222,6 +222,65 @@ def remove_dublicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, thr
         new_sil[i] = sil[best_idx]
 
     return new_sources, new_spikes, new_sil
+
+def spike_triggered_average(sig, spikes, win=0.02, fsamp = 2048):
+    '''
+    Calculate the spike triggered average given the spike times of a source
+
+    Parameters:
+        sig (2D np.array): signal [channels x time]
+        spikes (1D array): Spike indices
+        fsamp (float): Sampling frequency in Hz
+        win (float): Window size in seconds for MUAP template (in seconds)
+
+    Returns:
+        waveform (2D np.array): Estimated impulse response of a given source
+    
+    '''
+
+    width = int(win*fsamp)
+    waveform = np.zeros((sig.shape[0], 2*width+1))
+
+    spikes = spikes[(spikes >= width + 1) & (spikes < sig.shape[1] - width - 1)]
+
+    for i in np.arange(len(spikes)):
+        waveform = waveform + sig[:,(spikes[i]-width):(spikes[i]+width+1)]
+
+    waveform = waveform / len(spikes)    
+
+    return waveform
+
+def peel_off(sig, spikes, win=0.02, fsamp=2048):
+    """
+    Peel off signal component based on spike triggered average.
+
+    Parameters:
+        sig (2D np.array): signal [channels x time]
+        spikes (1D array): Spike indices
+        fsamp (float): Sampling frequency in Hz
+        win (float): Window size in seconds for MUAP template (in seconds)
+
+    Returns:
+        residual_sig (2D np.array): Residual signal after removing component
+        comp_sig (2D np.array): Estimated contribution of the given source
+    """
+
+    waveform = spike_triggered_average(sig,spikes,win,fsamp)
+
+    width = int(win*fsamp)
+    spikes = spikes[(spikes >= width + 1) & (spikes < sig.shape[1] - width - 1)]
+    firings = np.zeros(sig.shape[1])
+    firings[spikes] = 1
+
+    comp_sig = np.zeros_like(sig)
+
+    for i in np.arange(sig.shape[0]):
+        comp_sig[i,:] = convolve(firings, waveform[i,:], 'same') 
+
+    residual_sig = sig - comp_sig
+
+    return residual_sig, comp_sig
+
 
 def spike_dict_to_long_df(spike_dict, sort=True, fsamp = 2048):
     """

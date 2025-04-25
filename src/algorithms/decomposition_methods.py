@@ -182,11 +182,20 @@ class basic_cBSS:
         sil = np.zeros(self.n_iter)
         B = np.zeros((white_sig.shape[0], self.n_iter))
 
+        if self.opt_initalization == 'activity_idx':
+            act_idx_histoty = np.zeros(self.n_iter).astype(bool)
+
         # Loop over each MU
         for i in np.arange(self.n_iter):
             # Initalize 
             if self.opt_initalization == 'random':
                 w = np.random.randn(white_sig.shape[0])
+            elif self.opt_initalization == 'activity_idx':
+                col_norms = np.linalg.norm(white_sig, axis=0)
+                col_norms[act_idx_histoty] = 0
+                best_idx = np.argmax(col_norms)
+                w = white_sig[:, best_idx]
+                act_idx_histoty[i] = best_idx
             else:
                 ValueError('The specified initalization method is not implemented')
             # fastICA fixedpoint optimization
@@ -205,11 +214,10 @@ class basic_cBSS:
             B[:,i] = w
 
             if self.peel_off and sil[i] > self.sil_th and cov < self.cov_th:
-                # ToDo: Not implemented yet
-                pass 
+                white_sig, _ = peel_off(white_sig, spikes[i], win=0.025, fsamp=fsamp) 
 
         # Remove dublicates        
-        sources, spikes, sil = remove_dublicates(sources, spikes, sil, fsamp)
+        sources, spikes, sil = remove_duplicates(sources, spikes, sil, fsamp)
        
         return sources, spikes, sil
 
