@@ -326,6 +326,20 @@ def create_default_effort(fs, movement_duration, effort_level):
     
     return ext
 
+def create_constant_effort(fs, movement_duration, effort_level):
+    """
+    Create an effort profile that stays at one level for the entire duration.
+
+    Args:
+        fs (float): Sampling frequency in Hz.
+        movement_duration (float): Total duration in seconds.
+        effort_level (float): Target effort level (0–1).
+
+    Returns:
+        numpy.ndarray: 1-D array of length fs*movement_duration, filled with effort_level.
+    """
+    return np.full(round(fs * movement_duration), effort_level, dtype=float)
+
 
 def create_effort_profile(fs, movement_duration, profile_params):
     """Create an effort profile based on the movement parameters.
@@ -384,6 +398,13 @@ def create_effort_profile(fs, movement_duration, profile_params):
                 n_reps,
                 ramp_duration
             )
+        elif profile_params.EffortProfile == "Constant":
+            return create_constant_effort(
+                fs,
+                movement_duration,
+                effort_level
+            )
+
     
     # Default case
     return create_default_effort(fs, movement_duration, effort_level)
