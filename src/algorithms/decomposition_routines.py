@@ -5,7 +5,7 @@ from scipy.signal import find_peaks, convolve
 from sklearn.cluster import KMeans
 import sys
 sys.path.append('../evaluation/')
-from evaluate import *
+from evaluation.evaluate import *
 
 def extension(Y, R):
     """
