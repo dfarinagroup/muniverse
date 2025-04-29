@@ -2,7 +2,7 @@
 Data generation utilities for neuromotion.
 """ 
 
-from .generate_data import generate_dataset
+from .generate_data import generate_neuromotion_recording
 from src.utils.containers import pull_container, verify_container_engine
 
 def init():
@@ -35,9 +35,9 @@ def init():
     
     return engine
 
-def generate_data(config):
+def generate_recording(config):
     """
-    Generate a dataset using the provided configuration.
+    Generate a neuromotion recording using the provided configuration.
 
     Args:
         config (dict): Configuration dictionary that should include:
@@ -69,4 +69,4 @@ def generate_data(config):
         container_name = config.get("container_name", "pranavm19/muniverse-test:neuromotion")
     
     # Generate the dataset
-    return generate_dataset(input_config, output_dir, engine, container_name)
+    return generate_neuromotion_recording(input_config, output_dir, engine, container_name)

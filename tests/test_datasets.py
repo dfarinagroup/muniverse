@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 import json
 from pathlib import Path
-from src.data_generation import init, generate_data
+from src.data_generation import init, generate_recording
 from src.utils.containers import verify_container_engine
 import subprocess
 
@@ -31,7 +31,7 @@ def test_generate_dataset():
     # Create a temporary directory to simulate the output
     with tempfile.TemporaryDirectory() as tmpdir:
         config = {"input_config": config_path, "output_dir": tmpdir}
-        generate_data(config)
+        generate_recording(config)
         # Check that the output path is within our temporary directory.
         assert os.path.abspath(tmpdir) in os.path.abspath(tmpdir)
 
@@ -46,8 +46,8 @@ def test_subject_seed_effects():
         # Run with same seed twice  
         config1 = {"input_config": config_path, "output_dir": tmpdir1}
         config2 = {"input_config": config_path, "output_dir": tmpdir2}
-        generate_data(config1)
-        generate_data(config2)
+        generate_recording(config1)
+        generate_recording(config2)
 
         # Load the generated MUAPs
         muaps1 = np.load(os.path.join(tmpdir1, "muaps.npy"))

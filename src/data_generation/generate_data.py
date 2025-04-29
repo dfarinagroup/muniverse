@@ -5,9 +5,9 @@ from easydict import EasyDict as edict
 from src.utils.logging import RunLogger
 
 
-def generate_dataset(input_config, output_dir, engine="singularity", container_name="environment/muniverse-test_neuromotion.sif"):
+def generate_neuromotion_recording(input_config, output_dir, engine="singularity", container_name="environment/muniverse-test_neuromotion.sif"):
     """
-    Generate a dataset using the specified configuration file.
+    Generate a neuromotion recording using the specified configuration file.
 
     Args:
         input_config (str): Path to the JSON configuration file containing movement and recording parameters.
