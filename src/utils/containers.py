@@ -127,7 +127,12 @@ def verify_container_engine(engine):
         elif engine == "singularity":
             subprocess.run(['singularity', '--version'], capture_output=True, check=True)
         else:
+            print(f"[WARNING] Unsupported container engine: {engine}")
             return False
         return True
-    except subprocess.CalledProcessError:
+    except FileNotFoundError:
+        print(f"[WARNING] Container engine '{engine}' is not installed")
+        return False
+    except subprocess.CalledProcessError as e:
+        print(f"[WARNING] Container engine '{engine}' is installed but failed to run: {e}")
         return False

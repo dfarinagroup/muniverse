@@ -1,45 +1,44 @@
 import subprocess
 import os
-import yaml
 from easydict import EasyDict as edict
 
-def load_config(config_path):
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return edict(config)
 
-def generate_dataset(config_path):
+def generate_dataset(input_config, output_dir, engine="singularity", container_name="environment/muniverse-test_neuromotion.sif"):
     """
     Generate a dataset using the specified configuration file.
 
     Args:
-        config_path (str): Path to the YAML configuration file containing:
-            - engine: "docker" or "singularity"
-            - container_name: name (docker) or path (singularity) to the container image
-            - sim_script: Path to the data generation script
-            - output_dir: Output directory for the generated data
-            - input_config: Path to the input configuration for run_neuromotion.py
+        input_config (str): Path to the JSON configuration file containing movement and recording parameters.
+        output_dir (str): Path to the output directory where the generated data will be saved.
+        engine (str, optional): Container engine to use ("docker" or "singularity"). Defaults to "singularity".
+        container_name (str, optional): 
+            For Docker: Name of the container image (e.g., "muniverse-test:neuromotion")
+            For Singularity: Path to the container file (e.g., "environment/muniverse-test_neuromotion.sif")
+            Defaults to "environment/muniverse-test_neuromotion.sif".
 
     Returns:
         str: Absolute path to the output directory containing the generated dataset.
     """
-    # Load configuration
-    config = load_config(config_path)
+    # Convert paths to absolute paths
+    input_config = os.path.abspath(input_config)
+    output_dir = os.path.abspath(output_dir)
+    script_path = os.path.abspath("src/data_generation/run_neuromotion_extended.py")
     
-    # Get required parameters with defaults
-    engine = config.get("engine", "docker")
-    container = os.path.abspath(config["container_name"])
-    sim_script = os.path.abspath(config["sim_script"])
-    output_dir = os.path.abspath(config["output_dir"])
-    input_config = os.path.abspath(config["input_config"])
-
-    print(engine, container, sim_script, output_dir, input_config)
+    # Get the correct path to run.sh
+    run_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.sh")
+    
+    # Handle container name based on engine type
+    if engine.lower() == "singularity":
+        container_name = os.path.abspath(container_name)
+    # For Docker, we keep the container name as is
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
 
     # Execute the shell script using subprocess
     try:
         subprocess.run(
-            ["./run.sh", engine, container, sim_script, input_config, output_dir],
+            [run_script_path, engine, container_name, script_path, input_config, output_dir],
             check=True,
             cwd=os.path.dirname(os.path.abspath(__file__))
         )

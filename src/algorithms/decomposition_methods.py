@@ -1,5 +1,5 @@
 import numpy as np
-from decomposition_routines import *
+from .decomposition_routines import *
 import sys
 
 class upper_bound:

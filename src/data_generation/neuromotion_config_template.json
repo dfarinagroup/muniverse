@@ -13,7 +13,7 @@
     "_description": "Describes the prescribed movement scenario and force profile for the synthetic trial.",
     "TargetMuscle": "FDSI",
     "MovementType": "Isometric",
-    "MovementDOF": "Flexion-extension",
+    "MovementDOF": "Flexion-Extension",
     "MovementDuration": 20,
     "MovementProfileParameters": {
       "EffortLevel": 10,
@@ -25,7 +25,8 @@
       "RampDuration": 4,
       "HoldDuration": 10,
       "SinFrequency": 0,
-      "SinAmplitude": 0
+      "SinAmplitude": 0,
+      "MovementDuration": 20
     }
   },
 

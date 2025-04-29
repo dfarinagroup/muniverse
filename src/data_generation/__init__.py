@@ -2,60 +2,71 @@
 Data generation utilities for neuromotion.
 """ 
 
-import yaml
 from .generate_data import generate_dataset
 from src.utils.containers import pull_container, verify_container_engine
 
-from easydict import EasyDict as edict
-
-def load_config(config_path):
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return edict(config)
-
-def init(config=None):
+def init():
     """
     Initialize the datasets module.
     This includes verifying container engines and pulling container images if needed.
+    If both Docker and Singularity are available, Singularity will be used by default.
 
-    Args:
-        config (dict, optional): Configuration dictionary that includes:
-            - engine: "docker" or "singularity" (default: "docker")
-            - container_name: Name of the container to pull (default: "pranavm19/muniverse-test:neuromotion")
+    Returns:
+        str: The selected container engine ("docker" or "singularity")
     """
-    if config is None:
-        config = {}
+    # Check availability of both engines
+    docker_available = verify_container_engine("docker")
+    singularity_available = verify_container_engine("singularity")
     
-    # Get engine from config or default to docker
-    engine = config.get("engine", "docker")
+    # Select engine based on availability
+    if singularity_available:
+        engine = "singularity"
+    elif docker_available:
+        engine = "docker"
+    else:
+        raise RuntimeError("No container engine (Docker or Singularity) is available. Please install one first.")
     
-    # Verify container engine is available
-    if not verify_container_engine(engine):
-        raise RuntimeError(f"Container engine '{engine}' is not available. Please install it first.")
-    
-    # Get container name from config or use default
-    container_name = config.get("container_name", "pranavm19/muniverse-test:neuromotion")
+    # Get container name (using default)
+    container_name = "pranavm19/muniverse-test:neuromotion"
     
     # Pull container if needed
     pull_container(container_name, engine)
-    print("[INFO] Datasets module initialized.")
+    print(f"[INFO] Datasets module initialized using {engine}.")
+    
+    return engine
 
-def generate(config):
+def generate_data(config):
     """
     Generate a dataset using the provided configuration.
 
     Args:
         config (dict): Configuration dictionary that should include:
-            - engine: "docker" or "singularity"
-            - sim_script: Path to the simulation script
-            - output_dir: Where the generated data should be stored
-            - container_name: Name of the container to use (optional)
-            - (other parameters as needed)
+            - input_config: Path to the JSON configuration file containing movement and recording parameters
+            - output_dir: Path to the output directory where the generated data will be saved
+            - engine (optional): Container engine to use ("docker" or "singularity"). Defaults to "singularity"
+            - container_name (optional): 
+                For Docker: Name of the container image (e.g., "muniverse-test:neuromotion")
+                For Singularity: Path to the container file (e.g., "environment/muniverse-test_neuromotion.sif")
+                Defaults to "environment/muniverse-test_neuromotion.sif"
 
     Returns:
         str: The path to the generated dataset.
-    """
-    # Initialize containers before generating data
-    init(load_config(config))
-    return generate_dataset(config)
+    """   
+    # Extract required parameters
+    input_config = config.get("input_config")
+    output_dir = config.get("output_dir")
+    
+    if not input_config or not output_dir:
+        raise ValueError("Both 'input_config' and 'output_dir' are required parameters")
+    
+    # Initialize containers first
+    engine = config.get("engine", init())
+
+    # Extract optional parameters with defaults
+    if engine == "singularity":
+        container_name = config.get("container_name", "environment/muniverse-test_neuromotion.sif")
+    else:
+        container_name = config.get("container_name", "pranavm19/muniverse-test:neuromotion")
+    
+    # Generate the dataset
+    return generate_dataset(input_config, output_dir, engine, container_name)
