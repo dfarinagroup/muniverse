@@ -14,7 +14,6 @@
     "TargetMuscle": "FDSI",
     "MovementType": "Isometric",
     "MovementDOF": "Flexion-Extension",
-    "MovementDuration": 20,
     "MovementProfileParameters": {
       "EffortLevel": 10,
       "EffortProfile": "Trapezoid",
