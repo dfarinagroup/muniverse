@@ -29,12 +29,28 @@ def generate_dataset(input_config, output_dir, engine="singularity", container_n
         config_content = json.load(f)
     logger.set_config(config_content)
     
-    # Set container information
+    # Get container info
+    if engine == "docker":
+        try:
+            inspect_output = subprocess.check_output([engine, "inspect", container_name]).decode()
+            inspect_data = json.loads(inspect_output)[0]
+            image_info = {
+                "name": inspect_data["RepoTags"][0] if inspect_data["RepoTags"] else "unknown",
+                "id": inspect_data["Id"],
+                "created": inspect_data["Created"]
+            }
+        except Exception as e:
+            print(f"Warning: Could not get container info: {e}")
+            image_info = {"name": "unknown", "id": "unknown", "created": "unknown"}
+    else:
+        image_info = {"name": "unknown", "id": "unknown", "created": "unknown"}
+
+    # Set container info
     logger.set_container_info(
         engine=engine,
         engine_version=subprocess.check_output([engine, "--version"]).decode().strip(),
-        image=container_name,
-        image_id=subprocess.check_output([engine, "inspect", container_name]).decode().strip() if engine == "docker" else "unknown"
+        image=image_info["name"],
+        image_id=image_info["id"]
     )
     
     # Convert paths to absolute paths
