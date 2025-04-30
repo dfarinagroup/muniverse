@@ -417,7 +417,7 @@ def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, 
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
         profile_params (easydict.EasyDict): Movement profile parameters.
-        movement_dof (str): Degree of freedom ("Flexion-extension" or "Radial-ulnar").
+        movement_dof (str): Degree of freedom ("Flexion-Extension" or "Radial-Ulnar").
         muap_dof_samples (int): Number of MUAP samples for the given DoF
         
     Returns:
@@ -426,11 +426,11 @@ def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, 
             - muap_angle_labels: Array of angles corresponding to the MUAP library
     """
     # Generate angle labels for the MUAP library based on the DOF
-    if movement_dof == "Flexion-extension":
-        # Default range for flexion-extension: -65 (extension) to 65 (flexion) degrees
+    if movement_dof == "Flexion-Extension":
+        # Default range for Flexion-Extension: -65 (extension) to 65 (flexion) degrees
         min_angle = -65
         max_angle = 65
-    elif movement_dof == "Radial-ulnar":
+    elif movement_dof == "Radial-Ulnar":
         # Default range for radial-ulnar deviation: -10 (radial) to 25 (ulnar) degrees
         min_angle = -10
         max_angle = 25
