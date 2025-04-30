@@ -47,10 +47,7 @@ def build_movement_profile(movement_config):
     Returns:
         tuple: (poses, durations, total_duration, steps)
     """
-    movement_type = movement_config.MovementType
     movement_dof = movement_config.MovementDOF
-    profile_params = movement_config.MovementProfileParameters
-    duration = movement_config.MovementDuration
     
     # For MUAP generation, we always use the full range of motion
     fs_mov = 50  # temporal frequency in Hz (sampling rate for movement)
@@ -944,6 +941,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate EMG signals from movements')
     parser.add_argument('config_path', type=str, help='Path to input configuration JSON file')
     parser.add_argument('output_dir', type=str, help='Path to output directory')
+    parser.add_argument('--cache_dir', type=str, help='Path to cache directory (optional)', default=None)
     args = parser.parse_args()
 
     # Load configuration
@@ -985,31 +983,35 @@ if __name__ == '__main__':
     n_cols = electrode_cfg.NCols
     
     # Setup MUAP cache
-    muap_cache_dir = os.path.join(os.path.dirname(args.output_dir), "muap_cache")
-    os.makedirs(muap_cache_dir, exist_ok=True)
+    use_cache = args.cache_dir is not None
+    if use_cache:
+        # Check if MUAP cache exists
+        muap_cache_dir = args.cache_dir
+        os.makedirs(muap_cache_dir, exist_ok=True)
+        muap_cache_file = os.path.join(muap_cache_dir, f"{ms_label}_{movement_cfg.MovementDOF}_muaps.npy")
+        muap_meta_file = os.path.join(muap_cache_dir, f"{ms_label}_{movement_cfg.MovementDOF}_metadata.json")
+        
+        # Required metadata for cache compatibility check
+        required_metadata = {
+            'muscle': ms_label,
+            'fs': fs,
+            'electrode_rows': n_rows,
+            'electrode_cols': n_cols
+        }
+        
+        # Try to load cached MUAPs
+        muaps, use_cached_muaps, num_mus = load_cached_muaps(
+            muap_cache_file, 
+            muap_meta_file, 
+            required_metadata
+        )
+    else:
+        use_cached_muaps = False
     
-    muap_cache_file = os.path.join(muap_cache_dir, f"{ms_label}_{movement_cfg.MovementDOF}_muaps.npy")
-    muap_meta_file = os.path.join(muap_cache_dir, f"{ms_label}_{movement_cfg.MovementDOF}_metadata.json")
-    
-    # Required metadata for cache compatibility check
-    required_metadata = {
-        'muscle': ms_label,
-        'fs': fs,
-        'electrode_rows': n_rows,
-        'electrode_cols': n_cols
-    }
-    
-    # Try to load cached MUAPs
-    muaps, use_cached_muaps, num_mus = load_cached_muaps(
-        muap_cache_file, 
-        muap_meta_file, 
-        required_metadata
-    )
-    
-    # If no compatible cache, generate new MUAPs
+    # If no compatible cache or caching disabled, generate new MUAPs
     if not use_cached_muaps:
         # Build movement profile for MUAP generation
-        fs_mov = 50  # Temporal frequency for movement simulation
+        fs_mov = 2  # Temporal frequency for movement simulation
         poses, durations, total_duration, steps = build_movement_profile(movement_cfg)
         
         # Generate MUAPs
@@ -1018,20 +1020,21 @@ if __name__ == '__main__':
             device, morph, muap_file, fibre_density, fs, filter_cfg, n_rows, n_cols
         )
         
-        # Cache the MUAPs for future use
-        muap_cache_metadata = {
-            "muscle": ms_label,
-            "movement_dof": movement_cfg.MovementDOF,
-            "fs": fs,
-            "num_mus": num_mus,
-            "device": device,
-            "electrode_rows": n_rows,
-            "electrode_cols": n_cols,
-            "fiber_density": fibre_density,
-            "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        cache_muaps(muaps, muap_cache_file, muap_cache_metadata, muap_meta_file)
+        # Cache the MUAPs if caching is enabled
+        if use_cache:
+            muap_cache_metadata = {
+                "muscle": ms_label,
+                "movement_dof": movement_cfg.MovementDOF,
+                "fs": fs,
+                "num_mus": num_mus,
+                "device": device,
+                "electrode_rows": n_rows,
+                "electrode_cols": n_cols,
+                "fiber_density": fibre_density,
+                "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            cache_muaps(muaps, muap_cache_file, muap_cache_metadata, muap_meta_file)
     
     # Generate angle profile and angle labels for MUAPs
     profile_params = movement_cfg.MovementProfileParameters

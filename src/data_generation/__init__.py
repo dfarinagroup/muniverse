@@ -48,6 +48,7 @@ def generate_recording(config):
                 For Docker: Name of the container image (e.g., "muniverse-test:neuromotion")
                 For Singularity: Path to the container file (e.g., "environment/muniverse-test_neuromotion.sif")
                 Defaults to "environment/muniverse-test_neuromotion.sif"
+            - cache_dir (optional): Path to cache directory. If None, no caching is used.
 
     Returns:
         str: The path to the generated dataset.
@@ -67,6 +68,8 @@ def generate_recording(config):
         container_name = config.get("container_name", "environment/muniverse-test_neuromotion.sif")
     else:
         container_name = config.get("container_name", "pranavm19/muniverse-test:neuromotion")
+
+    cache_dir = config.get("cache_dir", None)
     
     # Generate the dataset
-    return generate_neuromotion_recording(input_config, output_dir, engine, container_name)
+    return generate_neuromotion_recording(input_config, output_dir, engine, container_name, cache_dir)

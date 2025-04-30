@@ -3,6 +3,7 @@ import os
 import tarfile as tf
 import xml.etree.ElementTree as ET
 from dateutil import parser
+from pathlib import Path
 
 def open_otb(inputname,ngrid):
     """
