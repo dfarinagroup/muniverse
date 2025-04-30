@@ -3,7 +3,6 @@ import os
 import json
 import pandas as pd
 from edfio import *
-import h5py
     
 class bids_dataset:
 
@@ -45,7 +44,7 @@ class bids_dataset:
             with open(name, 'w') as f:
                 json.dump(self.subjects_sidecar, f)  
         # write dataset.json
-        name = self.root + '/' + 'dataset.json'
+        name = self.root + '/' + 'dataset_description.json'
         if self.overwrite or not os.path.isfile(name):
             with open(name, 'w') as f:
                 json.dump(self.dataset_sidecar, f)
@@ -68,7 +67,7 @@ class bids_dataset:
             with open(name, 'r') as f:
                 self.subjects_sidecar = json.load(f) 
         # read dataset.json
-        name = self.root + '/' + 'dataset.json'
+        name = self.root + '/' + 'dataset_description.json'
         if os.path.isfile(name):
             with open(name, 'r') as f:
                 self.dataset_sidecar = json.load(f) 
@@ -322,182 +321,79 @@ class bids_emg_recording(bids_dataset):
 
 
 
-class bids_simulated_emg_recording(bids_emg_recording):
-    def __init__(self, config_path, hdf5_path, root='./data', datasetname='simulated-dataset'):
-        # Parse config file first
-        self.config = self._parse_config(config_path)
-        self.hdf5_path = hdf5_path
-        
-        # Initialize the parent class with BIDS-compatible parameters
-        subject_id = self._generate_subject_id()
-        task_name = self._generate_task_name()
+class bids_neuromotion_recording(bids_emg_recording):
+    """
+    Class for handling neuromotion simulation data in BIDS format.
+    Inherits from bids_emg_recording and adds support for additional simulation-specific files.
+    """
+    def __init__(self, 
+                 subject=1, 
+                 task='isometric', 
+                 datatype='emg', 
+                 session=-1, 
+                 run=1,
+                 data_obj=None,
+                 root='./',
+                 datasetname='my-data',
+                 overwrite=False,
+                 n_digits=2):
         
         super().__init__(
-            subject=subject_id,
-            task=task_name,
-            datatype='emg',
+            subject=subject,
+            task=task,
+            datatype=datatype,
+            session=session,
+            run=run,
+            data_obj=data_obj,
+            root=root,
             datasetname=datasetname,
-            root=root
+            overwrite=overwrite,
+            n_digits=n_digits
         )
         
-        # Initialize additional data structures for simulated data
-        self.spikes = pd.DataFrame(columns=['source_id', 'spike_time'])
-        self.motor_units = pd.DataFrame(columns=['unit_id', 'recruitment_threshold', 'depth', 'innervation_zone', 
-                                               'fibre_density', 'fibre_length', 'conduction_velocity', 'angle'])
-        self.internals = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
-        # self.spikes_sidecar = {'source_id': [], 'spike_time': []}
-        # self.motor_units_sidecar = {'unit_id': [], 'recruitment_threshold': [], 'depth': [], 'innervation_zone': [], 'fibre_density': [], 'fibre_length': [], 'conduction_velocity': [], 'angle':[]}
-        self.internals_sidecar = {'SamplingFrequency': [], 'Description': 'Simulated internal variables'}
-        
-    def _parse_config(self, config_path):
-        with open(config_path, 'r') as f:
-            return json.load(f)
-            
-    def _generate_subject_id(self):
-        return f"sim{self.config['SubjectConfiguration']['SubjectSeed']}"
-        
-    def _generate_task_name(self):
-        # Generate a BIDS-compatible task name
-        movement = self.config['MovementConfiguration']
-        profile = movement['MovementProfileParameters']
-        muscle = movement['TargetMuscle']
-        movement_type = movement['MovementType']
-        effort_level = profile['EffortLevel']
-        if movement_type == 'Isometric':
-            effort_profile = profile['EffortProfile']
+        # Process name and session input
+        subject_name = 'sub' + '-' + 'sim' + str(subject).zfill(n_digits)
+        if session < 0:
+            datapath = self.root + '/' + subject_name + '/' + datatype + '/'
         else:
-            effort_profile = profile['AngleProfile']
+            ses_name = 'ses' + '-' + str(session).zfill(n_digits)
+            datapath = self.root + '/' + subject_name + '/' + ses_name + '/' + datatype + '/'
         
-        # Example: "FDSIisometrictrapezoid10pct"
-        return f"{muscle.upper()}{movement_type.lower()}{effort_profile.lower()}{effort_level}pct"
-        
-    def _setup_electrode_metadata(self):
-        # Generate electrode metadata based on RecordingConfiguration
-        elec_config = self.config['RecordingConfiguration']['ElectrodeConfiguration']
-        
-        # Generate electrode names and positions: TO-DO
-        names = []
-        x_pos = []
-        y_pos = []
-        coordinate_system = []
-        
-        for i in range(elec_config['NElectrodes']):
-            row = i // elec_config['NCols']
-            col = i % elec_config['NCols']
-            
-            names.append(f"E{i+1}")
-            x_pos.append(col * elec_config['InterElectrodeDistance'])
-            y_pos.append(row * elec_config['InterElectrodeDistance'])
-            coordinate_system.append("Grid1")
-            
-        return {
-            'name': names,
-            'x': x_pos,
-            'y': y_pos,
-            'coordinate_system': coordinate_system
-        }
-        
-    def _setup_channel_metadata(self):
-        # Generate channel metadata
-        elec_config = self.config['RecordingConfiguration']['ElectrodeConfiguration']
-        
-        names = []
-        types = []
-        units = []
-        
-        for i in range(elec_config['NElectrodes']):
-            names.append(f"E{i+1}")
-            types.append("EMG")
-            units.append("mV")
-            
-        return {
-            'name': names,
-            'type': types,
-            'unit': units
-        }
-        
-    def _setup_coordsystem_metadata(self):
-        return {
-            'EMGCoordinateSystem': 'local',
-            'EMGCoordinateUnits': 'mm'
-        }
-        
-    def _setup_spikes_data(self):
-        """Read and format spike times from HDF5 file"""
-        with h5py.File(self.hdf5_path, 'r') as f:
-            spike_times = f['spikes'][:]
-            unit_ids = f['unit_ids'][:]
-            
-        # Convert to long format DataFrame
-        rows = []
-        for unit_id, times in zip(unit_ids, spike_times):
-            for t in times:
-                rows.append({'source_id': unit_id, 'spike_time': t})
-                
-        self.spikes = pd.DataFrame(rows)
-        
-    def _setup_motor_units_data(self):
-        """Read and format motor unit properties from HDF5 file"""
-        with h5py.File(self.hdf5_path, 'r') as f:
-            unit_ids = f['unit_ids'][:]
-            recruitment_thresholds = f['recruitment_thresholds'][:]
-            unit_properties = f['unit_properties'][:]
+        # Store essential information for BIDS compatible folder structure in a dictonary
+        self.datapath = datapath
+        self.subject_name = subject_name
 
-        # Handle individual properties: TO-DO
-        self.motor_units = pd.DataFrame({
-            'unit_id': unit_ids,
-            'recruitment_threshold': recruitment_thresholds,
-            'depth': unit_properties[:,0],
-            'innervation_zone': unit_properties[:,1],
-            'fibre_density': unit_properties[:,2],
-            'fibre_length': unit_properties[:,3],
-            'conduction_velocity': unit_properties[:,4],
-            'angle': unit_properties[:,5]
-        })
-        
-    def _setup_internals_data(self):
-        """Read and format internal simulation variables from HDF5 file"""
-        with h5py.File(self.hdf5_path, 'r') as f:
-            internals_data = f['_internals'][:]
-            fsamp = self.config['RecordingConfiguration']['SamplingFrequency']
-            
-        # Convert to EDF format
-        edf = Edf([EdfSignal(internals_data[:,0], sampling_frequency=fsamp)])
-        for i in range(1, internals_data.shape[1]):
-            new_signal = EdfSignal(internals_data[:,i], sampling_frequency=fsamp)
-            edf.append_signals(new_signal)
-            
-        self.internals = edf
-        self.internals_sidecar['SamplingFrequency'] = fsamp
-        
-    def _write_simulated_files(self):
-        """Write additional simulated data files"""
-        # Write spikes data
-        spikes_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_spikes")
-        self.spikes.to_csv(spikes_name + '.tsv', sep='\t', index=False)
-        
-        # Write motor units data
-        mu_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_motorunits")
-        self.motor_units.to_csv(mu_name + '.tsv', sep='\t', index=False)
-        
-        # Write internals data
-        internals_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_internals")
-        self.internals.write(internals_name + '.edf')
-        with open(internals_name + '.json', 'w') as f:
-            json.dump(self.internals_sidecar, f)
-            
+        # Initialize additional simulation-specific attributes
+        self.spikes = pd.DataFrame(columns=['source_id', 'spike_time'])
+        self.motor_units = pd.DataFrame(columns=['source_id', 'recruitment_threshold', 'depth', 'innervation_zone', 'fibre_density', 'fibre_length', 'conduction_velocity', 'angle'])
+        self.internals = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
+        self.internals_sidecar = {'SamplingFrequency': [], 'Description': []}
+        self.simulation_sidecar = {'RunId': [], 'SimulationConfiguration': [], 'RuntimeEnvironment': []}
+
     def write(self):
         """Override write method to include simulated data"""
-        # First set up all the simulated data
-        self._setup_spikes_data()
-        self._setup_motor_units_data()
-        self._setup_internals_data()
-        
         # Call parent's write method to handle standard BIDS files
         super().write()
         
         # Write additional simulated files
-        self._write_simulated_files()
+        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        if self.run > 0:
+            name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
+
+        # Write spikes data
+        self.spikes.to_csv(name + 'spikes.tsv', sep='\t', index=False)
+        
+        # Write motor units data
+        self.motor_units.to_csv(name + 'motorunits.tsv', sep='\t', index=False)
+
+        # Write internals data
+        self.internals.write(name + 'internals.edf')
+        with open(name + 'internals.json', 'w') as f:
+            json.dump(self.internals_sidecar, f)
+
+        # Write simulation sidecar
+        with open(name + 'simulation.json', 'w') as f:
+            json.dump(self.simulation_sidecar, f)
         
     def read(self):
         """Override read method to include simulated data"""
@@ -505,18 +401,19 @@ class bids_simulated_emg_recording(bids_emg_recording):
         super().read()
         
         # Read simulated data files if they exist
-        spikes_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_spikes.tsv")
-        if os.path.isfile(spikes_name):
-            self.spikes = pd.read_table(spikes_name)
-            
-        mu_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_motorunits.tsv")
-        if os.path.isfile(mu_name):
-            self.motor_units = pd.read_table(mu_name)
-            
-        internals_name = os.path.join(self.datapath, f"{self.subject_id}_{self.task}_internals.edf")
-        if os.path.isfile(internals_name):
-            self.internals = read_edf(internals_name)
-            with open(internals_name.replace('.edf', '.json'), 'r') as f:
+        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        if self.run > 0:
+            name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
+
+        if os.path.isfile(name + 'spikes.tsv'):
+            self.spikes = pd.read_table(name + 'spikes.tsv')
+
+        if os.path.isfile(name + 'motorunits.tsv'):
+            self.motor_units = pd.read_table(name + 'motorunits.tsv')
+
+        if os.path.isfile(name + 'internals.edf'):
+            self.internals = read_edf(name + 'internals.edf')
+            with open(name + 'internals.json', 'r') as f:
                 self.internals_sidecar = json.load(f)
 
 
@@ -588,8 +485,7 @@ class bids_decomp_derivatives(bids_emg_recording):
                                  'SamplingFrequency': []}
         self.dataset_sidecar = {'Name': datasetname + '_' + pipelinename, 
                                 'BIDSversion': self._get_bids_version(), 
-                                'GeneratedBy': pipelinename}
-        
+                                'GeneratedBy': pipelinename} 
 
     def write(self):
         """
@@ -618,8 +514,6 @@ class bids_decomp_derivatives(bids_emg_recording):
             with open(fname, 'w') as f:
                 json.dump(self.dataset_sidecar, f) 
 
-        
-    
     def read(self):
         """
         Import data from BIDS dataset
@@ -649,8 +543,6 @@ class bids_decomp_derivatives(bids_emg_recording):
             with open(fname, 'r') as f:
                 self.dataset_sidecar = json.load(f) 
 
-           
-    
     def add_spikes(self,spikes):
         """
         Convert a dictionary of spike times to long-format TSV-style DataFrame.
