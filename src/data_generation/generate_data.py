@@ -3,7 +3,7 @@ import os
 import json
 import time
 import shutil
-from src.utils.logging import RunLogger
+from ..utils.logging import RunLogger
 
 
 def generate_neuromotion_recording(input_config, output_dir, engine="singularity", container_name="environment/muniverse-test_neuromotion.sif", cache_dir=None):
@@ -55,7 +55,13 @@ def generate_neuromotion_recording(input_config, output_dir, engine="singularity
     # Convert paths to absolute paths
     input_config = os.path.abspath(input_config)
     output_dir = os.path.abspath(output_dir)
-    script_path = os.path.abspath("src/data_generation/run_neuromotion_extended.py")
+    
+    # Get the absolute path to the script
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(current_dir, "run_neuromotion_extended.py")
+    
+    if not os.path.exists(script_path):
+        raise FileNotFoundError(f"Script not found at {script_path}")
     
     # Create a unique run directory with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -64,7 +70,9 @@ def generate_neuromotion_recording(input_config, output_dir, engine="singularity
     os.makedirs(run_dir, exist_ok=True)
     
     # Get the correct path to run.sh
-    run_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.sh")
+    run_script_path = os.path.join(current_dir, "run.sh")
+    if not os.path.exists(run_script_path):
+        raise FileNotFoundError(f"run.sh not found at {run_script_path}")
     
     # Handle container name based on engine type
     if engine.lower() == "singularity":
@@ -82,12 +90,16 @@ def generate_neuromotion_recording(input_config, output_dir, engine="singularity
         subprocess.run(
             cmd,
             check=True,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=current_dir,
+            capture_output=True,
+            text=True
         )
         print(f"[INFO] Data generated successfully at {run_dir}")
         logger.set_return_code("run.sh", 0)
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] Data generation failed: {e}")
+        print(f"[ERROR] Command output: {e.output}")
+        print(f"[ERROR] Command stderr: {e.stderr}")
         logger.set_return_code("run.sh", e.returncode)
         raise
     
@@ -107,4 +119,4 @@ def generate_neuromotion_recording(input_config, output_dir, engine="singularity
     log_path = logger.finalize(run_dir)
     print(f"Run log saved to: {log_path}")
     
-    return 
+    return run_dir

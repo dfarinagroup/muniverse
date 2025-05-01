@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import json
 from edfio import *
-from src.data_preparation.data2bids import bids_dataset, bids_emg_recording, bids_neuromotion_recording
+from ..data_preparation.data2bids import bids_dataset, bids_emg_recording, bids_neuromotion_recording
 
 def setup_spikes_data(data_path):
     """Load and format spike times"""
@@ -120,7 +120,7 @@ def neuromotion_to_bids(data_path, root='./', datasetname='simulated-BIDS-datase
         Name of the BIDS dataset
     """
     # Find and read the run log file
-    run_logs = [f for f in os.listdir(data_path) if f.endswith('_log.json')]
+    run_logs = [f for f in os.listdir(data_path) if f.startswith('run_log') and f.endswith('.json')]
     if not run_logs:
         raise ValueError(f"No run log file found in {data_path}")
     if len(run_logs) > 1:

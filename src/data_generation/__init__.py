@@ -3,7 +3,7 @@ Data generation utilities for neuromotion.
 """ 
 
 from .generate_data import generate_neuromotion_recording
-from src.utils.containers import pull_container, verify_container_engine
+from ..utils.containers import pull_container, verify_container_engine
 
 def init():
     """
