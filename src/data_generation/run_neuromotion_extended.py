@@ -1186,28 +1186,32 @@ if __name__ == '__main__':
         print(f"Using default motor unit count for {ms_label}: {num_mus}")
     
     # Setup MUAP cache with subject-specific path
-    muap_cache_dir = os.path.join(os.path.dirname(args.output_dir), "muap_cache")
-    os.makedirs(muap_cache_dir, exist_ok=True)
+    use_cache = args.cache_dir is not None
+    if use_cache:
+        muap_cache_dir = args.cache_dir
+        os.makedirs(muap_cache_dir, exist_ok=True)
 
-    muap_cache_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_muaps.npy")
-    muap_meta_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_metadata.json")
-    properties_csv_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_mn_properties.csv")
+        muap_cache_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_muaps.npy")
+        muap_meta_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_metadata.json")
+        properties_csv_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_mn_properties.csv")
 
-    # Required metadata for cache compatibility check
-    required_metadata = {
-        'muscle': ms_label,
-        'fs': fs,
-        'electrode_rows': n_rows,
-        'electrode_cols': n_cols,
-        'subject_id': subject_id
-    }
+        # Required metadata for cache compatibility check
+        required_metadata = {
+            'muscle': ms_label,
+            'fs': fs,
+            'electrode_rows': n_rows,
+            'electrode_cols': n_cols,
+            'subject_id': subject_id
+        }
 
-    # Try to load cached MUAPs
-    muaps, use_cached_muaps, cached_num_mus, properties_dict = load_cached_muaps(
-        muap_cache_file, 
-        muap_meta_file, 
-        required_metadata
-    )
+        # Try to load cached MUAPs
+        muaps, use_cached_muaps, cached_num_mus, properties_dict = load_cached_muaps(
+            muap_cache_file, 
+            muap_meta_file, 
+            required_metadata
+        )
+    else:
+        use_cached_muaps = False
 
     # If no compatible cache, generate new MUAPs
     if not use_cached_muaps:
@@ -1222,22 +1226,23 @@ if __name__ == '__main__':
             num_mus, subject_seed
         )
         
-        # Cache the MUAPs for future use
-        muap_cache_metadata = {
-            "subject_id": subject_id,
-            "muscle": ms_label,
-            "movement_dof": movement_cfg.MovementDOF,
-            "fs": fs,
-            "num_mus": num_mus,
-            "device": device,
-            "electrode_rows": n_rows,
-            "electrode_cols": n_cols,
-            "fiber_density": fibre_density,
-            "subject_seed": subject_seed,
-            "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        cache_muaps(muaps, muap_cache_file, muap_cache_metadata, muap_meta_file, properties_dict, properties_csv_file)
+        # Cache the MUAPs for future use if cache_dir is provided
+        if use_cache:
+            muap_cache_metadata = {
+                "subject_id": subject_id,
+                "muscle": ms_label,
+                "movement_dof": movement_cfg.MovementDOF,
+                "fs": fs,
+                "num_mus": num_mus,
+                "device": device,
+                "electrode_rows": n_rows,
+                "electrode_cols": n_cols,
+                "fiber_density": fibre_density,
+                "subject_seed": subject_seed,
+                "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            cache_muaps(muaps, muap_cache_file, muap_cache_metadata, muap_meta_file, properties_dict, properties_csv_file)
+    
     else:
         # If using cached MUAPs, make sure we use the cached number of units
         num_mus = cached_num_mus

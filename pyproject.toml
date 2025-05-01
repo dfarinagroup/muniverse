@@ -47,7 +47,6 @@ packages = [
   "muniverse.algorithms",
   "muniverse.data_generation",
   "muniverse.data_preparation",
-  "muniverse.datasets",
   "muniverse.evaluation",
   "muniverse.utils",
 ]

@@ -5,9 +5,17 @@ import json
 from edfio import *
 from ..data_preparation.data2bids import bids_dataset, bids_emg_recording, bids_neuromotion_recording
 
+def find_file_by_suffix(data_path, suffix):
+    """Find a file ending with the given suffix in the data path"""
+    for file in os.listdir(data_path):
+        if file.endswith(suffix):
+            return os.path.join(data_path, file)
+    raise FileNotFoundError(f"No file ending with '{suffix}' found in {data_path}")
+
 def setup_spikes_data(data_path):
     """Load and format spike times"""
-    spikes = np.load(os.path.join(data_path, 'spikes.npy'), allow_pickle=True)
+    spikes_file = find_file_by_suffix(data_path, '_spikes.npy')
+    spikes = np.load(spikes_file, allow_pickle=True)
     
     # Convert to long format DataFrame
     rows = []
@@ -19,8 +27,11 @@ def setup_spikes_data(data_path):
 
 def setup_motor_units_data(data_path):
     """Load and format motor unit properties"""
-    recruitment_thresholds = np.load(os.path.join(data_path, 'recruitment_thresholds.npy'), allow_pickle=True)
-    unit_properties = np.load(os.path.join(data_path, 'unit_properties.npy'), allow_pickle=True)
+    recruitment_file = find_file_by_suffix(data_path, '_recruitment_thresholds.npy')
+    properties_file = find_file_by_suffix(data_path, '_unit_properties.npy')
+    
+    recruitment_thresholds = np.load(recruitment_file, allow_pickle=True)
+    unit_properties = np.load(properties_file, allow_pickle=True)
     
     return pd.DataFrame({
         'unit_id': np.arange(len(recruitment_thresholds)),
@@ -35,8 +46,11 @@ def setup_motor_units_data(data_path):
 
 def setup_internals_data(data_path, fsamp):
     """Load and format internal variables"""
-    effort_profile = np.load(os.path.join(data_path, 'effort_profile.npy'), allow_pickle=True)
-    angle_profile = np.load(os.path.join(data_path, 'angle_profile.npy'), allow_pickle=True)
+    effort_file = find_file_by_suffix(data_path, '_effort_profile.npy')
+    angle_file = find_file_by_suffix(data_path, '_angle_profile.npy')
+    
+    effort_profile = np.load(effort_file, allow_pickle=True)
+    angle_profile = np.load(angle_file, allow_pickle=True)
     
     edf = Edf([EdfSignal(effort_profile, sampling_frequency=fsamp)])
     edf.append_signals(EdfSignal(angle_profile, sampling_frequency=fsamp))
@@ -170,7 +184,8 @@ def neuromotion_to_bids(data_path, root='./', datasetname='simulated-BIDS-datase
     recording.set_metadata('emg_sidecar', emg_sidecar)
     
     # Set up data
-    data = np.load(os.path.join(data_path, 'emg.npy'), allow_pickle=True)
+    emg_file = find_file_by_suffix(data_path, '_emg.npy')
+    data = np.load(emg_file, allow_pickle=True)
     recording.set_data('emg_data', data, fsamp)
     
     # Set up simulation-specific data

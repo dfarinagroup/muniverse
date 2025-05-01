@@ -13,17 +13,7 @@ MOVEMENT_DOF_PROBS = [0.65, 0.35]
 MOVEMENT_PROFILE_PROBS = [0.5*0.7, 0.125*0.7, 0.125*0.7, 0.25*0.7, 0.5*0.3, 0.5*0.3] # p(Trapezoid/Triangular/Ballistic/Sinusiod)xp(isometric/dynamic)
 
 # Mean number of motor units for each muscle
-NUM_MUS = {
-    'ECRB': 186,
-    'ECRL': 204,
-    'PL': 164,
-    'FCU_u': 205,
-    'FCU': 217,
-    'ECU': 180,
-    'EDCI': 186,
-    'FDSI': 158,
-    'FCU': 422
-}
+NUM_MUS = {'ECRB': 186, 'ECRL': 204, 'PL': 164, 'FCU_u': 205, 'FCU': 217, 'ECU': 180, 'EDCI': 186, 'FDSI': 158, 'FCU': 422}
 
 # Standard deviation as 10% of mean
 STD_MUS = {muscle: int(mean * 0.1) for muscle, mean in NUM_MUS.items()}
@@ -258,4 +248,4 @@ def generate_configs(template_path, output_dir="configs", n_samples=10):
 
 # Example usage
 if __name__ == "__main__":
-    generate_configs('/home/dc23/projects/muniverse/muniverse-demo-pranav/src/data_generation/neuro_motion_config_template_subject_electrode.json', output_dir="configs")
+    generate_configs('/path/to/template.json', output_dir="configs")

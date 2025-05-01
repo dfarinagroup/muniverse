@@ -91,8 +91,8 @@ def generate_neuromotion_recording(input_config, output_dir, engine="singularity
             cmd,
             check=True,
             cwd=current_dir,
-            capture_output=True,
-            text=True
+            # capture_output=True,
+            # text=True
         )
         print(f"[INFO] Data generated successfully at {run_dir}")
         logger.set_return_code("run.sh", 0)
