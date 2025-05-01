@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muniverse"
+version = "0.1.0"
+description = "A modular framework for simulated and experimental EMG dataset generation, motor unit decomposition algorithm benchmarking, and performance evaluation"
+readme = "readme.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Pranav Mamidanna", email = "p.mamidanna22@imperial.ac.uk" },
+    { name = "Thomas Klotz", email = "thomas.klotz@imsb.uni-stuttgart.de" },
+    { name = "Dimitrios Halatsis" },
+    { name = "Irene Mendez Guerra" }
+]
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "pyDataverse",
+    "edfio",
+    "python-dateutil",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "isort",
+    "mypy",
+    "jupyter",
+    "ipykernel",
+]
+
+[tool.setuptools]
+# map the "muniverse" top‐level package to your src/ directory
+package-dir = { "muniverse" = "src" }
+
+# rather than auto‐discover everything under "src", you must now
+# *explicitly* list which muniverse.* packages to install
+packages = [
+  "muniverse",
+  "muniverse.algorithms",
+  "muniverse.data_generation",
+  "muniverse.data_preparation",
+  "muniverse.datasets",
+  "muniverse.evaluation",
+  "muniverse.utils",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=src" 
