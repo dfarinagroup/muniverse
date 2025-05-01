@@ -37,7 +37,7 @@ ENV/
 .ipynb_checkpoints
 
 # macOS
-.DS_Store
+**/.DS_Store
 
 # Logs
 *.log
