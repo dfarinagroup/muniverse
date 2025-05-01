@@ -12,6 +12,22 @@ MOVEMENT_ANGLE_RANGES = [(-65, 65), (-10, 25)]
 MOVEMENT_DOF_PROBS = [0.65, 0.35]
 MOVEMENT_PROFILE_PROBS = [0.5*0.7, 0.125*0.7, 0.125*0.7, 0.25*0.7, 0.5*0.3, 0.5*0.3] # p(Trapezoid/Triangular/Ballistic/Sinusiod)xp(isometric/dynamic)
 
+# Mean number of motor units for each muscle
+NUM_MUS = {
+    'ECRB': 186,
+    'ECRL': 204,
+    'PL': 164,
+    'FCU_u': 205,
+    'FCU': 217,
+    'ECU': 180,
+    'EDCI': 186,
+    'FDSI': 158,
+    'FCU': 422
+}
+
+# Standard deviation as 10% of mean
+STD_MUS = {muscle: int(mean * 0.1) for muscle, mean in NUM_MUS.items()}
+
 COMMON_PARAM_RANGES = {
     "SubjectSeed": (0, 5),          # index, unitless (int)
     "FibreDensity": (150, 250),     # fibres/motor unit (int)
@@ -103,6 +119,7 @@ def update_template(template, params):
     # Update SubjectConfiguration
     template["SubjectConfiguration"]["SubjectSeed"] = int(params["SubjectSeed"])
     template["SubjectConfiguration"]["FibreDensity"] = float(params["FibreDensity"])
+    template["SubjectConfiguration"]["MuscleMotorUnitCounts"] = generate_motor_unit_counts(int(params['SubjectSeed']))
 
     # Update MovementConfiguration
     template["MovementConfiguration"]["TargetMuscle"] = MUSCLE_LABELS[int(params["TargetMuscle"])]
@@ -176,6 +193,29 @@ def update_template(template, params):
     template["RecordingConfiguration"]["ElectrodeConfiguration"]["NRows"] = NROW_CHOICES[n_rows]
     return template
 
+
+def generate_motor_unit_counts(subject_seed):
+    """
+    Generate motor unit counts for each muscle based on normal distributions with predefined means and standard deviations.
+    
+    Args:
+        subject_seed (int): Seed for random number generation to ensure reproducibility
+        
+    Returns:
+        list: List of 7 integers representing motor unit counts for each muscle
+    """
+    np.random.seed(subject_seed)
+    mu_counts = []
+    for muscle in MUSCLE_LABELS:
+        mean = NUM_MUS[muscle]
+        std = STD_MUS[muscle]
+        # Generate a random number from normal distribution and round to nearest integer
+        count = round(np.random.normal(mean, std))
+        # Ensure count is positive
+        count = max(1, count)
+        mu_counts.append(count)
+    return mu_counts
+
 def generate_configs(template_path, output_dir="configs", n_samples=10):
     """
     Generates a specified number of configuration files for neuromotion based on a template file.
@@ -200,14 +240,14 @@ def generate_configs(template_path, output_dir="configs", n_samples=10):
         sampler_common = LatinHypercube(d=len(COMMON_PARAM_RANGES), seed=42)
         sample_matrix_common = sampler_common.random(n=n_subsamples)
 
-        # Sample common hyperparameters
+        # Sample common hyperparameterse
         sampler_specific = LatinHypercube(d=len(PROFILE_PARAMS[profile]), seed=42)
         sample_matrix_specific = sampler_specific.random(n=n_subsamples)
 
         for sample_common, sample_specific in zip(sample_matrix_common, sample_matrix_specific):
             scaled_common = scale_sample(sample_common, COMMON_PARAM_RANGES)
             scaled_specific = scale_sample(sample_specific, PROFILE_PARAMS[profile])
-            
+
             scaled_common.update(scaled_specific)
             scaled_common.update({"MovementProfile": profile})
             config = update_template(base_template.copy(), scaled_common)
@@ -215,4 +255,7 @@ def generate_configs(template_path, output_dir="configs", n_samples=10):
             with open(os.path.join(output_dir, f"config_{sample_id:04d}.json"), "w") as f:
                 json.dump(config, f, indent=2)
             sample_id += 1
-generate_configs('/home/dc23/projects/muniverse/muniverse-demo-pranav/src/data_generation/neuromotion_config_template.json')
+
+# Example usage
+if __name__ == "__main__":
+    generate_configs('/home/dc23/projects/muniverse/muniverse-demo-pranav/src/data_generation/neuro_motion_config_template_subject_electrode.json', output_dir="configs")
