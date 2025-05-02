@@ -12,15 +12,12 @@ MOVEMENT_ANGLE_RANGES = [(-65, 65), (-10, 25)]
 MOVEMENT_DOF_PROBS = [0.65, 0.35]
 MOVEMENT_PROFILE_PROBS = [0.5*0.7, 0.125*0.7, 0.125*0.7, 0.25*0.7, 0.5*0.3, 0.5*0.3] # p(Trapezoid/Triangular/Ballistic/Sinusiod)xp(isometric/dynamic)
 
-# Mean number of motor units for each muscle
+# Mean and std number of motor units for each muscle
 NUM_MUS = {'ECRB': 186, 'ECRL': 204, 'PL': 164, 'FCU_u': 205, 'FCU': 217, 'ECU': 180, 'EDCI': 186, 'FDSI': 158, 'FCU': 422}
-
-# Standard deviation as 10% of mean
 STD_MUS = {muscle: int(mean * 0.1) for muscle, mean in NUM_MUS.items()}
 
 COMMON_PARAM_RANGES = {
     "SubjectSeed": (0, 5),          # index, unitless (int)
-    "FibreDensity": (150, 250),     # fibres/motor unit (int)
     "TargetMuscle": (0, 8),         # index, unitless (int)
     "MovementDOF": (0, 2),          # index, unitless (int)    
     "NCols": (0, 3),                # unitless (int)
@@ -111,8 +108,9 @@ def get_target_angle_props(params):
 def update_template(template, params):
     # Update SubjectConfiguration
     template["SubjectConfiguration"]["SubjectSeed"] = int(params["SubjectSeed"])
-    template["SubjectConfiguration"]["FibreDensity"] = float(params["FibreDensity"])
-    template["SubjectConfiguration"]["MuscleMotorUnitCounts"] = generate_motor_unit_counts(int(params['SubjectSeed']))
+    fibre_density, mu_counts = generate_subject_properties(int(params['SubjectSeed']))
+    template["SubjectConfiguration"]["FibreDensity"] = float(fibre_density)
+    template["SubjectConfiguration"]["MuscleMotorUnitCounts"] = mu_counts
 
     # Update MovementConfiguration
     template["MovementConfiguration"]["TargetMuscle"] = MUSCLE_LABELS[int(params["TargetMuscle"])]
@@ -187,27 +185,28 @@ def update_template(template, params):
     return template
 
 
-def generate_motor_unit_counts(subject_seed):
+def generate_subject_properties(subject_seed):
     """
-    Generate motor unit counts for each muscle based on normal distributions with predefined means and standard deviations.
+    Generate motor unit counts for each muscle
     
     Args:
         subject_seed (int): Seed for random number generation to ensure reproducibility
         
     Returns:
-        list: List of 7 integers representing motor unit counts for each muscle
+        tuple[float, list[int]]: A tuple containing:
+            - fibre_density (float): Random fibre density between 150-250
+            - mu_counts (list[int]): List of motor unit counts for each muscle
     """
     np.random.seed(subject_seed)
-    mu_counts = []
-    for muscle in MUSCLE_LABELS:
-        mean = NUM_MUS[muscle]
-        std = STD_MUS[muscle]
-        # Generate a random number from normal distribution and round to nearest integer
-        count = round(np.random.normal(mean, std))
-        # Ensure count is positive
-        count = max(1, count)
-        mu_counts.append(count)
-    return mu_counts
+    fibre_density = np.random.randint(150, 250)
+    
+    # Generate motor unit counts using list comprehension
+    mu_counts = [
+        max(100, round(np.random.normal(NUM_MUS[muscle], STD_MUS[muscle])))
+        for muscle in MUSCLE_LABELS
+    ]
+    
+    return fibre_density, mu_counts
 
 def generate_configs(template_path, output_dir="configs", n_samples=10):
     """

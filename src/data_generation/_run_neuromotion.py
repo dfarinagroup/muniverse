@@ -1216,7 +1216,7 @@ if __name__ == '__main__':
     # If no compatible cache, generate new MUAPs
     if not use_cached_muaps:
         # Build movement profile for MUAP generation
-        fs_mov = 2  # Temporal frequency for movement simulation
+        fs_mov = 50  # Temporal frequency for movement simulation
         poses, durations, total_duration, steps = build_movement_profile(movement_cfg)
         
         # Generate MUAPs with subject-specific seed and MU count
