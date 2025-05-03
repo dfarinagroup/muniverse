@@ -57,3 +57,5 @@ data/
 
 # Results and configs folder
 **/res/
+**/configs/
+**/outputs/
