@@ -3,7 +3,7 @@ import os
 import numpy as np
 from scipy.stats.qmc import LatinHypercube
 
-MUSCLE_LABELS = ["ECRB", "ECRL", "ECU", "EDCI", "PL", "FCU", "FCU_u", "FDSI"]
+MUSCLE_LABELS = ["ECRB", "ECRL", "ECU", "EDI", "PL", "FCU", "FCU_u", "FDSI"]
 MOVEMENT_DOFS = ["Flexion-Extension", "Radial-Ulnar-deviation"]
 MOVEMENT_PROFILES = ["Trapezoid_Isometric", "Triangular_Isometric", "Ballistic_Isometric", "Sinusoid_Isometric", "Triangular_Dynamic", "Sinusoid_Dynamic"]
 NCOL_CHOICES = [5, 10, 32]
@@ -13,7 +13,7 @@ MOVEMENT_DOF_PROBS = [0.65, 0.35]
 MOVEMENT_PROFILE_PROBS = [0.5*0.7, 0.125*0.7, 0.125*0.7, 0.25*0.7, 0.5*0.3, 0.5*0.3] # p(Trapezoid/Triangular/Ballistic/Sinusiod)xp(isometric/dynamic)
 
 # Mean and std number of motor units for each muscle
-NUM_MUS = {'ECRB': 186, 'ECRL': 204, 'PL': 164, 'FCU_u': 205, 'FCU': 217, 'ECU': 180, 'EDCI': 186, 'FDSI': 158, 'FCU': 422}
+NUM_MUS = {'ECRB': 186, 'ECRL': 204, 'PL': 164, 'FCU_u': 205, 'FCU': 217, 'ECU': 180, 'EDI': 186, 'FDSI': 158, 'FCU': 422}
 STD_MUS = {muscle: int(mean * 0.1) for muscle, mean in NUM_MUS.items()}
 
 COMMON_PARAM_RANGES = {
@@ -80,7 +80,7 @@ PROFILE_PARAMS = {
 
 MOVEMENT_MUSCLES = {
     "Flexion": ["FCU", "FCU_u", "FDSI", "PL"],
-    "Extension": ["ECRB", "ECRL", "EDCI", "ECU"],
+    "Extension": ["ECRB", "ECRL", "EDI", "ECU"],
     "Radial": ["ECRB", "ECRL"],
     "Ulnar": ["FCU", "FCU_u", "ECU"],
 }

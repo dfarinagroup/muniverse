@@ -7,13 +7,13 @@
     "_description": "Defines subject-level physiological variability, i.e., MU Pool properties.",
     "SubjectSeed": 1,
     "FibreDensity": 200,
-    "MuscleLabels": ["ECRB", "ECRL", "PL", "FCU", "ECU", "EDCI", "FDSI"],
+    "MuscleLabels": ["ECRB", "ECRL", "PL", "FCU", "ECU", "EDI", "FDSI"],
     "MuscleMotorUnitCounts": [120, 130, 110, 140, 125, 115, 135]
   },
 
   "MovementConfiguration": {
     "_description": "Describes the prescribed movement scenario and force profile for the synthetic trial.",
-    "TargetMuscle": "FDSI",
+    "TargetMuscle": "EDI",
     "MovementType": "Isometric",
     "MovementDOF": "Flexion-Extension",
     "MovementProfileParameters": {
@@ -39,7 +39,8 @@
       "InterElectrodeDistance": 4,
       "NElectrodes": 320,
       "NRows": 10,
-      "NCols": 32
+      "NCols": 32,
+      "DesiredNCols":16
     },
     "FilterProperties": {
       "_description": "Settings for high-pass filtering the simulated EMG signal.",
