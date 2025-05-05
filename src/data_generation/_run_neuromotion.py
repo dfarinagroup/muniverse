@@ -756,7 +756,7 @@ def generate_muaps(
         subject_seed (int, optional): Subject-specific random seed.
         
     Returns:
-        tuple: (muaps, num_mus)
+        tuple: (muaps, num_mus, properties_dict)
     """
     # Set subject-specific seed if provided
     if subject_seed is not None:
@@ -784,11 +784,27 @@ def generate_muaps(
     msk.sim_mov(fs_mov, poses, durations)
 
     # Define muscles to track
-    ms_labels = ['ECRB', 'ECRL', 'PL', 'FCU', 'ECU', 'EDCI', 'FDSI']
-    ms_lens = msk.mov2len(ms_labels=ms_labels)
+    # Use MSK muscle names for tracking
+    ms_labels_msk = ['ECRB', 'ECRL', 'PL', 'FCU', 'ECU', 'EDCI', 'FDSI']
+    ms_lens = msk.mov2len(ms_labels=ms_labels_msk)
     changes = msk.len2params()
     steps = changes['steps']
-
+    
+    # Apply muscle name mapping after changes dictionary is generated
+    def map_muscle_names_msk(changes_dict):
+        msk_to_biomime_map = {'EDCI': 'EDI'}
+        
+        mapped_dict = changes_dict.copy()
+        # Apply renaming to each parameter DataFrame
+        for param in ['len', 'cv', 'depth']:
+            if param in mapped_dict:
+                mapped_dict[param] = mapped_dict[param].rename(columns=msk_to_biomime_map)
+                
+        return mapped_dict
+    
+    # Apply the mapping function to the changes dictionary
+    changes = map_muscle_names_msk(changes)
+    
     # PART TWO: Define the MotoneuronPool of one muscle
     if morph:
         with open(muap_file, 'rb') as fl:
@@ -797,7 +813,7 @@ def generate_muaps(
     # Use specified number of motor units
     mn_pool = MotoneuronPool(num_mus, ms_label, **mn_default_settings)
     
-# Create a dictionary to store the properties
+    # Create a dictionary to store the properties
     properties_dict = {}
     
     # Assign physiological properties
@@ -845,7 +861,6 @@ def generate_muaps(
     ch_cv = changes['cv'].loc[:, tgt_ms_labels]
     ch_len = changes['len'].loc[:, tgt_ms_labels]
     
-
     # Model
     generator = Generator(model_config.Model.Generator)
     generator = load_generator(model_pth, generator, device)
@@ -914,6 +929,7 @@ def generate_muaps(
     
     # Return the properties along with the muaps and num_mus
     return muaps, num_mus, properties_dict
+
 
 def save_motor_unit_properties_to_csv(properties_dict, csv_file):
     """
