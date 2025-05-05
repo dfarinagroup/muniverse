@@ -182,6 +182,9 @@ def update_template(template, params):
     template["RecordingConfiguration"]["NoiseLeveldb"] = int(params["NoiseLeveldb"])
     n_cols = int(min(2, (5/3)*params["NCols"])) # ensures that 32 Columns are chosen 60% of the time
     template["RecordingConfiguration"]["ElectrodeConfiguration"]["NCols"] = NCOL_CHOICES[n_cols]
+    template["RecordingConfiguration"]["ElectrodeConfiguration"]["DesiredNCols"] = NCOL_CHOICES[n_cols]
+    template["RecordingConfiguration"]["ElectrodeConfiguration"]["NElectrodes"] = 10 * NCOL_CHOICES[n_cols]
+    
     return template
 
 
@@ -251,7 +254,3 @@ def generate_configs(template_path, output_dir="configs", n_samples=10):
             with open(os.path.join(output_dir, f"config_{sample_id:0{n_digits}d}.json"), "w") as f:
                 json.dump(config, f, indent=2)
             sample_id += 1
-
-# Example usage
-if __name__ == "__main__":
-    generate_configs('/path/to/template.json', output_dir="configs")

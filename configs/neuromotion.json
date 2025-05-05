@@ -35,12 +35,12 @@
     "_description": "Describes the signal processing and acquisition environment.",
     "SamplingFrequency": 2048,
     "ElectrodeConfiguration": {
-      "_description": "Electrode array layout and spacing in the EMG acquisition setup.",
-      "InterElectrodeDistance": 4,
+      "_description": "Electrode array layout and spacing in the MUAP simulator (BioMime).",
+      "InterElectrodeDistance": 8,
       "NElectrodes": 320,
       "NRows": 10,
       "NCols": 32,
-      "DesiredNCols":16
+      "DesiredNCols": 32
     },
     "FilterProperties": {
       "_description": "Settings for high-pass filtering the simulated EMG signal.",
