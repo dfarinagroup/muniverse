@@ -1031,8 +1031,6 @@ def load_cached_muaps(cache_file, meta_file, required_metadata):
             cache_compatible = (
                 muap_metadata.get('muscle') == required_metadata['muscle'] and
                 muap_metadata.get('fs') == required_metadata['fs'] and
-                muap_metadata.get('electrode_rows') == required_metadata['electrode_rows'] and
-                muap_metadata.get('electrode_cols') == required_metadata['electrode_cols'] and
                 muap_metadata.get('subject_id') == required_metadata.get('subject_id')
             )
             
@@ -1212,8 +1210,6 @@ if __name__ == '__main__':
         required_metadata = {
             'muscle': ms_label,
             'fs': fs,
-            'electrode_rows': n_rows,
-            'electrode_cols': n_cols,
             'subject_id': subject_id
         }
 
@@ -1248,8 +1244,6 @@ if __name__ == '__main__':
                 "fs": fs,
                 "num_mus": num_mus,
                 "device": device,
-                "electrode_rows": n_rows,
-                "electrode_cols": n_cols,
                 "fiber_density": fibre_density,
                 "subject_seed": subject_seed,
                 "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
