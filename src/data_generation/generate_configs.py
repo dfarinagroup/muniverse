@@ -161,6 +161,7 @@ def update_template(template, params):
         template_profile["HoldDuration"] = 0
         template_profile["RampDuration"] = 1
         template_profile["NRepetitions"] = round(params["NRepetitions"])
+        template_profile["MovementDuration"] = (template_profile["RestDuration"] + 1) * template_profile["NRepetitions"]
     
     elif movement_profile == "Triangular_Dynamic":
         template_profile["AngleProfile"] = "Triangular"
@@ -172,10 +173,11 @@ def update_template(template, params):
         template_profile["SinFrequency"] = float(params["SinFrequency"])
         template_profile["SinAmplitude"] = angle_sin_amplitude
 
-    template_profile["MovementDuration"] = (
-        template_profile["RestDuration"]*2 + 
-        template_profile["RampDuration"]*2 + 
-        template_profile["HoldDuration"]) * template_profile["NRepetitions"]
+    if movement_profile is not "Ballistic_Isometric":
+        template_profile["MovementDuration"] = (
+            template_profile["RestDuration"]*2 + 
+            template_profile["RampDuration"]*2 + 
+            template_profile["HoldDuration"]) * template_profile["NRepetitions"]
 
     # Update RecordingConfiguration
     template["RecordingConfiguration"]["NoiseSeed"] = int(params["NoiseSeed"])

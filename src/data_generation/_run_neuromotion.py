@@ -85,7 +85,20 @@ def build_movement_profile(movement_config):
     return poses, durations, total_duration, steps
 
 
-def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, ramp_duration, hold_duration, n_reps):
+def _adjust_duration(fs, movement_duration, movement_profile):
+    """Check if the movement duration is compatible with the generated movement profile."""
+    # Ensure the profile doesn't exceed the specified duration
+    expected_samples = round(fs * movement_duration)
+    if len(movement_profile) > expected_samples:
+        movement_profile = movement_profile[:expected_samples]
+    elif len(movement_profile) < expected_samples:
+        # Pad with zeros if shorter than expected
+        movement_profile = np.pad(movement_profile, (0, expected_samples - len(movement_profile)), 'constant')
+
+    return movement_profile
+
+
+def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, ramp_duration, hold_duration):
     """Create a trapezoidal effort profile.
     
     Args:
@@ -95,55 +108,31 @@ def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, 
         rest_duration (float): Duration of rest period in seconds.
         ramp_duration (float): Duration of ramp up/down in seconds.
         hold_duration (float): Duration of sustained effort in seconds.
-        n_reps (int): Number of repetitions.
         
     Returns:
         numpy.ndarray: Effort profile.
     """
-    # Create the effort profile
-    ext = np.zeros(round(fs * movement_duration))
-    current_idx = 0
+    # One contraction consists of rest - ramp up - hold - ramp down - rest
+    rest_samples = round(fs * rest_duration)
+    ramp_samples = round(fs * ramp_duration)
+    hold_samples = round(fs * hold_duration)
     
-    for rep in range(n_reps):
-        # Rest period
-        if current_idx + round(fs * rest_duration) <= len(ext):
-            current_idx += round(fs * rest_duration)
-        else:
-            break
-        
-        # Ramp up
-        ramp_up = np.linspace(0, effort_level, round(fs * ramp_duration))
-        if current_idx + len(ramp_up) <= len(ext):
-            ext[current_idx:current_idx+len(ramp_up)] = ramp_up
-            current_idx += len(ramp_up)
-        else:
-            break
-        
-        # Hold
-        if current_idx + round(fs * hold_duration) <= len(ext):
-            ext[current_idx:current_idx+round(fs * hold_duration)] = effort_level
-            current_idx += round(fs * hold_duration)
-        else:
-            # Fill remaining with effort_level
-            remaining = len(ext) - current_idx
-            if remaining > 0:
-                ext[current_idx:] = effort_level
-            break
-        
-        # Ramp down
-        ramp_down = np.linspace(effort_level, 0, round(fs * ramp_duration))
-        if current_idx + len(ramp_down) <= len(ext):
-            ext[current_idx:current_idx+len(ramp_down)] = ramp_down
-            current_idx += len(ramp_down)
-        else:
-            # If we can't fit a full ramp down, fill with a partial ramp
-            remaining = len(ext) - current_idx
-            if remaining > 0:
-                partial_ramp = np.linspace(effort_level, effort_level * (1 - remaining/len(ramp_down)), remaining)
-                ext[current_idx:] = partial_ramp
-            break
+    muscle_force = np.concatenate([
+        np.zeros(rest_samples),
+        np.linspace(0, effort_level, ramp_samples),
+        np.ones(hold_samples) * effort_level,
+        np.linspace(effort_level, 0, ramp_samples),
+        np.zeros(rest_samples)
+    ])
     
-    return ext
+    # Add an extra second at the end (zero padding)
+    extra_samples = round(fs * 1.0)  # 1 second
+    muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
+
+    # Ensure the profile doesn't exceed the specified duration
+    muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
+    
+    return muscle_force
 
 
 def create_triangular_effort(fs, movement_duration, effort_level, rest_duration, ramp_duration, n_reps=1):
@@ -160,53 +149,30 @@ def create_triangular_effort(fs, movement_duration, effort_level, rest_duration,
     Returns:
         numpy.ndarray: Effort profile.
     """
-    # Create the effort profile
-    ext = np.zeros(round(fs * movement_duration))
-    current_idx = 0
+    # One contraction consists of rest - ramp up - ramp down - rest
+    rest_samples = round(fs * rest_duration)
+    ramp_samples = round(fs * ramp_duration)
+    one_contraction = np.concatenate([
+        np.zeros(rest_samples),
+        np.linspace(0, effort_level, ramp_samples),
+        np.linspace(effort_level, 0, ramp_samples),
+        np.zeros(rest_samples)
+    ])
     
-    for rep in range(n_reps):
-        # Rest period
-        if current_idx + round(fs * rest_duration) <= len(ext):
-            current_idx += round(fs * rest_duration)
-        else:
-            break
-        
-        # Calculate maximum possible triangle duration
-        max_triangle_duration = len(ext) - current_idx
-        triangle_duration = round(fs * ramp_duration * 2)  # Up and down
-        
-        if triangle_duration > max_triangle_duration:
-            # Adjust ramp duration to fit in the remaining time
-            adjusted_ramp = max_triangle_duration / (2 * fs)
-            ramp_samples = round(max_triangle_duration / 2)
-        else:
-            ramp_samples = round(fs * ramp_duration)
-        
-        # Ramp up
-        if current_idx + ramp_samples <= len(ext):
-            ramp_up = np.linspace(0, effort_level, ramp_samples)
-            ext[current_idx:current_idx+ramp_samples] = ramp_up
-            current_idx += ramp_samples
-        else:
-            break
-        
-        # Ramp down
-        if current_idx + ramp_samples <= len(ext):
-            ramp_down = np.linspace(effort_level, 0, ramp_samples)
-            ext[current_idx:current_idx+ramp_samples] = ramp_down
-            current_idx += ramp_samples
-        else:
-            # If we can't fit a full ramp down, fill with a partial ramp
-            remaining = len(ext) - current_idx
-            if remaining > 0:
-                partial_ramp = np.linspace(effort_level, effort_level * (1 - remaining/ramp_samples), remaining)
-                ext[current_idx:current_idx+remaining] = partial_ramp
-            break
+    # Repeat the contraction pattern n_reps times
+    muscle_force = np.tile(one_contraction, n_reps)
     
-    return ext
+    # Add an extra second at the end (zero padding)
+    extra_samples = round(fs * 1.0)  # 1 second
+    muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
+
+    # Ensure the profile doesn't exceed the specified duration
+    muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
+    
+    return muscle_force
 
 
-def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, n_reps=1, ramp_duration=0.05):
+def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, n_reps=1, ramp_duration=1):
     """Create a ballistic effort profile with very quick ramp up.
     
     Args:
@@ -215,22 +181,20 @@ def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, 
         effort_level (float): Maximum effort level (0-1).
         rest_duration (float): Duration of rest period in seconds.
         n_reps (int, optional): Number of repetitions. Defaults to 1.
-        ramp_duration (float, optional): Duration of ramp up in seconds. Defaults to 0.05s (50ms).
+        ramp_duration (float, optional): Duration of ramp up in seconds. Defaults to 1s.
         
     Returns:
         numpy.ndarray: Effort profile.
     """
-    # For ballistic contractions, we use a very short ramp up (default 50ms)
-    # followed by immediate return to rest
-    
     # Create one contraction cycle
     rest_samples = round(fs * rest_duration)
     ramp_samples = round(fs * ramp_duration)
     
-    # One contraction consists of rest followed by rapid ramp up
+    # One contraction consists of rest followed by rapid ramp up followed by rest
     one_contraction = np.concatenate([
         np.zeros(rest_samples),
-        np.linspace(0, effort_level, ramp_samples)
+        np.linspace(0, effort_level, ramp_samples),
+        np.zeros(rest_samples)
     ])
     
     # Repeat the contraction pattern n_reps times
@@ -241,12 +205,7 @@ def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, 
     muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
     
     # Ensure the profile doesn't exceed the specified duration
-    expected_samples = round(fs * movement_duration)
-    if len(muscle_force) > expected_samples:
-        muscle_force = muscle_force[:expected_samples]
-    elif len(muscle_force) < expected_samples:
-        # Pad with zeros if shorter than expected
-        muscle_force = np.pad(muscle_force, (0, expected_samples - len(muscle_force)), 'constant')
+    muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
     
     return muscle_force
 
@@ -293,37 +252,8 @@ def create_sinusoidal_effort(fs, movement_duration, effort_level, sin_frequency,
         ext = active_profile
     
     # Ensure the total length matches the movement duration
-    expected_length = round(fs * movement_duration)
-    if len(ext) < expected_length:
-        ext = np.pad(ext, (0, expected_length - len(ext)), 'constant')
-    elif len(ext) > expected_length:
-        ext = ext[:expected_length]
+    ext = _adjust_duration(fs, movement_duration, ext)
         
-    return ext
-
-
-def create_default_effort(fs, movement_duration, effort_level):
-    """Create a default effort profile with ramp up, hold, and ramp down.
-    
-    Args:
-        fs (float): Sampling frequency in Hz.
-        movement_duration (float): Total duration in seconds.
-        effort_level (float): Maximum effort level (0-1).
-        
-    Returns:
-        numpy.ndarray: Effort profile.
-    """
-    # Default is a simple ramp up, hold, ramp down pattern
-    ext = np.concatenate((
-        np.linspace(0, effort_level, round(fs * movement_duration / 3)), 
-        np.ones(round(fs * movement_duration / 3)) * effort_level,
-        np.linspace(effort_level, 0, round(fs * movement_duration / 3))
-    ))
-    
-    # Pad if needed
-    if len(ext) < round(fs * movement_duration):
-        ext = np.pad(ext, (0, round(fs * movement_duration) - len(ext)), 'constant')
-    
     return ext
 
 
@@ -364,7 +294,6 @@ def create_effort_profile(fs, movement_duration, profile_params):
                 profile_params.RestDuration, 
                 profile_params.RampDuration, 
                 profile_params.HoldDuration, 
-                profile_params.NRepetitions
             )
         elif profile_params.EffortProfile == "Sinusoid":
             # Convert sinusoidal parameters from percentages to decimal
@@ -407,8 +336,8 @@ def create_effort_profile(fs, movement_duration, profile_params):
             )
 
     
-    # Default case
-    return create_default_effort(fs, movement_duration, effort_level)
+    # Default case - constant effort profile
+    return create_constant_effort(fs, movement_duration, effort_level)
 
 
 def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, muap_dof_samples):
