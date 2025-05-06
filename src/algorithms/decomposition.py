@@ -2,12 +2,15 @@ import json
 import subprocess
 from pathlib import Path
 import tempfile
-from edfio import read_edf
+#from edfio import read_edf
 import numpy as np
 import pandas as pd
 from typing import Dict, Tuple, Any, Optional, Union
 import os
 import time
+from types import SimpleNamespace
+
+
 from .decomposition_methods import upper_bound, basic_cBSS
 from ..utils.logging import AlgorithmLogger
 
@@ -161,7 +164,7 @@ def decompose_scd(
         
         # Log output files
         for root, _, files in os.walk(run_dir):
-            for file in files:
+            for file in files: 
                 file_path = os.path.join(root, file)
                 logger.add_output(file_path, os.path.getsize(file_path))
         
@@ -173,6 +176,8 @@ def decompose_scd(
 
 def decompose_upperbound(
     data: np.ndarray,
+    data_generation_config: str,
+    muap_cache_file: Optional[str],
     algorithm_config: Optional[str],
     output_dir: Path
 ) -> Tuple[Dict, Dict]:
@@ -181,6 +186,8 @@ def decompose_upperbound(
     
     Args:
         data: EMG data array (channels x samples)
+        data_generation_config: output_config from data generation
+        muaps_cache_file: File where MUAPs are saved 
         algorithm_config: Optional path to algorithm configuration JSON file
         output_dir: Directory to save results
     
@@ -197,13 +204,12 @@ def decompose_upperbound(
         file_name="numpy_array",
         file_format="npy"
     )
-    
     # Load algorithm config if provided, otherwise use defaults
     if algorithm_config:
         algo_cfg = load_config(algorithm_config)
     else:
-        algo_cfg = {}  # Will use defaults
-    
+        algo_cfg = {"ext_fact":8, "whitening_method":"ZCA", "cluster_method":'kmeans', 'whitening_reg':'auto'} # Will use defaults
+
     logger.set_algorithm_config(algo_cfg)
     
     # Add preprocessing step
@@ -211,16 +217,24 @@ def decompose_upperbound(
         "InputFormat": "numpy_array",
         "Description": "Input data is already in numpy format"
     })
-    
+
     # Initialize and run upperbound
-    ub = upper_bound(config=algo_cfg)
-    sources, spikes, sil = ub.decompose(data, fsamp=2048)  # TODO: Make sampling frequency configurable
+    ub = upper_bound(config=SimpleNamespace(**algo_cfg))
+    
+    # Use the new load_muaps method to get the MUAPs
+    muaps_reshaped, fsamp, angle = ub.load_muaps(data_generation_config, muap_cache_file)
+    
+    # Move EMG to Nchannels, Nsamples shape
+    data = data.T 
+    sources, spikes, sil = ub.decompose(data, muaps_reshaped, fsamp=fsamp)
     
     # Add decomposition step
     logger.add_processing_step("Decomposition", {
         "Method": "UpperBound",
         "Configuration": algo_cfg,
-        "Description": "Run UpperBound algorithm on input data"
+        "Description": "Run UpperBound algorithm on input data",
+        "MuapFile": str(muap_cache_file),
+        "AngleUsed": angle
     })
     
     # Prepare results
@@ -336,4 +350,4 @@ def save_decomposition_results(output_dir: Path, results: Dict, metadata: Dict):
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
     
-    return results_path, metadata_path 
+    return results_path, metadata_path

@@ -40,6 +40,51 @@ class upper_bound:
                 setattr(self, key, value)
             else:
                 raise AttributeError(f"Invalid parameter: {key}")    
+                
+    def load_muaps(self, data_generation_config, muap_cache_file):
+        """
+        Load and prepare MUAPs for decomposition.
+        
+        Args:
+            data_generation_config: Path to data generation configuration file
+            muap_cache_file: Path to MUAP cache file
+            
+        Returns:
+            muaps_reshaped: Reshaped MUAPs ready for decomposition
+            fsamp: Sampling frequency from config
+            angle: Angle used for MUAP selection
+        """
+        # Load all the necessary files
+        import json
+        with open(data_generation_config, 'r') as f:
+            config = json.load(f)
+        fsamp = config['RecordingConfiguration']['SamplingFrequency']
+        if muap_cache_file is not None:
+            print(f"Loading MUAPs from cache: {muap_cache_file}")
+            muaps_full = np.load(muap_cache_file, allow_pickle=True)
+
+        # Now find the correct muaps according to the config
+        movement_dof = config['MovementConfiguration']['MovementDOF']
+        # Generate angle labels
+        if movement_dof == "Flexion-Extension":
+            min_angle, max_angle = -65, 65
+        elif movement_dof == "Radial-Ulnar-deviation":
+            min_angle, max_angle = -10, 25
+
+        constant_angle = config['MovementConfiguration']["MovementProfileParameters"]['TargetAngle']
+
+        muap_dof_samples = muaps_full.shape[1]
+        angle_labels = np.linspace(min_angle, max_angle, muap_dof_samples).astype(int)
+        
+        # Find the index of the angle in the MUAP library
+        angle_idx = np.argmin(np.abs(angle_labels - constant_angle))
+        muaps = muaps_full[:, angle_idx, :, :, :]
+
+        # Reshape MUAPs from (n_mu, n_rows, n_cols, n_samples) to (n_mu, n_channels, n_samples)
+        n_mu, n_rows, n_cols, n_samples = muaps.shape
+        muaps_reshaped = muaps.reshape(n_mu, n_rows * n_cols, n_samples)
+        
+        return muaps_reshaped, fsamp, constant_angle
 
     def decompose(self, sig, muaps, fsamp):
         """
@@ -337,5 +382,3 @@ class basic_cBSS:
         """
         # ToDo
         pass
-    
-

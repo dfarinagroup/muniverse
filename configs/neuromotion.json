@@ -40,7 +40,7 @@
       "NElectrodes": 320,
       "NRows": 10,
       "NCols": 32,
-      "DesiredNCols": 32
+      "DesiredNCols":32
     },
     "FilterProperties": {
       "_description": "Settings for high-pass filtering the simulated EMG signal.",
