@@ -35,7 +35,7 @@
     "_description": "Describes the signal processing and acquisition environment.",
     "SamplingFrequency": 2048,
     "ElectrodeConfiguration": {
-      "_description": "Electrode array layout and spacing in the MUAP simulator (BioMime). DesiredNCols sets the number of columns retained after EMG generation, based on mean activity of the column.",
+      "_description": "Electrode array layout and spacing in the MUAP simulator (BioMime) is fixed at 10 x 32, 8mm i.e.d. DesiredNCols sets the number of columns retained after EMG generation, based on mean activity of the column.",
       "InterElectrodeDistance": 8,
       "NElectrodes": 320,
       "NRows": 10,

@@ -18,7 +18,7 @@ STD_MUS = {muscle: int(mean * 0.1) for muscle, mean in NUM_MUS.items()}
 
 COMMON_PARAM_RANGES = {
     "SubjectSeed": (0, 5),          # index, unitless (int)
-    "TargetMuscle": (0, 8),         # index, unitless (int)
+    "TargetMuscle": (0, 7),         # index, unitless (int)
     "MovementDOF": (0, 2),          # index, unitless (int)    
     "NCols": (0, 3),                # unitless (int)
     "NoiseSeed": (1, 1000),         # unitless (int)
@@ -217,7 +217,7 @@ def generate_configs(template_path, output_dir="configs", n_samples=10):
     
     """
     # Ensure minimum number of samples is equal to the number of movement conditions
-    if n_samples <  len(MOVEMENT_PROFILES):
+    if n_samples < len(MOVEMENT_PROFILES):
         n_samples = len(MOVEMENT_PROFILES)
         raise Warning(f"n_samples was set to {n_samples} to ensure all movement conditions are covered.")
     
