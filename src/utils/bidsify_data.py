@@ -265,7 +265,7 @@ def neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulat
     recording.spikes = setup_spikes_data(data_path)
     # recording.motor_units = setup_motor_units_data(data_path)
     recording.internals = setup_internals_data(data_path, fsamp)
-    recording.internals_sidecar = setup_internals_metadata()
+    recording.set_metadata('internals_sidecar', setup_internals_metadata())
     
     # Add simulation metadata
     with open(os.path.join(data_path, run_logs[0]), 'r') as f:
