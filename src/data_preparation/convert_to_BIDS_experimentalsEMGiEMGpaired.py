@@ -1,0 +1,118 @@
+import numpy as np
+import pandas as pd
+import os
+from edfio import *
+from data2bids import *
+from otb_io import open_otb, format_otb_channel_metadata, format_subject_metadata
+from sidecar_templates import emg_sidecar_template, dataset_sidecar_template, load_dataset_sidecar_from_json
+from pathlib import Path
+
+# Helper function for getting electrode coordinates
+def get_grid_coordinates(grid_name):
+
+    if grid_name == 'GR04MM1305':
+        x = np.zeros(64)
+        y = np.zeros(64)
+        y[0:12]  = 0
+        x[0:12]  = np.linspace(11*4,0,12)
+        y[12:25] = 4
+        x[12:25] = np.linspace(0,12*4,13)
+        y[25:38] = 8
+        x[25:38] = np.linspace(12*4,0,13)
+        y[38:51] = 12
+        x[38:51] = np.linspace(0,12*4,13)
+        y[51:64] = 16
+        x[51:64] = np.linspace(12*4,0,13)
+           
+    else:
+        raise ValueError('The given grid_name has no reference')
+
+    return(x,y)
+
+# Helper  function for making the electrode metadata
+def make_electrode_metadata(ngrids):
+    name              = []
+    x                 = []
+    y                 = []
+    coordinate_system = []
+    for i in np.arange(ngrids):
+        (xg, yg) = get_grid_coordinates('GR04MM1305')
+        for j in np.arange(64):
+            name.append('E' + str(j+1))
+            x.append(xg[j])
+            y.append(yg[j])
+            coordinate_system.append('Grid' + str(i+1))
+    name.append('R1')
+    name.append('R2')
+    x.append('n/a') 
+    x.append('n/a') 
+    y.append('n/a') 
+    y.append('n/a') 
+    coordinate_system.append('n/a') 
+    coordinate_system.append('n/a')        
+    el_metadata = {'name': name, 'x': x, 'y': y, 'coordinate_system': coordinate_system}
+
+    return(el_metadata)
+
+
+# Define path and name of the BIDS structure
+#bids_path = make_bids_path(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
+
+# Number of subjects
+n_sub = 1
+# Number of trials
+n_mvc = 10
+mvcs = [10, 15, 20, 25, 30, 35, 40, 50, 60, 70]
+
+datapath = Path("C:\ICL\Data\Benchmark_datasets")
+
+subjects_data = {'name': ['S1'], 
+            'sex': ['M']}
+dataset_sidecar = load_dataset_sidecar_from_json(ID='Grison2025')
+
+Grison2025 = bids_dataset(datasetname='Grison_et_al_2025', root='./')
+Grison2025.set_metadata(field_name='subjects_data', source=subjects_data)
+Grison2025.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
+Grison2025.write()
+
+for i in np.arange(n_sub):
+    for j, mvc in enumerate(mvcs):
+
+        folder = 'S' + str(i+1) + '/' + str(mvc) + '/'
+        filename = str(mvc) + "mvc_semg" + '.otb+'
+        task = f'isometric-{mvc}-percent-mvc'
+
+        # Import daata from otb+ file
+        ngrids = 2
+        fname = datapath / folder / filename  #datapath + folder + filename
+        (data, metadata) = open_otb(fname, ngrids)
+
+        # Get and write channel metadata
+        ch_metadata = format_otb_channel_metadata(data,metadata,ngrids)
+
+        # Get electrode metadata
+        el_metadata = make_electrode_metadata(ngrids=4)
+
+        # Make the coordinate system sidecar file (here just a placeholder)
+        coordsystem_metadata = {'EMGCoordinateSystem': 'local', 'EMGCoordinateUnits': 'mm'}
+
+        # Make the emg sidecar file
+        emg_sidecar = emg_sidecar_template('Grison2025')
+        emg_sidecar['SamplingFrequency'] =  int(metadata['device_info']['SampleFrequency'])
+        emg_sidecar['SoftwareVersions'] = metadata['subject_info']['software_version']
+        emg_sidecar['ManufacturerModelName'] = metadata['device_info']['Name']
+
+        # Make a recording and add data and metadata
+        emg_recoring = bids_emg_recording(data_obj=Grison2025,subject=int(i+1), task=task, datatype='emg')
+        emg_recoring.set_metadata(field_name='channels', source=ch_metadata)
+        emg_recoring.set_metadata(field_name='electrodes', source=el_metadata) 
+        emg_recoring.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
+        emg_recoring.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata)
+        emg_recoring.set_data(field_name='emg_data', mydata=data,fsamp=2048)
+
+        emg_recoring.write()
+
+print('done')
+
+
+

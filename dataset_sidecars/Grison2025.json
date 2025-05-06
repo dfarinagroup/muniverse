@@ -1,0 +1,29 @@
+{
+    "Name": "Griston_et_al_2025_JPhysiol_BIDS_MUniverse",
+    "DatasetType": "raw",
+    "License": "CC0 BY 4.0",
+    "Authors": [
+      "Agnese Grison",
+      "Irene Mendez Guerra",
+      "Alexander Kenneth Clarke",
+      "Silvia Muceli",
+      "Jaime Ibanez Pereda",
+      "Dario Farina"
+    ],
+    "EthicsApprovals": "The Ethics Committee at Imperial College London reviewed and approved all procedures and protocols (no. 19IC5640)",
+    "Funding": [
+      "UK Research and Innovation (UKRI Centre for Doctoral Training in AI for Healthcare grant number EP/S023283/1)",
+      "Huawei Technologies Research & Development (UK) Ltd.",
+      "Engineering and Physical Sciences Research Council (EPSRC) Doctoral Prize Fellowship",
+      "HybridNeuro (HORIZON-WIDERA-2021-ACCESS-03- 101079392)",
+      "ECHOES (ERC Starting Grant 101077693)",
+      "Consolidación Investigadora grant (CNS2022-135366) funded by MCIN/AEI/10.13039/501100011033",
+      "NextGenerationEU/PRTR",
+      "Non-Invasive Single Neuron Electrical Monitoring (NISNEM Technology) Grant EP/T020970/1)"
+    ],
+    "ReferencesAndLinks": [
+      "Grison, A., Mendez Guerra, I., Clarke, A. K., Muceli, S., Ibanez Pereda, J., & Farina, D. (2025). Unlocking the full potential of high-density surface EMG: novel non-invasive high-yield motor unit decomposition Journal of Physiology, 603.8 (2025)",
+      "https://doi.org/10.1113/JP287913"
+    ]
+  }
+  

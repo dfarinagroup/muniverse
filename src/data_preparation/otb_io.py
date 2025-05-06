@@ -19,7 +19,7 @@ def open_otb(inputname,ngrid):
     """
 
     # 
-    filename = inputname.split('/')[-1]
+    filename = inputname.name  #.split('/')[-1]
     temp_dir = os.path.join('./', 'temp_tarholder')
     # make a temporary directory to store the data of the otb file if it doesn't exist yet
     if not os.path.isdir(temp_dir):

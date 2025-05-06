@@ -1,3 +1,6 @@
+import json
+import os
+
 def emg_sidecar_template(ID):
     emg_sidecar = {}
     if ID == 'Caillet2023':
@@ -50,6 +53,58 @@ def emg_sidecar_template(ID):
         emg_sidecar['InstitutionName'] = 'Imperial Collage London'
         emg_sidecar['InstitutionAddress'] = 'London SW7 2AZ, United Kingdom'
         emg_sidecar['InstitutionalDepartmentName'] = 'Department of Bioengineering'
+    elif ID == 'Grison2025':
+
+        emg_sidecar['EMGPlacementScheme'] = ('Two grids were carefully positioned side-to-side with a 4-mm distance' + 
+        'between the electrodes at the edges of adjacent grids. The 128 electrodes were centered to the muscle belly' +
+        '(right tibialis anterior) and laid  within the muscle perimeter identified through palpation.')
+        emg_sidecar['EMGElectrodeGroups'] = {
+            'Grid1': {'ElectrodeManufacturer': 'OTBioelettronica', 'ElectrodeManufaturerModelName': 'GR04MM1305', 'InterelectrodeDistance': '4 mm', 'GridShape': [13, 5], 'Material': 'gold coated'},
+            'Grid2': {'ElectrodeManufacturer': 'OTBioelettronica', 'ElectrodeManufaturerModelName': 'GR04MM1305', 'InterelectrodeDistance': '4 mm', 'GridShape': [13, 5], 'Material': 'gold coated'},
+        }
+        emg_sidecar['EMGReference'] = 'Wet reference band placed on the ankle of the same leg.'
+        emg_sidecar['EMGChannelCount'] = 128
+        emg_sidecar['EMGElectrodeCount'] = 130
+        emg_sidecar['SkinPreparation'] = 'The skin was shaved, abrased and cleansed with 70 percent ethyl alcohol'
+        emg_sidecar['Manufacturer'] = 'OTBioelettronica'
+        emg_sidecar['ManufacturerModelName'] = 'Quattrocento'
+        emg_sidecar['SoftwareVersions'] = 'OTBioLab+ v.1.5.6.0'
+        emg_sidecar['SamplingFrequency'] = 10240
+        emg_sidecar['PowerLineFrequency'] = 50
+        emg_sidecar['SoftwareFilters'] = {'bandpass filter': {'highpass': 10, 'lowpass': 4400}}
+        emg_sidecar['SetUpDescription'] = ('The participant sat on a chair with the hips' +  
+        'flexed at 30 degree, 0 degree being the hip neutral position, and their knees fully extended.' + 
+        'We fixed the foot of the dominant leg (right in all participants) onto the pedal of a commercial' + 
+        'dynamometer (OT Bioelettronica) positioned at 30 degree in the plantarflexion direction,' + 
+        '0 degree being the foot perpendicular to the shank. The thigh was fixed to the chair' + 
+        'with an inextensible 3-cm-wide Velcro strap. The foot was fixed to the pedal with inextensible' + 
+        'straps positioned around the proximal phalanx, metatarsal and cuneiform. Force signals were' + 
+        'recorded with a load cell (CCT Transducer s.a.s.) connected in-series to the pedal using the same' + 
+        'acquisition system as for the HD-EMG recordings (EMG-Quattrocento; OT Bioelettronica).' + 
+        'The dynamometer was positioned accordingly to the participant’s lower limb length and' + 
+        'secured to the massage table to avoid any motion during the contractions.')
+        emg_sidecar['TaskName'] = 'Isometric-ankle-dorsiflexion'
+        emg_sidecar['TaskDescription'] = ('The participant performed one, two, or three trapezoidal contractions at 10, 15, ' +
+                                         '20, 25, 30, 35, 40, 50, 60, and 70 percent MVC' +
+                                           'with 120 s of rest in between, consisting of linear' +
+                                            'ramps up and down performed at 5 percent per second and a plateau ' +
+                                            'maintained for 20 s up to 30 percent MVC, 15 s for 35 percent and 40 percent MVC, and ' +
+                                            '10 s from 50 percent to 70 percent MVC.' +
+                                             ' The order of the contractions was randomized.')
+        emg_sidecar['Instructions'] = 'Follow path provided via visual feedback.'
+        emg_sidecar['SubjectPosition'] = 'seated'
+        emg_sidecar['HipFlexion'] = '30 degree'
+        emg_sidecar['AnkleFlexion'] = '30 degree'
+        emg_sidecar['MISCChannelCount'] = 3
+        emg_sidecar['MISCChannelDescription'] = {
+            '1': 'Voltage output of the dynamometer load cell',
+            '2': 'Requested ankle torque trajectory',
+            '3': 'Performed ankle torque trajectory'
+        }
+        emg_sidecar['InstitutionName'] = 'Imperial Collage London'
+        emg_sidecar['InstitutionAddress'] = 'London SW7 2AZ, United Kingdom'
+        emg_sidecar['InstitutionalDepartmentName'] = 'Department of Bioengineering'
+
     else:
         # dictonary with essential fields     
         emg_sidecar['EMGPlacementScheme'] = 'other'
@@ -59,6 +114,29 @@ def emg_sidecar_template(ID):
         emg_sidecar['SoftwareFilters'] = 'n/a'
 
     return(emg_sidecar)
+
+def load_emg_sidecar_from_json(ID, directory="emg_sidecars"):
+    """
+    Load an EMG sidecar dictionary from a JSON file.
+    
+    Parameters:
+        ID (str): The identifier (e.g., 'Caillet2023', 'Grison2025').
+        directory (str): Folder where sidecar files are stored (default: 'emg_sidecars').
+        
+    Returns:
+        dict: EMG sidecar content.
+    """
+    filename = f"{ID}.json"
+    filepath = os.path.join(directory, filename)
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Sidecar file '{filepath}' not found.")
+
+    with open(filepath, "r") as f:
+        emg_sidecar = json.load(f)
+
+    return emg_sidecar
+
 
 def dataset_sidecar_template(ID):
 
@@ -91,3 +169,17 @@ def dataset_sidecar_template(ID):
         dataset_sidecar['BIDSversion'] = 'n/a'
 
     return(dataset_sidecar)
+
+def load_dataset_sidecar_from_json(ID, directory='dataset_sidecars'):
+    filename = os.path.join(directory, f"{ID}.json")
+    
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            dataset_sidecar = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: File {filename} not found.")
+        dataset_sidecar = {
+            'Name': 'n/a',
+            'BIDSversion': 'n/a'
+        }
+    return dataset_sidecar
