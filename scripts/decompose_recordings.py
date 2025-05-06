@@ -14,7 +14,6 @@ from src.algorithms.decomposition import decompose_scd
 
 # Input/output paths
 data_path = project_root / 'neuromotion-dev01/sub-sim02/emg/sub-sim02_task-ECRBdynamicradialsinusoid21percentmvcsub2ncol10_run-01_emg.edf'
-data_path = project_root / 'src/data_generation/res/subject_1_EDI_emg.npz'
 output_dir = project_root / 'outputs'
 container = project_root / 'environment/muniverse_scd.sif'
 config = project_root / 'configs/scd.json'
@@ -24,6 +23,6 @@ decompose_scd(
     data=str(data_path),
     output_dir=str(output_dir),
     algorithm_config=str(config),
-    engine='docker',
+    engine='singularity',
     container=str(container)
 )
