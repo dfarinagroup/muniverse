@@ -85,10 +85,10 @@ for i in np.arange(n_sub):
 
         if j==0:
             filename = 'S'  + str(i+1) + '_30MVC.otb+'
-            task = 'isometric-30-percent-mvc'
+            task = 'isometric30percentmvc'
         elif j==1:
             filename = 'S'  + str(i+1) + '_50MVC.otb+'
-            task = 'isometric-50-percent-mvc'
+            task = 'isometric50percentmvc'
 
 
         # Import daata from otb+ file

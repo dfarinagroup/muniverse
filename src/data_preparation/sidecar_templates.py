@@ -1,3 +1,5 @@
+from muniverse import __version
+
 def emg_sidecar_template(ID):
     emg_sidecar = {}
     if ID == 'Caillet2023':
