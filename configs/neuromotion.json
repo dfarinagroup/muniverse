@@ -7,8 +7,8 @@
     "_description": "Defines subject-level physiological variability, i.e., MU Pool properties.",
     "SubjectSeed": 1,
     "FibreDensity": 200,
-    "MuscleLabels": ["ECRB", "ECRL", "PL", "FCU", "ECU", "EDI", "FDSI"],
-    "MuscleMotorUnitCounts": [120, 130, 110, 140, 125, 115, 135]
+    "MuscleLabels": ["ECRB", "ECRL", "ECU", "EDI", "PL", "FCU", "FDSI"],
+    "MuscleMotorUnitCounts": [186, 204, 180, 186, 164, 422, 158]
   },
 
   "MovementConfiguration": {
