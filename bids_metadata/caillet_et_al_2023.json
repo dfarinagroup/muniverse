@@ -1,6 +1,6 @@
 {
     "DatasetDescription":{
-        "Name": "MUniverse Caillet_et_al_2023", 
+        "Name": "MUniverse Caillet et al 2023", 
         "BIDSversion": "extension proposal for electromyography - BEP042", 
         "DatasetType": "raw", 
         "License": "CC0 BY 4.0", 

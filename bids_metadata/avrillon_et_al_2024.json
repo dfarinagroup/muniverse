@@ -1,6 +1,6 @@
 {   
-    "DatasetSidecar": {
-        "Name": "MUniverse Avrillon_et_al_2024",
+    "DatasetDescription": {
+        "Name": "MUniverse Avrillon et al 2024",
         "BIDSversion": "extension proposal for electromyography - BEP042",
         "DatasetType": "raw",
         "License": "CC0 BY 4.0",
