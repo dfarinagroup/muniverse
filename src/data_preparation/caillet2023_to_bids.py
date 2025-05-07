@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
+import json
 import os
 from edfio import *
-from data2bids import *
-from otb_io import open_otb, format_otb_channel_metadata, format_subject_metadata
-from sidecar_templates import emg_sidecar_template, dataset_sidecar_template
+from .data2bids import *
+from .otb_io import open_otb, format_otb_channel_metadata
+#from .sidecar_templates import emg_sidecar_template, dataset_sidecar_template
 from pathlib import Path
 
 # Helper function for getting electrode coordinates
@@ -54,20 +55,21 @@ def make_electrode_metadata(ngrids):
 
     return(el_metadata)
 
+metadatapath = str(Path.cwd()) + '/' 
 
-# Define path and name of the BIDS structure
-#bids_path = make_bids_path(subject=1, task='isometric-30-percent-mvc', datatype='emg', root='./data')
+with open(metadatapath + 'caillet_et_al_2023.json', 'r') as f:
+    manual_metadata = json.load(f)
 
 # Number of subjects
 n_sub = 6
 # Number of trials
 n_mvc = 2
 
-datapath = str(Path.home()) + '/Downloads/Supplementary_data-1/RAW_HDEMG_SIGNALS/'
+sourcepath = str(Path.home()) + '/Downloads/Supplementary_data-1/RAW_HDEMG_SIGNALS/'
 
 subjects_data = {'name': ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05', 'sub-06'], 
             'sex': ['M', 'M', 'M', 'M', 'M', 'M']}
-dataset_sidecar = dataset_sidecar_template(ID='Caillet2023')
+dataset_sidecar = manual_metadata["DatasetDescription"] #dataset_sidecar_template(ID='Caillet2023')
 
 Caillet_2023 = bids_dataset(datasetname='Caillet_et_al_2023', root='./')
 Caillet_2023.set_metadata(field_name='subjects_data', source=subjects_data)
@@ -93,7 +95,7 @@ for i in np.arange(n_sub):
 
         # Import daata from otb+ file
         ngrids = 4
-        fname =  datapath + folder + filename
+        fname =  sourcepath + folder + filename
         (data, metadata) = open_otb(fname, ngrids)
 
         # Get and write channel metadata
@@ -103,24 +105,24 @@ for i in np.arange(n_sub):
         el_metadata = make_electrode_metadata(ngrids=4)
 
         # Make the coordinate system sidecar file (here just a placeholder)
-        coordsystem_metadata = {'EMGCoordinateSystem': 'local', 'EMGCoordinateUnits': 'mm'}
+        coordsystem_metadata = manual_metadata["CoordSystemSidecar"] # {'EMGCoordinateSystem': 'local', 'EMGCoordinateUnits': 'mm'}
 
         # Make the emg sidecar file
-        emg_sidecar = emg_sidecar_template('Caillet2023')
+        emg_sidecar = manual_metadata["EMGSidecar"] #emg_sidecar_template('Caillet2023')
         emg_sidecar['SamplingFrequency'] =  int(metadata['device_info']['SampleFrequency'])
         emg_sidecar['SoftwareVersions'] = metadata['subject_info']['software_version']
         emg_sidecar['ManufacturerModelName'] = metadata['device_info']['Name']
 
 
         # Make a recording and add data and metadata
-        emg_recoring = bids_emg_recording(data_obj=Caillet_2023,subject=int(i+1), task=task, datatype='emg')
-        emg_recoring.set_metadata(field_name='channels', source=ch_metadata)
-        emg_recoring.set_metadata(field_name='electrodes', source=el_metadata) 
-        emg_recoring.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
-        emg_recoring.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata)
-        emg_recoring.set_data(field_name='emg_data', mydata=data,fsamp=2048)
+        emg_recording = bids_emg_recording(data_obj=Caillet_2023,subject=int(i+1), task=task, datatype='emg')
+        emg_recording.set_metadata(field_name='channels', source=ch_metadata)
+        emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
+        emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
+        emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata)
+        emg_recording.set_data(field_name='emg_data', mydata=data,fsamp=2048)
 
-        emg_recoring.write()
+        emg_recording.write()
 
 print('done')
 
