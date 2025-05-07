@@ -59,8 +59,13 @@ def open_otb(inputname,ngrid):
     # initalize vector of recorded units
     ch_units = []
 
+    # Get the number of EMG channels
+    n_channels = 0
+    for i in range(ngrid):
+        n_channels += int(adapter_info[i+1].attrib['ChannelStartIndex']) - int(adapter_info[i].attrib['ChannelStartIndex'])
+
     # convert the data from bits to microvolts
-    for i in range(ngrid*64):
+    for i in range(n_channels):
         data[:,i] = ((np.dot(emg_data[i,:],5000))/(2**float(nADbit)))
         ch_units.append('uV')
 
@@ -135,7 +140,8 @@ def format_otb_channel_metadata(data,metadata,ngrids):
     # Loop over all EMG channels
     for i in np.arange(ngrids):    
         channel_metadata = metadata['adapter_info'][i].findall('.//Channel')
-        for j in np.arange(64):
+        n_channels = int(metadata['adapter_info'][i+1].attrib['ChannelStartIndex']) - int(metadata['adapter_info'][i].attrib['ChannelStartIndex'])
+        for j in np.arange(n_channels):
             ch_type.append('EMG')
             low_cutoff.append(int(metadata['adapter_info'][i].attrib['LowPassFilter']))
             high_cutoff.append(int(metadata['adapter_info'][i].attrib['HighPassFilter']))
