@@ -27,8 +27,8 @@
         "GeneratedBy": {
             "Name": "muniverse", 
             "Version": "0.1.0", 
-            "CodeURL": "https://github.com/xxx",
-            "ScriptName": "caillet2023_to_bids",
+            "CodeURL": "https://github.com/pranavm19/muniverse-demo/scripts/",
+            "ScriptName": "caillet2023_to_bids.py",
             "Description": "Semi-automated conversion of the original data into BIDS format"    
         },
         "Source": {

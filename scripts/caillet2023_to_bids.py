@@ -3,8 +3,8 @@ import pandas as pd
 import json
 import os
 from edfio import *
-from .data2bids import *
-from .otb_io import open_otb, format_otb_channel_metadata
+from src.data_preparation.data2bids import *
+from src.data_preparation.otb_io import open_otb, format_otb_channel_metadata
 #from .sidecar_templates import emg_sidecar_template, dataset_sidecar_template
 from pathlib import Path
 
@@ -55,7 +55,7 @@ def make_electrode_metadata(ngrids):
 
     return(el_metadata)
 
-metadatapath = str(Path.cwd()) + '/' 
+metadatapath = str(Path.cwd()) + '/bids_metadata/' 
 
 with open(metadatapath + 'caillet_et_al_2023.json', 'r') as f:
     manual_metadata = json.load(f)

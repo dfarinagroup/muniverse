@@ -28,7 +28,7 @@
         "GeneratedBy": {
             "Name": "muniverse", 
             "Version": "0.1.0", 
-            "CodeURL": "https://github.com/xxx",
+            "CodeURL": "https://github.com/pranavm19/muniverse-demo/scripts/",
             "ScriptName": "avrillon2024_to_bids",
             "Description": "Semi-automated conversion of the original data into BIDS format"    
         },
