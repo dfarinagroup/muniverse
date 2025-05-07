@@ -55,7 +55,7 @@ def make_electrode_metadata(ngrids):
 
     return(el_metadata)
 
-metadatapath = str(Path.cwd()) + '/bids_metadata/' 
+metadatapath = str(Path(__file__).parent.parent) + '/bids_metadata/' 
 
 with open(metadatapath + 'caillet_et_al_2023.json', 'r') as f:
     manual_metadata = json.load(f)
