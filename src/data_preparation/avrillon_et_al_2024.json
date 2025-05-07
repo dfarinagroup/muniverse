@@ -1,0 +1,114 @@
+{   
+    "DatasetSidecar": {
+        "Name": "MUniverse Avrillon_et_al_2024",
+        "BIDSversion": "extension proposal for electromyography - BEP042",
+        "DatasetType": "raw",
+        "License": "CC0 BY 4.0",
+        "Authors": [
+            "Simon Avrillon",
+            "François Hug",
+            "Roger M. Enoka",
+            "Arnault H. Caillet",
+            "Dario Farina"
+        ],
+        "EthicsApprovals": "The study was reviewed and approved by Imperial College London (Study 18IC4685) and Comité de Protection des Personnes Ouest III (Study 23.00453.000166)",
+        "Funding": [
+            "Agence Nationale de la Recherche (ANR-16-IDEX-0007)",
+            "Biotechnology and Biological Sciences Research Council (BB/V00896X)",
+            "Engineering and Physical Sciences Research Council (EP/T020970)",
+            "Agence Nationale de la Recherche (ANR-24-CE17-5805)",
+            "European Research Council (#810346)",
+            "Future project managed by the French National Research Agency (ANR-15-IDEX-01)",
+            "National Multiple Sclerosis Society (RG-2206-39688)"
+        ],
+        "ReferencesAndLinks": [
+            "Avrillon, S., Hug, F., Enoka, R. M., Caillet, A. H., & Farina, D. (2024). The identification of extensive samples of motor units in human muscles reveals diverse effects of neuromodulatory inputs on the rate coding. eLife, 13, eLife.97085.3.",
+            "https://doi.org/10.7554/eLife.97085.3"
+        ],
+        "GeneratedBy": {
+            "Name": "muniverse", 
+            "Version": "0.1.0", 
+            "CodeURL": "https://github.com/xxx",
+            "ScriptName": "avrillon2024_to_bids",
+            "Description": "Semi-automated conversion of the original data into BIDS format"    
+        },
+        "Source": {
+            "URL": "https://doi.org/10.6084/m9.figshare.24640944",
+            "Version": "2023-11-27"
+        }
+    },
+
+    "EMGSidecar": {
+        "EMGPlacementScheme": "Four grids were carefully positioned side-to-side with a 4-mm distance between the electrodes at the edges of adjacent grids. The 256 electrodes were centered to the muscle belly (right tibialis anterior) and laid within the muscle perimeter identified through palpation",
+        "EMGReference": "Two bands damped with water were placed around the ankle as ground and reference electrodes",
+        "SamplingFrequency": 2048,
+        "PowerLineFrequency": 50,
+        "SoftwareFilters": { 
+            "bandpass filter": { 
+                "highpass": 10, 
+                "lowpass": 500 
+                }
+            },
+        "TaskName": "Isometric-ankle-dorsiflexion",
+        "EMGElectrodeGroups": {
+            "Grid1": {
+                "ElectrodeManufacturer": "OTBioelettronica",
+                "ElectrodeManufaturerModelName": "GR04MM1305",
+                "InterelectrodeDistance": "4 mm",
+                "GridShape": [13, 5],
+                "Material": "gold coated"
+            },
+            "Grid2": {
+                "ElectrodeManufacturer": "OTBioelettronica",
+                "ElectrodeManufaturerModelName": "GR04MM1305",
+                "InterelectrodeDistance": "4 mm",
+                "GridShape": [13, 5],
+                "Material": "gold coated"
+            },
+            "Grid3": {
+                "ElectrodeManufacturer": "OTBioelettronica",
+                "ElectrodeManufaturerModelName": "GR04MM1305",
+                "InterelectrodeDistance": "4 mm",
+                "GridShape": [13, 5],
+                "Material": "gold coated"
+            },
+            "Grid4": {
+                "ElectrodeManufacturer": "OTBioelettronica",
+                "ElectrodeManufaturerModelName": "GR04MM1305",
+                "InterelectrodeDistance": "4 mm",
+                "GridShape": [13, 5],
+                "Material": "gold coated"
+            }
+        },
+        "EMGChannelCount": 256,
+        "EMGElectrodeCount": 258,
+        "SkinPreparation": "The skin was shaved and cleaned with an abrasive pad and water",
+        "Manufacturer": "OTBioelettronica",
+        "ManufacturerModelName": "QUATTROCENTO; ID=Unknown",
+        "SoftwareVersions": "OTBioLab+ v.1.5.6.0",
+        "SetUpDescription": "The participants sat on a massage table with the hips flexed at 45°, 0° being the hip neutral position, and the knees fully extended. The foot of the dominant leg (right in all participants) was fixed onto the pedal of an ankle dynamometer (OT Bioelettronica, Turin, Italy) positioned at 30° in the plantarflexion direction, 0° being the foot perpendicular to the shank. The thigh and the foot were fixed with inextensible Velcro straps. Force signals were recorded with a load cell (CCT Transducer s.a.s, Turin, Italy) connected in-series to the pedal using the same acquisition system as for the EMG recordings (EMG-Quattrocento; OT Bioelettronica, Italy).",
+        "TaskDescription": "The experimental session began with a warm-up that consisted of submaximal isometric contractions from 50% to 80% of the subjective MVC. Then, participants performed two MVC with 2 min of rest in between. The maximal torque was considered as the highest torque value recorded over an average window of 250 ms. The rest of the session consisted of a series of eight submaximal isometric contractions performed at 10–80% of the MVC with 10% MVC increments. The pattern of the contractions followed a trapezoidal target displayed on a screen in real time with the force trace. Ramp-up and ramp-down phases were performed at a constant pace of 5% MVC/s. The force plateaus were maintained for either 10 s (70–80% MVC), 15 s (50–60% MVC), or 20 s (10–40% MVC). The contractions were separated by 90 s of rest and their order was randomised.",
+        "Instructions": "Follow path provided via visual feedback.",
+        "SubjectPosition": "seated",
+        "HipFlexion": "45 degree",
+        "AnkleFlexion": "30 degree",
+        "MISCChannelCount": 3,
+        "MISCChannelDescription": {
+            "1": "Voltage output of the dynamometer load cell",
+            "2": "Requested ankle torque trajectory",
+            "3": "Performed ankle torque trajectory"
+        },
+        "InstitutionName": "Imperial College London",
+        "InstitutionAddress": "London W12 0BZ, United Kingdom",
+        "InstitutionalDepartmentName": "Department of Bioengineering"
+    },
+
+    "CoordSystemSidecar":{
+        "EMGCoordinateSystem": "local", 
+        "EMGCoordinateUnits": "mm"
+    }
+}
+
+
+  
+  
