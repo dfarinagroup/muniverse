@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import butter, filtfilt
 
-def bandpass_signals(emg_data, fsamp, low_pass = 20, high_pass = 500, order = 2):
+def bandpass_signals(emg_data, fsamp, high_pass = 20, low_pass = 500, order = 2):
     """
     Bandpass filter emg data using a butterworth filter
 
@@ -21,7 +21,7 @@ def bandpass_signals(emg_data, fsamp, low_pass = 20, high_pass = 500, order = 2)
 
     return emg_data
 
-def notch_signals(emg_data, fsamp, nfreq = 50, dfreq = 1, order = 2):
+def notch_signals(emg_data, fsamp, nfreq = 50, dfreq = 1, order = 2, n_harmonics = 3):
     """
     Notch filter emg data using a butterworth filter
 
@@ -31,12 +31,16 @@ def notch_signals(emg_data, fsamp, nfreq = 50, dfreq = 1, order = 2):
         nfreq (float): frequency to be filtered
         dfreq (float): width of the notch filter (plus/minus dfreq)
         order (int): Order of the filter
+        n_harmonics: Number of harmonics to be filtered 
 
     Returns:
         ndarray : filtered emg data (n_channels x n_samples)
     """
 
-    b, a = butter(order, [nfreq-dfreq, nfreq+dfreq], fs=fsamp, btype='bandstop')
-    emg_data = filtfilt(b,a,emg_data, axis=1)
+    harmonics = nfreq * np.arange(1, n_harmonics + 1)
+
+    for i in np.arange(n_harmonics):
+        b, a = butter(order, [harmonics[i]-dfreq, harmonics[i]+dfreq], fs=fsamp, btype='bandstop')
+        emg_data = filtfilt(b,a,emg_data, axis=1)
 
     return emg_data
