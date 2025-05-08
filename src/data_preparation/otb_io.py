@@ -5,13 +5,13 @@ import xml.etree.ElementTree as ET
 from dateutil import parser
 from pathlib import Path
 
-def open_otb(inputname,ngrid):
+def open_otb(inputname,n_adapters):
     """
     Reads otb+ files and outputs stored data and metadata
 
     Args:
         inputname (str): name and path of the inputfile, e.g. '/this/is/mypath/filename.otb+'
-        ngrid (int): number of emg arrays used in the measurement
+        n_adapters (int): number of emg arrays used in the measurement
 
     Returns:
         data (ndarray): array of recorded data (samples x channels)
@@ -57,18 +57,25 @@ def open_otb(inputname,ngrid):
     # initalize vector of recorded units
     ch_units = []
 
-    # Get the number of EMG channels
-    n_channels = 0
-    for i in range(ngrid):
-        n_channels += int(adapter_info[i+1].attrib['ChannelStartIndex']) - int(adapter_info[i].attrib['ChannelStartIndex'])
+    # Get the number of EMG channels per adapter
+    ch_per_adpaters = np.zeros(n_adapters)
+    for i in range(n_adapters):
+        ch_per_adpaters[i] = int(adapter_info[i+1].attrib['ChannelStartIndex']) - int(adapter_info[i].attrib['ChannelStartIndex'])
+    
+    # Get the total number of EMG channels
+    n_channels = int(sum(ch_per_adpaters))
 
     # initalize data vector
     data = np.zeros((emg_data.shape[1], n_channels+len(sip_files)))
 
     # convert the data from bits to microvolts
-    for i in range(n_channels):
-        data[:,i] = ((np.dot(emg_data[i,:],5000))/(2**float(nADbit)))
-        ch_units.append('uV')
+    ch_idx = 0
+    for i in range(n_adapters):
+        gain = float(adapter_info[i].attrib['Gain'])
+        for j in range(int(ch_per_adpaters[i])):
+            data[:,ch_idx] = ((np.dot(emg_data[i,:],5000))/(2**float(nADbit) * gain))
+            ch_units.append('mV')
+            ch_idx += 1
 
     # Get data and metadata from the aux input channels
     aux_info = dict()
@@ -114,7 +121,7 @@ def open_otb(inputname,ngrid):
 
     return (data, metadata)
 
-def format_otb_channel_metadata(data,metadata,ngrids):
+def format_otb_channel_metadata(data,metadata,n_adapters):
     """
     Extract channel metadata given the output of the open_otb function
 
@@ -144,7 +151,7 @@ def format_otb_channel_metadata(data,metadata,ngrids):
     electrode_idx = 0
 
     # Loop over all EMG channels
-    for i in np.arange(ngrids):    
+    for i in np.arange(n_adapters):    
         channel_metadata = metadata['adapter_info'][i].findall('.//Channel')
         n_channels = int(metadata['adapter_info'][i+1].attrib['ChannelStartIndex']) - int(metadata['adapter_info'][i].attrib['ChannelStartIndex'])
         for j in np.arange(n_channels):
