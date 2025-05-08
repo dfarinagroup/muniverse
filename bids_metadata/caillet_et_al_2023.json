@@ -103,8 +103,10 @@
     },
 
     "CoordSystemSidecar":{
-        "EMGCoordinateSystem": "local", 
-        "EMGCoordinateUnits": "mm"
+        "EMGCoordinateSystem": "Other", 
+        "EMGCoordinateUnits": "mm",
+        "EMGCoordinateSystemDescription": "x-axis: proximal -> distal; y-axis: medial -> lateral",
+        "AnchorElectrode": "E12 - Grid1"
     }
 
 }

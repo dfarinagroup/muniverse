@@ -36,13 +36,26 @@ def make_electrode_metadata(ngrids):
     x                 = []
     y                 = []
     coordinate_system = []
+
+    elecorode_idx = 0
     for i in np.arange(ngrids):
         (xg, yg) = get_grid_coordinates('GR04MM1305')
         for j in np.arange(64):
-            name.append('E' + str(j+1))
-            x.append(xg[j])
-            y.append(yg[j])
-            coordinate_system.append('Grid' + str(i+1))
+            elecorode_idx += 1
+            name.append('E' + str(elecorode_idx))
+            coordinate_system.append('Grid1')
+            if i==0:
+                x.append(xg[j])
+                y.append(yg[j])
+            elif i==1:
+                x.append(xg[j])
+                y.append(yg[j] + 20) 
+            elif i==2:
+                x.append(100 - xg[j])
+                y.append(16 - yg[j]) 
+            elif i==3:
+                x.append(100 - xg[j])
+                y.append(36 - yg[j])     
     name.append('R1')
     name.append('R2')
     x.append('n/a') 
