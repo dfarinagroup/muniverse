@@ -1,7 +1,6 @@
 import numpy as np
 from .decomposition_routines import *
-import sys
-
+from .pre_processing import *
 
 class upper_bound:
     '''
@@ -177,10 +176,16 @@ class basic_cBSS:
     def __init__(self, config=None, **kwargs):
 
         # Default parameters
+        self.bandpass = [20, 500]
+        self.bandpass_order = 2
+        self.notch_frequency = 50
+        self.notch_n_harmonics = 3
+        self.notch_order = 2
+        self.notch_width = 1
         self.ext_fact = 12
         self.whitening_method = 'ZCA'
         self.whitening_reg  = 'auto'
-        self.n_iter = 100
+        self.ica_n_iter = 100
         self.opt_initalization = 'random'
         self.opt_function_exp = 3
         self.opt_max_iter = 100
@@ -233,6 +238,21 @@ class basic_cBSS:
         # Initalize random number generator
         rng = np.random.seed(self.random_seed)
 
+        # Bandpass filter signals
+        if self.bandpass is not None:
+            sig = bandpass_signals(sig, fsamp, 
+                                   high_pass = self.bandpass[0], 
+                                   low_pass = self.bandpass[1], 
+                                   order = self.bandpass_order)
+
+        # Notch filter signals
+        if self.notch_frequency is not None:
+            sig = notch_signals(sig, fsamp, 
+                                nfreq = self.notch_frequency, 
+                                dfreq = self.notch_width, 
+                                order = self.notch_order, 
+                                n_harmonics = self.notch_n_harmonics)
+
         # Extend signals and subtract the mean and cut the edges
         ext_sig = extension(sig,self.ext_fact)
         ext_sig -= np.mean(ext_sig, axis=1, keepdims=True)
@@ -245,16 +265,16 @@ class basic_cBSS:
         # Step 1.3: Whiten the extended signals
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
 
-        sources  = np.zeros((self.n_iter,sig.shape[1]))
-        spikes = {i: [] for i in range(self.n_iter)}
-        sil = np.zeros(self.n_iter)
-        B = np.zeros((white_sig.shape[0], self.n_iter))
+        sources  = np.zeros((self.ica_n_iter,sig.shape[1]))
+        spikes = {i: [] for i in range(self.ica_n_iter)}
+        sil = np.zeros(self.ica_n_iter)
+        B = np.zeros((white_sig.shape[0], self.ica_n_iter))
 
         if self.opt_initalization == 'activity_idx':
-            act_idx_histoty = np.zeros(self.n_iter).astype(bool)
+            act_idx_histoty = np.zeros(self.ica_n_iter).astype(bool)
 
         # Loop over each MU
-        for i in np.arange(self.n_iter):
+        for i in np.arange(self.ica_n_iter):
             # Initalize 
             if self.opt_initalization == 'random':
                 w = np.random.randn(white_sig.shape[0])
