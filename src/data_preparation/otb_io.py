@@ -7,7 +7,10 @@ from pathlib import Path
 
 def open_otb(inputname,n_adapters):
     """
-    Reads otb+ files and outputs stored data and metadata
+    Reads otb+ files and outputs stored data and metadata. 
+    For further details regarding the structure of the OTB+ files see:
+    https://otbioelettronica.it/download/137/otb-file-structure/2665/otb-structure
+
 
     Args:
         inputname (str): name and path of the inputfile, e.g. '/this/is/mypath/filename.otb+'
@@ -43,6 +46,12 @@ def open_otb(inputname,n_adapters):
     # Get the device info
     device_info = xml.attrib
 
+    # Get the power supply (in volt), needed for the conversion to phyisical units
+    if device_info['Name'].split(';')[0] == 'QUATTROCENTO':
+        PowerSupply = 5
+    else:
+        raise ValueError("Unsupported device")
+
     # Get the adapter info 
     adapter_info = xml.findall('.//Adapter')
 
@@ -73,7 +82,9 @@ def open_otb(inputname,n_adapters):
     for i in range(n_adapters):
         gain = float(adapter_info[i].attrib['Gain'])
         for j in range(int(ch_per_adpaters[i])):
-            data[:,ch_idx] = ((np.dot(emg_data[i,:],5000))/(2**float(nADbit) * gain))
+            # The coversion formula is derived from:
+            # https://github.com/OTBioelettronica/OTB-Matlab/blob/main/MATLAB%20Open%20and%20Processing%20OTBFiles/OpenOTBFiles/OpenOTBfilesConvFact.m
+            data[:,ch_idx] = ((np.dot(emg_data[i,:],PowerSupply*1000))/(2**float(nADbit) * gain))
             ch_units.append('mV')
             ch_idx += 1
 
