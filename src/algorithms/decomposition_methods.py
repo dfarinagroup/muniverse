@@ -194,7 +194,7 @@ class basic_cBSS:
         self.peel_off = 'false'
         self.cluster_method  = 'kmeans'
         self.random_seed = 1909
-        self.refinement_loop = False
+        self.refinement_loop = True
         self.sil_th = 0.9
         self.cov_th = 0.35
 
@@ -271,7 +271,7 @@ class basic_cBSS:
         B = np.zeros((white_sig.shape[0], self.ica_n_iter))
 
         if self.opt_initalization == 'activity_idx':
-            act_idx_histoty = np.zeros(self.ica_n_iter).astype(bool)
+            act_idx_histoty = np.array([]) 
 
         # Loop over each MU
         for i in np.arange(self.ica_n_iter):
@@ -280,10 +280,10 @@ class basic_cBSS:
                 w = np.random.randn(white_sig.shape[0])
             elif self.opt_initalization == 'activity_idx':
                 col_norms = np.linalg.norm(white_sig, axis=0)
-                col_norms[np.where(act_idx_histoty>0)] = 0
+                col_norms[act_idx_histoty.astype(int)] = 0
                 best_idx = np.argmax(col_norms)
                 w = white_sig[:, best_idx]
-                act_idx_histoty[i] = best_idx
+                act_idx_histoty = np.append(act_idx_histoty, best_idx)
             else:
                 ValueError('The specified initalization method is not implemented')
 
