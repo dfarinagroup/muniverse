@@ -5,9 +5,9 @@
     "DatasetType": "raw",
     "License": "CC0 BY 4.0",
     "Authors": [
-      "Pranav Mamidanna",
-      "Thomas Klotz",
-      "Dimitrios Halatsis",
+      "Pranav Mamidanna *",
+      "Thomas Klotz *",
+      "Dimitrios Halatsis *",
       "Agnese Grison",
       "Irene Mendez Guerra",
       "Shihan Ma",
@@ -16,6 +16,7 @@
       "Dario Farina"
     ],
     "EthicsApprovals": "n/a",
+    "Note": "* Equal contribution",
     "Funding": [],
     "ReferencesAndLinks": []
   },

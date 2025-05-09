@@ -18,16 +18,16 @@
     "MovementDOF": "Flexion-Extension",
     "MovementProfileParameters": {
       "EffortLevel": 10,
-      "EffortProfile": "Trapezoid",
+      "EffortProfile": "Triangular",
       "AngleProfile": "Constant",
       "TargetAngle": 0,
       "NRepetitions": 1,
       "RestDuration": 1,
       "RampDuration": 4,
-      "HoldDuration": 10,
+      "HoldDuration": 0,
       "SinFrequency": 0,
       "SinAmplitude": 0,
-      "MovementDuration": 20
+      "MovementDuration": 10
     }
   },
 
