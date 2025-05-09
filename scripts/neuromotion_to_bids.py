@@ -1,10 +1,18 @@
+#!/usr/bin/env python3
+
+import argparse
 import os
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import json
 from edfio import Edf, EdfSignal
-from ..data_preparation.data2bids import bids_dataset, bids_emg_recording, bids_neuromotion_recording
+from muniverse.data_preparation.data2bids import bids_dataset, bids_neuromotion_recording
+
+NEUROMOTION_OUTPUTS_PATH = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/outputs/neuromotion-test'
+SIDECAR_PATH = os.path.abspath("./bids_metadata/neuromotion.json")
+ROOT = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/'
+DATASETNAME = "neuromotion-test"
+MAX_RUNS = 700 
 
 def find_file_by_suffix(data_path, suffix):
     """Find a file ending with the given suffix in the data path"""
@@ -15,8 +23,8 @@ def find_file_by_suffix(data_path, suffix):
 
 def setup_spikes_data(data_path):
     """Load and format spike times"""
-    spikes_file = find_file_by_suffix(data_path, '_spikes.npy')
-    spikes = np.load(spikes_file, allow_pickle=True)
+    spikes_file = find_file_by_suffix(data_path, '_spikes.npz')
+    spikes = np.load(spikes_file, allow_pickle=True)['spikes']
     
     # Convert to long format DataFrame
     rows = []
@@ -47,12 +55,13 @@ def setup_motor_units_data(data_path):
 
 def setup_internals_data(data_path, fsamp):
     """Load and format internal variables"""
-    effort_file = find_file_by_suffix(data_path, '_effort_profile.npy')
-    angle_file = find_file_by_suffix(data_path, '_angle_profile.npy')
+    effort_file = find_file_by_suffix(data_path, '_effort_profile.npz')
+    angle_file = find_file_by_suffix(data_path, '_angle_profile.npz')
     
-    effort_profile = np.load(effort_file, allow_pickle=True)
-    angle_profile = np.load(angle_file, allow_pickle=True)
+    effort_profile = np.load(effort_file, allow_pickle=True)['effort_profile']
+    angle_profile = np.load(angle_file, allow_pickle=True)['angle_profile']
     
+    # Create Edf object with both signals
     edf = Edf([EdfSignal(effort_profile, sampling_frequency=fsamp)])
     edf.append_signals(EdfSignal(angle_profile, sampling_frequency=fsamp))
     
@@ -185,7 +194,7 @@ def load_sidecar_files(sidecar_path):
         sidecars = json.load(f)
     return sidecars
 
-def neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulated-BIDS-dataset'):
+def write_neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulated-BIDS-dataset'):
     """
     Convert neuromotion simulation data to BIDS format
     
@@ -199,14 +208,14 @@ def neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulat
         Name of the BIDS dataset
     """
     # Find and read the run log file
-    run_logs = [f for f in os.listdir(data_path) if f.startswith('run_log') and f.endswith('.json')]
+    run_logs = [f for f in os.listdir(data_path) if f.endswith('_log.json')]
     if not run_logs:
         raise ValueError(f"No run log file found in {data_path}")
     if len(run_logs) > 1:
         raise ValueError(f"Multiple run log files found in {data_path}: {run_logs}")
         
     with open(os.path.join(data_path, run_logs[0]), 'r') as f:
-        simulation_config = json.load(f)['SimulationConfiguration']
+        simulation_config = json.load(f)['InputData']['Configuration']
     
     # Load sidecar files
     sidecars = load_sidecar_files(sidecar_path)
@@ -257,8 +266,8 @@ def neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulat
     recording.set_metadata('emg_sidecar', emg_sidecar)
     
     # Set up data
-    emg_file = find_file_by_suffix(data_path, '_emg.npy')
-    data = np.load(emg_file, allow_pickle=True)
+    emg_file = find_file_by_suffix(data_path, '_emg.npz')
+    data = np.load(emg_file, allow_pickle=True)['emg']
     recording.set_data('emg_data', data, fsamp)
     
     # Set up simulation-specific data
@@ -276,3 +285,69 @@ def neuromotion_to_bids(data_path, sidecar_path, root='./', datasetname='simulat
     recording.write()
     
     return recording 
+
+def process_runs(outputs_path: str, sidecar_path: str, root: str, datasetname: str, max_runs: int = None):
+    """
+    Process run directories and convert them to BIDS format.
+    
+    Args:
+        outputs_path (str): Path to the outputs directory containing run directories
+        sidecar_path (str): Path to the BIDS metadata sidecar file
+        root (str): Root path for the dataset
+        datasetname (str): Name of the dataset
+        max_runs (int, optional): Maximum number of runs to process. If None, process all runs.
+    """
+    # Get all directories that start with 'run_'
+    run_dirs = [d for d in os.listdir(outputs_path) if d.startswith('run_') and os.path.isdir(os.path.join(outputs_path, d))]
+    
+    # Sort the directories to process them in order
+    run_dirs.sort()
+    
+    if max_runs:
+        run_dirs = run_dirs[:max_runs]
+    
+    print(f"Found {len(run_dirs)} run directories to process")
+    
+    # Process each run directory
+    for run_dir in run_dirs:
+        print(f"\nProcessing {run_dir}...")
+        data_path = os.path.join(outputs_path, run_dir)
+        
+        try:
+            write_neuromotion_to_bids(data_path, sidecar_path, root, datasetname)
+            print(f"Successfully converted {run_dir} to BIDS format")
+        except Exception as e:
+            print(f"Error processing {run_dir}: {str(e)}")
+
+def main():
+    parser = argparse.ArgumentParser(description='Process run directories and convert them to BIDS format')
+    parser.add_argument('--outputs_path', default=NEUROMOTION_OUTPUTS_PATH,
+                      help='Path to the outputs directory containing run directories')
+    parser.add_argument('--sidecar_path', default=SIDECAR_PATH,
+                      help='Path to the BIDS metadata sidecar file')
+    parser.add_argument('--root', default=ROOT,
+                      help='Root path for the dataset')
+    parser.add_argument('--datasetname', default=DATASETNAME,
+                      help='Name of the dataset')
+    parser.add_argument('--max_runs', type=int, default=MAX_RUNS,
+                      help='Maximum number of runs to process')
+    
+    args = parser.parse_args()
+    
+    print(f"Processing runs from: {args.outputs_path}")
+    print(f"Using sidecar file: {args.sidecar_path}")
+    print(f"Dataset name: {args.datasetname}")
+    print(f"Maximum runs to process: {args.max_runs}")
+    
+    process_runs(
+        outputs_path=args.outputs_path,
+        sidecar_path=args.sidecar_path,
+        root=args.root,
+        datasetname=args.datasetname,
+        max_runs=args.max_runs
+    )
+    
+    print("\nProcessing complete!")
+
+if __name__ == '__main__':
+    main() 
