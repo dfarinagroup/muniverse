@@ -358,9 +358,10 @@ class bids_emg_recording(bids_dataset):
             os.makedirs(self.datapath)
 
         # Make BIDS compatible file names  
-        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        name = self.datapath + self.subject_name + '_' 
         if self.session > 0:
             name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
@@ -402,9 +403,10 @@ class bids_emg_recording(bids_dataset):
         super().read()
 
         # Make BIDS compatible file names   
-        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        name = self.datapath + self.subject_name + '_' 
         if self.session > 0:
             name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
@@ -552,9 +554,10 @@ class bids_neuromotion_recording(bids_emg_recording):
         super().write()
         
         # Make BIDS compatible file names
-        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        name = self.datapath + self.subject_name + '_' 
         if self.session > 0:
             name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
@@ -572,9 +575,10 @@ class bids_neuromotion_recording(bids_emg_recording):
         super().read()
         
         # Make BIDS compatible file names
-        name = self.datapath + self.subject_name + '_' + self.task + '_'
+        name = self.datapath + self.subject_name + '_' 
         if self.session > 0:
             name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
@@ -671,7 +675,10 @@ class bids_decomp_derivatives(bids_emg_recording):
         if not os.path.exists(self.derivative_datapath):
             os.makedirs(self.derivative_datapath)
 
-        name = self.derivative_datapath + self.subject_name + '_' + self.task + '_'
+        name = self.derivative_datapath + self.subject_name + '_'
+        if self.session > 0:
+            name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
@@ -695,7 +702,10 @@ class bids_decomp_derivatives(bids_emg_recording):
 
         """
         # read *_predictedspikes.tsv
-        name = self.derivative_datapath + self.subject_name + '_' + self.task + '_'
+        name = self.derivative_datapath + self.subject_name + '_' 
+        if self.session > 0:
+            name = name + 'ses-' + str(int(self.session)).zfill(self.n_digits) + '_'
+        name = name + self.task + '_'
         if self.run > 0:
             name = name + 'run-' + str(int(self.run)).zfill(self.n_digits) + '_'
 
