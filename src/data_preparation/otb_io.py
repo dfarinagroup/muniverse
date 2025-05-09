@@ -84,7 +84,7 @@ def open_otb(inputname,n_adapters):
         for j in range(int(ch_per_adpaters[i])):
             # The coversion formula is derived from:
             # https://github.com/OTBioelettronica/OTB-Matlab/blob/main/MATLAB%20Open%20and%20Processing%20OTBFiles/OpenOTBFiles/OpenOTBfilesConvFact.m
-            data[:,ch_idx] = ((np.dot(emg_data[i,:],PowerSupply*1000))/(2**float(nADbit) * gain))
+            data[:,ch_idx] = ((np.dot(emg_data[ch_idx,:],PowerSupply*1000))/(2**float(nADbit) * gain))
             ch_units.append('mV')
             ch_idx += 1
 
