@@ -84,7 +84,7 @@ subjects_data = {'name': ['sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05', 'sub
             'sex': ['M', 'M', 'M', 'M', 'M', 'M']}
 dataset_sidecar = manual_metadata["DatasetDescription"] #dataset_sidecar_template(ID='Caillet2023')
 
-Caillet_2023 = bids_dataset(datasetname='Caillet_et_al_2023', root='./')
+Caillet_2023 = bids_dataset(datasetname='Caillet_et_al_2023', root=str(Path.home()) + '/Downloads/')
 Caillet_2023.set_metadata(field_name='subjects_data', source=subjects_data)
 Caillet_2023.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
 Caillet_2023.write()

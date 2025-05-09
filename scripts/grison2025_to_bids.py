@@ -73,10 +73,10 @@ subjects_data = {'name': ['sub-01'],
             'sex': ['unknown']}
 dataset_sidecar = manual_metadata["DatasetDescription"] #dataset_sidecar_template(ID='Caillet2023')
 
-Caillet_2023 = bids_dataset(datasetname='Grison_et_al_2025', root='./')
-Caillet_2023.set_metadata(field_name='subjects_data', source=subjects_data)
-Caillet_2023.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
-Caillet_2023.write()
+Grison_2025 = bids_dataset(datasetname='Grison_et_al_2025', root=str(Path.home()) + '/Downloads/')
+Grison_2025.set_metadata(field_name='subjects_data', source=subjects_data)
+Grison_2025.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
+Grison_2025.write()
 
 for i in np.arange(n_sub):
     for j in np.arange(len(mvc_levels)):
@@ -123,7 +123,7 @@ for i in np.arange(n_sub):
 
 
         # Make a recording and add data and metadata
-        emg_recording = bids_emg_recording(data_obj=Caillet_2023,subject=int(i+1), task=task, datatype='emg')
+        emg_recording = bids_emg_recording(data_obj=Grison_2025,subject=int(i+1), task=task, datatype='emg')
         emg_recording.set_metadata(field_name='channels', source=filtered_df)
         emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
         emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
