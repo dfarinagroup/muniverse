@@ -1,0 +1,64 @@
+{
+  "SubjectConfiguration": {
+    "_description": "Defines subject-level physiological variability, i.e., MU Pool properties.",
+    "SubjectSeed": 1,
+    "MuscleLabels": ["Tibialis Anterior"],
+    "MuscleMotorUnitCounts": [340]
+  },
+
+  "MovementConfiguration": {
+    "_description": "Describes the prescribed movement scenario and force profile for the synthetic trial.",
+    "TargetMuscle": "Tibialis Anterior",
+    "MovementType": "Isometric",
+    "MovementDOF": "Ankle Dorsiflexion",
+    "MovementProfileParameters": {
+      "EffortLevel": 10,
+      "EffortProfile": "Triangular",
+      "NRepetitions": 1,
+      "RestDuration": 1,
+      "RampDuration": 4,
+      "HoldDuration": 0,
+      "MovementDuration": 10
+    }
+  },
+
+  "RecordingConfiguration": {
+    "_description": "Describes the signal processing and acquisition environment.",
+    "SamplingFrequency": 2048,
+    "ElectrodeConfiguration": {
+      "_description": "Electrode array layout and spacing in the original data. See Metadata for more details.",
+      "EMGPlacementScheme": "Four grids were carefully positioned side-to-side with a 4-mm distance between the electrodes at the edges of adjacent grids. The 256 electrodes were centered to the muscle belly (right tibialis anterior) and laid within the muscle perimeter identified through palpation",
+      "EMGReference": "Two bands damped with water were placed around the ankle as ground and reference electrodes",
+      "PowerLineFrequency": 50,
+      "SoftwareFilters": { 
+        "bandpass filter": { 
+          "highpass": 10, 
+          "lowpass": 500 
+        }
+      },
+      "EMGChannelCount": 256,
+      "ElectrodeManufacturer": "OTBioelettronica",
+      "ElectrodeManufaturerModelName": "GR04MM1305",
+      "InterelectrodeDistance": 4,
+      "GridShape": [13, 5],
+      "Material": "gold coated",
+      "NGrids": 4
+    },
+    "FilterProperties": {
+      "_description": "Settings for high-pass filtering the simulated EMG signal.",
+      "FilterType": "ButterWorth",
+      "CutoffFrequency": 800,
+      "FilterOrder": 4
+    },
+    "NoiseSeed": 1,
+    "NoiseLeveldb": 10
+  },
+
+  "Metadata": {
+    "_description": "All MUAPs were processed from the following source.",
+    "ReferencesAndLinks": [
+      "Avrillon, S., Hug, F., Enoka, R. M., Caillet, A. H., & Farina, D. (2024). The identification of extensive samples of motor units in human muscles reveals diverse effects of neuromodulatory inputs on the rate coding. eLife, 13, eLife.97085.3.",
+      "https://doi.org/10.7554/eLife.97085.3"
+    ]
+  }
+}
