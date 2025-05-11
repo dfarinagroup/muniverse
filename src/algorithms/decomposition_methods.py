@@ -232,6 +232,7 @@ class basic_cBSS:
         Returns:
             sources (ndarray): Estimated spike responses (n_mu x n_samples)
             spikes (dict): Sample indices of motor neuron discharges 
+            sil (ndarray): Pseudo-silhouette scores of the estimated sources
             mu_filters (ndarray): Optimized motor unit filters
         """
 
@@ -261,14 +262,14 @@ class basic_cBSS:
         ext_sig[:,:self.ext_fact*2] = 0
         ext_sig[:,-self.ext_fact*2:] = 0
 
-
-        # Step 1.3: Whiten the extended signals
+        # Whiten the extended signals
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
 
+        # Initalize the output variables
         sources  = np.zeros((self.ica_n_iter,sig.shape[1]))
         spikes = {i: [] for i in range(self.ica_n_iter)}
         sil = np.zeros(self.ica_n_iter)
-        B = np.zeros((white_sig.shape[0], self.ica_n_iter))
+        mu_filters = np.zeros((white_sig.shape[0], self.ica_n_iter))
 
         if self.opt_initalization == 'activity_idx':
             act_idx_histoty = np.array([]) 
@@ -288,7 +289,7 @@ class basic_cBSS:
                 ValueError('The specified initalization method is not implemented')
 
             # fastICA fixedpoint optimization
-            w, k = self.my_fixed_point_alg(w, white_sig, B)
+            w, k = self.my_fixed_point_alg(w, white_sig, mu_filters)
 
             # Predict source and estimate the source quality
             sources[i,:] = w.T @ white_sig
@@ -302,15 +303,21 @@ class basic_cBSS:
                 sources[i,:] = w.T @ white_sig
                 spikes[i], sil[i] = est_spike_times(sources[i,:], fsamp, cluster=self.cluster_method)
 
-            B[:,i] = w
+            # Save the optimized MU filter
+            mu_filters[:,i] = w
 
+            # Peel-off the detected source
             if self.peel_off and sil[i] > self.sil_th and cov < self.cov_th:
                 white_sig, _ = peel_off(white_sig, spikes[i], win=0.025, fsamp=fsamp) 
 
         # Remove duplicates        
-        sources, spikes, sil = remove_duplicates(sources, spikes, sil, fsamp)
+        sources, spikes, sil, mu_filters = remove_duplicates(sources, spikes, sil, mu_filters, fsamp)
+
+        # Remove bad sources 
+        sources, spikes, sil, mu_filters  = remove_bad_sources(sources, spikes, sil, mu_filters, 
+                                                               threshold=self.sil_th, min_n_spikes=10)
        
-        return sources, spikes, sil
+        return sources, spikes, sil, mu_filters
 
 
     def my_fixed_point_alg(self, w, X, B):

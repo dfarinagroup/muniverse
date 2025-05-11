@@ -95,7 +95,7 @@ def whitening(Y, method='ZCA', backend='eig', regularization='auto', eps=1e-10):
 
     return wY, Z
 
-def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.02):
+def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.01):
     """
     Estimate spike indices given a motor unit source signal and compute
     a silhouette-like metric for source quality quantification
@@ -138,8 +138,8 @@ def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.02):
 
         # Compute within- and between-cluster distances
         D = kmeans.transform(peak_vals)  # Distances to both centroids
-        sumd = np.sum(D[labels == spike_cluster, spike_cluster])
-        between = np.sum(D[labels == spike_cluster, 1 - spike_cluster])
+        sumd = np.sum(D[labels == spike_cluster, spike_cluster]**2) # Exponent 2 for obtaining the squared Euclidian distance
+        between = np.sum(D[labels == spike_cluster, 1 - spike_cluster]**2) # Exponent 2 for obtaining the squared Euclidian distance
         
         # Silhouette-inspired score
         denom = max(sumd, between)
@@ -173,9 +173,11 @@ def gram_schmidt(w, B):
 
     return u
 
-def remove_duplicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, threshold=0.3, min_num_spikes = 10):
+def remove_duplicates(sources, spikes, sil, B, fsamp, max_shift=0.1, tol=0.001, threshold=0.3, min_num_spikes = 10):
+    """
+    TODO Add description
 
-
+    """
     n_source = sources.shape[0]
     new_labels = np.arange(n_source)
 
@@ -210,6 +212,7 @@ def remove_duplicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, thr
     new_sources  = np.zeros((len(unique_labels),sources.shape[1]))
     new_spikes = {i: [] for i in range(len(unique_labels))}
     new_sil = np.zeros(len(unique_labels))
+    new_B = np.zeros((B.shape[0], len(unique_labels)))
 
     # 
     for i in np.arange(len(unique_labels)):
@@ -218,8 +221,33 @@ def remove_duplicates(sources, spikes, sil, fsamp, max_shift=0.1, tol=0.001, thr
         new_sources[i,:] = sources[best_idx,:]
         new_spikes[i] = spikes[best_idx]
         new_sil[i] = sil[best_idx]
+        new_B[:,i] = B[:,best_idx]
 
-    return new_sources, new_spikes, new_sil
+    return new_sources, new_spikes, new_sil, new_B
+
+def remove_bad_sources(sources, spikes, sil, B, threshold=0.9, min_n_spikes=10):
+    """
+    TODO Add description
+    
+    """
+
+    bad_source_idx = np.array([])
+    new_spikes = {}
+    new_spike_idx = 0
+    for i in np.arange(sources.shape[0]):
+        if sil[i] < threshold or len(spikes[i]) < min_n_spikes:
+            bad_source_idx = np.append(bad_source_idx, i)
+        else:
+            new_spikes[new_spike_idx] = spikes[i]
+            new_spike_idx += 1
+
+    new_sources = np.delete(sources, bad_source_idx.astype(int), axis=0)
+    new_sil = np.delete(sil, bad_source_idx.astype(int), axis=0)
+    new_B = np.delete(B, bad_source_idx.astype(int), axis=1)
+
+    return new_sources, new_spikes, new_sil, new_B    
+
+
 
 def spike_triggered_average(sig, spikes, win=0.02, fsamp = 2048):
     '''
