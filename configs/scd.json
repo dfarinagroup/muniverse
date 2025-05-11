@@ -4,19 +4,19 @@
     "Seed": 42,
     
     "Config": {
-        "start_time": 0,
-        "end_time": -1,
-        "sampling_frequency": 2048,
+        "start_time": 6,
+        "end_time": 26,
+        "sampling_frequency": 10240,
         "time_differentiate": null,
         "notch_params": null,
-        "low_pass_cutoff": 500,
+        "low_pass_cutoff": 4400,
         "high_pass_cutoff": 10,
-        "extension_factor": 5,
+        "extension_factor": 10,
         "whitening_method": "zca",
         "autocorrelation_whiten": false,
-        "max_iterations": 5,
-        "iteration_patience": 5,
-        "acceptance_silhouette": 0.05,
+        "max_iterations": 250,
+        "iteration_patience": 20,
+        "acceptance_silhouette": 0.85,
         "acceptance_max_roa": 30,
         "peel_off_window_size_ms": 20,
         "peel_off_repeats": true,
@@ -47,7 +47,7 @@
         "roa_max_shift_ms": 30,
         "output_source_plot": false,
         "output_final_source_plot": false,
-        "verbose_mode": false,
-        "device": "cpu"
+        "verbose_mode": true,
+        "device": "cuda"
     }
 }

@@ -10,9 +10,9 @@ from muniverse.data_preparation.data2bids import bids_dataset, bids_neuromotion_
 
 NEUROMOTION_OUTPUTS_PATH = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/outputs/neuromotion-test'
 SIDECAR_PATH = os.path.abspath("./bids_metadata/neuromotion.json")
-ROOT = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/'
+ROOT = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/'
 DATASETNAME = "neuromotion-test"
-MAX_RUNS = 700 
+MAX_RUNS = 0
 
 def find_file_by_suffix(data_path, suffix):
     """Find a file ending with the given suffix in the data path"""

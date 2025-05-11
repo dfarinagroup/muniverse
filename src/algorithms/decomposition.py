@@ -90,21 +90,10 @@ def decompose_scd(
                 # Load EDF and save as .npy
                 raw = read_edf(data_path)
                 
-                # Read EMG sidecar file to get channel information
-                emg_sidecar_path = data_path.parent / f"{data_path.stem.replace('_emg', '')}_emg.json"
-                with open(emg_sidecar_path, 'r') as f:
-                    emg_info = json.load(f)
-                
-                # Get EMG channel names
-                emg_channels = [ch['name'] for ch in emg_info['channels'] if ch['type'] == 'EMG']
-                
-                # Get channel indices for EMG channels
-                emg_indices = [i for i, ch in enumerate(raw.signals) if ch.name in emg_channels]
-                if not emg_indices:
-                    raise ValueError(f"No EMG channels found in {data_path.name}")
-                
-                # Stack only EMG channels
-                emg_data = np.stack([raw.signals[i].data for i in emg_indices])
+                # Read channels.tsv file to get channel information
+                channels_df = pd.read_csv(data_path.parent / f"{data_path.stem.replace('_emg', '')}_channels.tab", delimiter='\t')
+                n_channels = len(channels_df[channels_df['type'].str.startswith('EMG')])
+                emg_data = np.stack([raw.signals[i].data for i in range(n_channels)])
                 temp_emg_path = temp_dir / "temp_emg.npy"
                 np.save(temp_emg_path, emg_data)
             else:  # .npy file

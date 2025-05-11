@@ -5,7 +5,13 @@ import argparse
 from pathlib import Path
 from muniverse.data_generation import generate_recording
 
-def process_configs(configs_dir: str, output_dir: str = 'outputs'):
+import random
+
+CONFIGS_DIR = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/configs/neuromotion-test/'
+OUTPUT_DIR = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/outputs/neuromotion-verify/'
+CACHE_DIR = '/rds/general/user/pm1222/ephemeral/muniverse/datasets/muapcache/'
+
+def process_configs(configs_dir: str, output_dir: str = OUTPUT_DIR, cache_dir: str = CACHE_DIR):
     """
     Process all JSON config files in the given directory.
     
@@ -19,10 +25,12 @@ def process_configs(configs_dir: str, output_dir: str = 'outputs'):
     
     # Ensure output directory and cache directory exists
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(os.path.join(output_dir, 'cache'), exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)
     
     # Get all JSON files in the configs directory
     config_files = list(Path(configs_dir).glob('*.json'))
+    # config_files = sorted(config_files)
+    random.shuffle(config_files)
     
     if not config_files:
         print(f"No JSON config files found in {configs_dir}")
@@ -31,7 +39,7 @@ def process_configs(configs_dir: str, output_dir: str = 'outputs'):
     print(f"Found {len(config_files)} config files to process")
     
     # Process each config file
-    for config_file in config_files[:1]:
+    for config_file in config_files[:30]:
         print(f"\nProcessing {config_file.name}...")
         
         try:
@@ -40,7 +48,6 @@ def process_configs(configs_dir: str, output_dir: str = 'outputs'):
                 'output_dir': output_dir,
                 'engine': 'singularity',
                 'container': os.path.abspath('environment/muniverse-test_neuromotion.sif'),
-                'cache_dir': os.path.join(output_dir, 'cache')
             })
             print(f"Successfully generated recording in {run_dir}")
             
@@ -49,11 +56,12 @@ def process_configs(configs_dir: str, output_dir: str = 'outputs'):
 
 def main():
     parser = argparse.ArgumentParser(description='Generate recordings from multiple config files')
-    parser.add_argument('configs_dir', help='Directory containing JSON config files')
-    parser.add_argument('--output-dir', default='outputs', help='Output directory for recordings')
+    parser.add_argument('--configs_dir', default=CONFIGS_DIR, help='Directory containing JSON config files')
+    parser.add_argument('--output_dir', default=OUTPUT_DIR, help='Output directory for recordings')
+    parser.add_argument('--cache_dir', default=CACHE_DIR, help='Cache directory for MUAPs')
     
     args = parser.parse_args()
-    process_configs(args.configs_dir, args.output_dir)
+    process_configs(args.configs_dir, args.output_dir, args.cache_dir)
 
 if __name__ == '__main__':
     main() 

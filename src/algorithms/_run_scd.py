@@ -51,7 +51,13 @@ def train(data_path: str, config_path: str, output_dir: str):
     set_random_seed(seed=seed)
 
     # Load data
-    npy_data = np.load(data_path).T
+    npy_data = np.load(data_path)
+    d1, d2 = npy_data.shape
+    print(f"Found {d1}x{d2} data")
+    if d1 < d2:
+        print(f"Transposing to {d2}x{d1}")
+        npy_data = npy_data.T
+    
     neural_data = torch.from_numpy(npy_data).to(device=config.device, dtype=torch.float32)
     
     # Apply time window if specified
