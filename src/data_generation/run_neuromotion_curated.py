@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# run_neuromotion_curated.py - Version that uses pre-sorted MUAPs and direct spike generation
+# run_neuromotion_curated.py - Version that uses curated MUAPs with MotoneuronPool
 
 import argparse
 import os
@@ -7,12 +7,29 @@ import torch
 import time
 import json
 import numpy as np
+import random
 from easydict import EasyDict as edict
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
 
 import sys
 sys.path.append('.')
+
+from NeuroMotion.MNPoollib.MNPool import MotoneuronPool
+from NeuroMotion.MNPoollib.mn_params import mn_default_settings
+
+def set_seed(seed):
+    """Set all random seeds to ensure reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Set Python hash seed for reproducibility
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    # Try to make PyTorch operations deterministic
+    if hasattr(torch, 'backends') and hasattr(torch.backends, 'cudnn'):
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 def load_config(config_path):
     """Load configuration from JSON file."""
@@ -82,25 +99,28 @@ def create_triangular_effort(fs, movement_duration, effort_level, rest_duration,
     
     return muscle_force
 
-def exponential_sample_motor_units(muaps, thresholds, num_to_select, rng, exp_factor=5.0):
+def exponential_sample_motor_units_by_index(muaps, num_to_select, seed, exp_factor=5.0):
     """
-    Sample motor units with an exponential bias toward lower recruitment thresholds.
+    Sample motor units with an exponential bias toward lower indices.
+    Assumes MUAPs are already sorted from smallest to largest.
     
     Args:
-        muaps (ndarray): Sorted MUAPs with shape (n_motor_units, electrodes, samples)
-        thresholds (ndarray): Sorted thresholds with shape (n_motor_units,)
+        muaps (ndarray): MUAPs with shape (n_motor_units, electrodes, samples)
         num_to_select (int): Number of motor units to select
-        rng (numpy.random.RandomState): Random number generator
-        exp_factor (float): Exponential factor - higher values increase bias toward low thresholds
+        seed (int): Random seed for reproducible selection
+        exp_factor (float): Exponential factor - higher values increase bias toward lower indices
     
     Returns:
-        tuple: (selected_muaps, selected_thresholds, selected_indices)
+        tuple: (selected_muaps, selected_indices)
     """
+    # Create a dedicated RNG for this function to ensure reproducibility
+    rng = np.random.RandomState(seed)
+    
     num_mus = len(muaps)
     
     if num_to_select >= num_mus:
         print(f"Warning: Requested {num_to_select} MUs but only {num_mus} available. Using all available MUs.")
-        return muaps, thresholds, np.arange(num_mus)
+        return muaps, np.arange(num_mus)
     
     # Generate exponential weights - higher probability for lower indices
     weights = np.exp(-exp_factor * np.arange(num_mus) / num_mus)
@@ -109,125 +129,30 @@ def exponential_sample_motor_units(muaps, thresholds, num_to_select, rng, exp_fa
     # Sample the desired number of motor units
     selected_indices = rng.choice(num_mus, size=num_to_select, replace=False, p=weights)
     
-    # Sort the indices to maintain the order by threshold
+    # Sort the indices to maintain the order
     selected_indices = np.sort(selected_indices)
     
     selected_muaps = muaps[selected_indices]
-    selected_thresholds = thresholds[selected_indices]
     
-    # Display distribution of selected thresholds
-    if selected_thresholds is not None:
-        print(f"Selected {num_to_select} motor units with threshold range: [{selected_thresholds.min():.1f}%, {selected_thresholds.max():.1f}%]")
-        print(f"Threshold quartiles: 25%={np.percentile(selected_thresholds, 25):.1f}%, "
-              f"50%={np.percentile(selected_thresholds, 50):.1f}%, "
-              f"75%={np.percentile(selected_thresholds, 75):.1f}%")
+    # Calculate quartiles of the selected indices as a percentage of total MUs
+    index_percentages = selected_indices * 100 / num_mus
+    print(f"Selected {num_to_select} motor units with index range: [{selected_indices.min()}-{selected_indices.max()}] of {num_mus}")
+    print(f"Index percentiles: 25%={np.percentile(index_percentages, 25):.1f}%, "
+          f"50%={np.percentile(index_percentages, 50):.1f}%, "
+          f"75%={np.percentile(index_percentages, 75):.1f}%")
     
-    return selected_muaps, selected_thresholds, selected_indices
+    return selected_muaps, selected_indices
 
-def generate_spike_trains_direct(recruitment_thresholds, excitation, fs, settings=None, rng=None):
-    """
-    Generate spike trains directly using recruitment thresholds and firing rate properties.
-    
-    Args:
-        recruitment_thresholds (ndarray): Recruitment thresholds for each motor unit (% MVC)
-        excitation (ndarray): Excitation profile (% MVC)
-        fs (float): Sampling frequency in Hz
-        settings (dict, optional): Dictionary of settings for spike generation
-        rng (numpy.random.RandomState, optional): Random number generator
-    
-    Returns:
-        tuple: (modified_excitation, spikes, firing_rates, inter_pulse_intervals)
-    """
-    if rng is None:
-        rng = np.random.RandomState()
-    
-    # Default settings if none provided (taken from mn_default_settings)
-    if settings is None:
-        settings = {
-            'rr': 50,             # Range of recruitment thresholds
-            'rm': 0.75,           # Recruitment threshold of the first MU
-            'rp': 100,            # Range of twitch tensions
-            'pfr1': 40,           # Peak firing rate of the first MU
-            'pfrd': 10,           # Difference between peak firing rates of first and last MUs
-            'mfr1': 10,           # Minimum firing rate of the first MU
-            'mfrd': 5,            # Difference between minimum firing rates of first and last MUs
-            'gain': 30,           # Firing rate gain (Hz per % MVC)
-            'c_ipi': 0.1,         # Coefficient of variation of interpulse intervals
-        }
-    
-    # Number of motor units and time samples
-    N = len(recruitment_thresholds)
-    time_samples = len(excitation)
-    
-    # Reshape recruitment thresholds to column vector if needed
-    rte = recruitment_thresholds.reshape(N, 1)
-    
-    # Initialize firing rate parameters for each motor unit
-    # Minimum firing rate: decreases linearly with recruitment threshold
-    min_fr_range = settings['mfrd']  # Difference between first and last MU
-    minfr = np.linspace(settings['mfr1'], settings['mfr1'] - min_fr_range, N).reshape(N, 1)
-    
-    # Maximum firing rate: decreases with recruitment threshold
-    max_fr_first = settings['pfr1']  # Peak firing rate of first MU
-    max_fr_range = settings['pfrd']  # Difference between first and last MU
-    maxfr = max_fr_first - max_fr_range * rte / np.max(rte)
-    
-    # Slope (gain) of firing rate vs. excitation
-    slope_fr = np.ones((N, 1)) * settings['gain']
-    
-    # Calculate firing rates for each motor unit at each time point
-    fr = np.zeros((N, time_samples))
-    for t in range(time_samples):
-        e_t = excitation[t]
-        # For each MU, calculate firing rate based on excitation
-        fr_t = np.minimum(maxfr, minfr + (e_t - rte) * slope_fr)
-        fr_t[e_t < rte] = 0  # Zero firing rate if excitation below recruitment threshold
-        fr[:, t] = fr_t.flatten()
+def generate_spike_trains(mn_pool, effort_profile, fs):
+    """Generate spike trains based on an effort profile using MotoneuronPool."""
+    # Initialize the motoneuron pool
+    mn_pool.init_twitches(fs)
+    mn_pool.init_quisistatic_ef_model()
     
     # Generate spike trains
-    spikes = [[] for _ in range(N)]
-    next_firing = np.ones(N) * -1
-    cur_ipi = np.zeros(N)
-    ipi_real = np.zeros((N, time_samples))
+    ext_new, spikes, fr, ipis = mn_pool.generate_spike_trains(effort_profile, fit=False)
     
-    # For each motor unit and time point
-    for mu in range(N):
-        for t in range(time_samples):
-            if excitation[t] > rte[mu]:
-                if next_firing[mu] < 0:
-                    # Initialize next firing time if this is first activation
-                    if fr[mu, t] > 0:
-                        cur_ipi[mu] = fs / fr[mu, t]
-                        # Add variability to IPI
-                        cur_ipi[mu] = cur_ipi[mu] + rng.randn() * cur_ipi[mu] * 1/6
-                        next_firing[mu] = t + int(cur_ipi[mu])
-                
-                if t == next_firing[mu]:
-                    # Record spike at next firing time
-                    if len(spikes[mu]) == 0:
-                        ipi_real[mu, :t] = t
-                    else:
-                        ipi_real[mu, spikes[mu][-1]:t] = t - spikes[mu][-1]
-                    
-                    spikes[mu].append(t)
-                    
-                    # Calculate time to next firing
-                    if fr[mu, t] > 0:
-                        cur_ipi[mu] = fs / fr[mu, t]
-                        # Add variability to IPI
-                        cur_ipi[mu] = cur_ipi[mu] + rng.randn() * cur_ipi[mu] * 1/6
-                        next_firing[mu] = t + int(cur_ipi[mu])
-            else:
-                next_firing[mu] = -1
-    
-    # Fill in remaining IPI values
-    for mu in range(N):
-        if len(spikes[mu]) == 0:
-            ipi_real[mu, :] = time_samples
-        else:
-            ipi_real[mu, spikes[mu][-1]:time_samples] = time_samples - spikes[mu][-1]
-    
-    return excitation, spikes, fr, ipi_real
+    return ext_new, spikes, fr, ipis
 
 def generate_emg_signal(muaps, spikes, time_samples, noise_level_db=None, noise_seed=None):
     """
@@ -281,6 +206,9 @@ def generate_emg_signal(muaps, spikes, time_samples, noise_level_db=None, noise_
     
     # Add noise if specified
     if noise_level_db is not None:
+        # Only this part should depend on the noise seed rather than the subject seed
+        # to allow different noise realizations with the same underlying signal
+        original_state = np.random.get_state()
         if noise_seed is not None:
             np.random.seed(noise_seed)
         
@@ -288,31 +216,50 @@ def generate_emg_signal(muaps, spikes, time_samples, noise_level_db=None, noise_
         std_noise = std_emg * 10 ** (-noise_level_db / 20)
         noise = np.random.normal(0, std_noise, emg.shape)
         emg = emg + noise
+        
+        # Restore random state
+        if noise_seed is not None:
+            np.random.set_state(original_state)
     
     print(f"EMG generation completed in {time.time() - start_time:.2f} seconds")
     
     return emg
 
-def load_presorted_muaps(muap_file, threshold_file=None):
-    """Load pre-sorted MUAPs and optionally their thresholds."""
-    try:
-        # Load the MUAPs
-        print(f"Loading pre-sorted MUAPs from {muap_file}")
-        muaps = np.load(muap_file)
+def load_muaps(muaps_file):
+    """
+    Load MUAPs from file.
+    
+    Args:
+        muaps_file (str): Path to the MUAPs file
         
-        # Load thresholds if provided
-        thresholds = None
-        if threshold_file and os.path.exists(threshold_file):
-            print(f"Loading thresholds from {threshold_file}")
-            thresholds = np.load(threshold_file)
+    Returns:
+        numpy.ndarray: MUAPs with shape (n_motor_units, electrodes, samples)
+    """
+    try:
+        print(f"Loading MUAPs from {muaps_file}")
+        data = np.load(muaps_file)
+        
+        # Check available arrays in the file
+        for key in data.keys():
+            print(f"Found key in file: {key}")
+        
+        # Load MUAPs - expected key is 'muaps'
+        if 'muaps' in data:
+            muaps = data['muaps']
+        else:
+            # Try alternative keys if 'muaps' not found
+            for alt_key in ['muap', 'MUAP', 'MUAPs']:
+                if alt_key in data:
+                    muaps = data[alt_key]
+                    break
+            else:
+                raise KeyError("Could not find MUAPs array in the file")
         
         print(f"Loaded MUAPs with shape: {muaps.shape}")
-        if thresholds is not None:
-            print(f"Loaded thresholds with shape: {thresholds.shape}")
         
-        return muaps, thresholds
+        return muaps
     except Exception as e:
-        print(f"Error loading pre-sorted MUAPs or thresholds: {e}")
+        print(f"Error loading MUAPs: {e}")
         raise
 
 def create_effort_profile(fs, movement_duration, profile_params):
@@ -354,7 +301,7 @@ def create_effort_profile(fs, movement_duration, profile_params):
         hold_duration
     )
 
-def save_outputs(output_dir, emg, spikes, ext, cfg, metadata, selected_thresholds=None):
+def save_outputs(output_dir, emg, spikes, ext, cfg, metadata):
     """Save all outputs to the specified directory."""
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -378,10 +325,6 @@ def save_outputs(output_dir, emg, spikes, ext, cfg, metadata, selected_threshold
     np.savez_compressed(paths['spikes'], spikes=np.array(spikes, dtype=object))
     np.savez_compressed(paths['effort_profile'], effort_profile=ext)
     
-    if selected_thresholds is not None:
-        paths['thresholds'] = os.path.join(output_dir, f'{subject_prefix}{muscle}_recruitment_thresholds.npz')
-        np.savez_compressed(paths['thresholds'], thresholds=selected_thresholds)
-    
     # Save configuration and metadata as JSON
     with open(paths['config'], 'w') as f:
         json.dump(cfg, f, indent=2)
@@ -396,23 +339,37 @@ def save_outputs(output_dir, emg, spikes, ext, cfg, metadata, selected_threshold
     
     return paths
 
+def get_deterministic_mu_count(seed, min_mus=300, max_mus=350):
+    """
+    Get a deterministic number of motor units based on seed.
+    
+    Args:
+        seed (int): Random seed
+        min_mus (int): Minimum number of motor units
+        max_mus (int): Maximum number of motor units
+        
+    Returns:
+        int: Number of motor units
+    """
+    # Create dedicated RNG just for this operation
+    rng = np.random.RandomState(seed)
+    return rng.randint(min_mus, max_mus + 1)
+
 def main():
-    parser = argparse.ArgumentParser(description='Generate EMG signals from pre-sorted MUAPs')
+    parser = argparse.ArgumentParser(description='Generate EMG signals from curated MUAPs')
     parser.add_argument('config_path', type=str, help='Path to input configuration JSON file')
     parser.add_argument('output_dir', type=str, help='Path to output directory')
-    parser.add_argument('--muap_file', type=str, help='Path to sorted MUAPs file (npy format)')
-    parser.add_argument('--threshold_file', type=str, default=None, help='Path to sorted thresholds file (optional)')
-    parser.add_argument('--pytorch-device', type=str, choices=['cpu', 'cuda'], default='cpu', help='PyTorch device to use')
-    parser.add_argument('--exp-factor', type=float, default=5.0, help='Exponential sampling factor (higher = more bias toward low thresholds)')
+    parser.add_argument('--muaps_file', type=str, required=True, 
+                        help='Path to MUAPs file (npz format)')
+    parser.add_argument('--pytorch-device', type=str, choices=['cpu', 'cuda'], default='cpu', 
+                        help='PyTorch device to use')
+    parser.add_argument('--exp-factor', type=float, default=5.0, 
+                        help='Exponential sampling factor (higher = more bias toward low indices)')
     args = parser.parse_args()
 
     # Set device for PyTorch
     device = args.pytorch_device
     print(f"Using PyTorch device: {device}")
-    
-    # Check required arguments
-    if args.muap_file is None:
-        parser.error("--muap_file must be provided")
     
     # Load configuration
     cfg = load_config(args.config_path)
@@ -421,6 +378,10 @@ def main():
     subject_cfg = cfg.SubjectConfiguration
     subject_seed = subject_cfg.SubjectSeed
     subject_id = subject_cfg.get('SubjectID', f"subject_{subject_seed}")
+    
+    # Set all random seeds for reproducibility
+    set_seed(subject_seed)
+    print(f"All random seeds set to {subject_seed} for reproducibility")
     
     # Movement configuration
     movement_cfg = cfg.MovementConfiguration
@@ -437,26 +398,18 @@ def main():
     noise_seed = recording_cfg.NoiseSeed
     noise_level_db = recording_cfg.NoiseLeveldb
     
-    # Set random seed for reproducibility
-    print(f"Using subject seed: {subject_seed}")
-    rng = np.random.RandomState(subject_seed)
-    torch.manual_seed(subject_seed)
+    # Load MUAPs from file
+    all_muaps = load_muaps(args.muaps_file)
     
-    # Load pre-sorted MUAPs and thresholds
-    all_muaps, all_thresholds = load_presorted_muaps(args.muap_file, args.threshold_file)
+    # Get deterministic number of motor units for this subject
+    num_mus = get_deterministic_mu_count(subject_seed)
     
-    # Determine how many motor units to use (300-350)
-    min_mus = 300
-    max_mus = 350
-    num_mus = rng.randint(min_mus, max_mus + 1)
-    
-    # Select motor units using exponential sampling
+    # Select motor units using exponential sampling based on index
     print(f"Selecting {num_mus} motor units with exponential sampling (factor={args.exp_factor})...")
-    selected_muaps, selected_thresholds, selected_indices = exponential_sample_motor_units(
+    selected_muaps, selected_indices = exponential_sample_motor_units_by_index(
         all_muaps, 
-        all_thresholds, 
         num_mus, 
-        rng,
+        subject_seed,  # Use subject seed directly for reproducibility
         exp_factor=args.exp_factor
     )
     
@@ -495,29 +448,13 @@ def main():
     effort_level = profile_params.EffortLevel
     print(f"Creating {effort_type} effort profile with level: {effort_level:.1f}%")
     
-    # Directly generate spike trains using the recruitment thresholds
-    print("Generating spike trains based on recruitment thresholds...")
-    # Use default settings for firing rate parameters
-    settings = {
-        'rr': 50,
-        'rm': 0.75,
-        'rp': 100,
-        'pfr1': 40,
-        'pfrd': 10,
-        'mfr1': 10,
-        'mfrd': 5,
-        'gain': 30,     # 0.3 per % MVC
-        'c_ipi': 0.1,
-    }
+    # Initialize MotoneuronPool with dummy muscle 'ECRB'
+    print(f"Initializing MotoneuronPool with {num_mus} motor units (dummy muscle: ECRB)...")
+    mn_pool = MotoneuronPool(num_mus, 'ECRB', **mn_default_settings)
     
-    # Call our direct spike train generation function
-    _, spikes, fr, ipis = generate_spike_trains_direct(
-        selected_thresholds, 
-        effort_profile, 
-        fs, 
-        settings=settings, 
-        rng=rng
-    )
+    # Generate spike trains using MotoneuronPool
+    print("Generating spike trains using MotoneuronPool...")
+    _, spikes, fr, ipis = generate_spike_trains(mn_pool, effort_profile, fs)
     
     # Generate EMG signal
     print("Generating EMG signal from spikes and MUAPs...")
@@ -543,6 +480,7 @@ def main():
                 "total_electrodes": grid_rows * grid_cols,
             },
             "noise_level_db": noise_level_db,
+            "noise_seed": noise_seed,
             "movement_duration": movement_duration,
             "movement_dof": movement_cfg.MovementDOF,
             "movement_type": "Isometric",  # Always isometric for this script
@@ -551,23 +489,20 @@ def main():
             "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
             "subject_id": subject_id,
             "subject_seed": subject_seed,
-            "muap_source": args.muap_file,
+            "muap_source": args.muaps_file,
             "exponential_sampling_factor": args.exp_factor,
-            "selected_indices": selected_indices.tolist()[:10] + ["..."]  # Just show the first 10 indices
+            "selected_indices": selected_indices.tolist()[:10] + ["..."],  # Just show the first 10 indices
+            "index_distribution": {
+                "min": int(selected_indices.min()),
+                "max": int(selected_indices.max()),
+                "quartiles": [
+                    float(np.percentile(selected_indices, 25)),
+                    float(np.percentile(selected_indices, 50)),
+                    float(np.percentile(selected_indices, 75))
+                ]
+            }
         }
     }
-    
-    # Add threshold range if available
-    if selected_thresholds is not None:
-        metadata["simulation_info"]["recruitment_threshold_range"] = [
-            float(selected_thresholds.min()), 
-            float(selected_thresholds.max())
-        ]
-        metadata["simulation_info"]["recruitment_threshold_quartiles"] = [
-            float(np.percentile(selected_thresholds, 25)),
-            float(np.percentile(selected_thresholds, 50)),
-            float(np.percentile(selected_thresholds, 75))
-        ]
     
     # Save all outputs
     save_outputs(
@@ -576,8 +511,7 @@ def main():
         spikes, 
         effort_profile, 
         cfg, 
-        metadata,
-        selected_thresholds
+        metadata
     )
     
     print("EMG generation complete.")
