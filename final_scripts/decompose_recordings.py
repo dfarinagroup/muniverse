@@ -363,14 +363,10 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
 
 def main():
     parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD or CBSS algorithm')
-    parser.add_argument('--bids_root', default=None,
-                      help='Root directory of the BIDS dataset')
-    parser.add_argument('--output_dir', default=None,
-                      help='Output directory for decomposition results')
+    parser.add_argument('--dataset_name', default='Caillet_et_al_2023',
+                      help='Name of the dataset to process')
     parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], default='scd',
                       help='Algorithm to use for decomposition')
-    parser.add_argument('--algorithm_config', default=None,
-                      help='Path to algorithm configuration file (optional)')
     parser.add_argument('--container', default=None,
                       help='Path to Singularity container (only needed for SCD)')
     parser.add_argument('--min_id', type=int, default=0,
@@ -381,11 +377,12 @@ def main():
     args = parser.parse_args()
     
     # Set default paths based on algorithm choice
-    DATASET_NAME = 'Caillet_et_al_2023'
-    BIDS_ROOT = args.bids_root or f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
+    DATASET_NAME = args.dataset_name
+    BIDS_ROOT = f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
+    OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{args.algorithm}_outputs/{DATASET_NAME}'
+
     SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
-    CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'
-    OUTPUT_DIR = args.output_dir or f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{args.algorithm}_outputs/{DATASET_NAME}'
+    CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'    
     CONTAINER = args.container or f'/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
     
     # Set default config and container based on algorithm choice
