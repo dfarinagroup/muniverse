@@ -12,17 +12,8 @@ from typing import Optional
 import re
 
 
-DATASET_NAME = 'neuromotion-test'
-BIDS_ROOT = f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
-ALGORITHM = 'cbss'
-SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
-CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'
-OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{ALGORITHM}_outputs/{DATASET_NAME}'
-CONTAINER = f'/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
-
-
 def extract_bids_components(filename: str) -> tuple[str, str, str]:
-    """Extract BIDS components (subject, session, task) from filename."""
+    """Extract BIDS components (subject, task) from filename."""
     # Define patterns for each component
     patterns = {
         'subject': r'sub-(?:sim)?(\d+)',
@@ -171,7 +162,7 @@ def get_experimental_config(edf_path: Path) -> dict:
     }
 
 
-def generate_algorithm_config(base_config_path: str, recording_config: dict) -> dict:
+def generate_algorithm_config(base_config_path: str, recording_config: dict, algorithm: str) -> dict:
     """
     Generate algorithm configuration based on recording configuration.
     
@@ -189,14 +180,44 @@ def generate_algorithm_config(base_config_path: str, recording_config: dict) -> 
     algo_config['Config']['start_time'] = recording_config['start_time']
     algo_config['Config']['end_time'] = recording_config['end_time']
     algo_config['Config']['sampling_frequency'] = recording_config['sampling_frequency']
-    algo_config['Config']['extension_factor'] = int(1000 / recording_config['n_electrodes']) + 1
-    algo_config['Config']['low_pass_cutoff'] = recording_config['low_pass_cutoff']
-    algo_config['Config']['use_coeff_var_fitness'] = recording_config['cov']
+    if algorithm.lower() == 'scd':
+        algo_config['Config']['extension_factor'] = int(1000 / recording_config['n_electrodes']) + 1
+        algo_config['Config']['low_pass_cutoff'] = recording_config['low_pass_cutoff']
+        algo_config['Config']['use_coeff_var_fitness'] = recording_config['cov']
+    elif algorithm.lower() == 'cbss':
+        algo_config['Config']['ext_fact'] = int(1000 / recording_config['n_electrodes']) + 1
+        algo_config['Config']['bandpass'] = [20, recording_config['low_pass_cutoff']]
     
     return algo_config
 
 
-def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: str, container: str) -> None:
+def load_emg_data(edf_path: Path, data_type: str) -> np.ndarray:
+    """
+    Load and preprocess EMG data from EDF file.
+    
+    Args:
+        edf_path: Path to the EDF file
+        data_type: Type of data ('simulated' or 'experimental')
+        
+    Returns:
+        np.ndarray: Preprocessed EMG data (channels x samples)
+    """
+    # Load EDF file
+    raw = edfio.read_edf(edf_path)
+    
+    if data_type == 'experimental':
+        # For experimental data, only keep EMG channels
+        channels_df = pd.read_csv(edf_path.parent / f"{edf_path.stem.replace('_emg', '')}_channels.tab", delimiter='\t')
+        emg_channels = channels_df[channels_df['type'].str.startswith('EMG')].index
+        data = np.stack([raw.signals[i].data for i in emg_channels])
+    else:
+        # For simulated data, use all channels
+        data = np.stack([raw.signals[i].data for i in range(raw.num_signals)])
+    
+    return data
+
+
+def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: str, container: str, data_type: str) -> None:
     """
     Process a single recording using SCD algorithm.
     
@@ -205,6 +226,7 @@ def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: st
         output_dir (Path): Base output directory for decomposition results
         algorithm_config (str): Path to the algorithm configuration file
         container (str): Path to the Singularity container
+        data_type (str): Type of data ('simulated' or 'experimental')
     """
     # Create output directory for this recording
     recording_output_dir = output_dir
@@ -216,13 +238,20 @@ def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: st
         json.dump(algorithm_config, f, indent=2)
     print(f"Saved modified algorithm config to {modified_config_path}")
     
+    # Load and preprocess data
+    data = load_emg_data(edf_path, data_type)
+    
+    # Extract metadata for logging purposes
+    metadata = {'filename': edf_path.name, 'format': 'edf'}
+    
     # Run SCD decomposition
     decompose_scd(
-        data=str(edf_path),
+        data=data,
         output_dir=str(recording_output_dir),
         algorithm_config=str(modified_config_path),
         engine='singularity',
-        container=container
+        container=container,
+        metadata=metadata  # Used by logger to track input data provenance
     )
     
     # Find the log file in the output directory
@@ -251,7 +280,7 @@ def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: st
     print(f"Updated device information in {output_log_path}")
 
 
-def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: str) -> None:
+def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: str, data_type: str) -> None:
     """
     Process a single recording using CBSS algorithm.
     
@@ -259,6 +288,7 @@ def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: s
         edf_path (Path): Path to the EDF file
         output_dir (Path): Base output directory for decomposition results
         algorithm_config (str): Path to the algorithm configuration file
+        data_type (str): Type of data ('simulated' or 'experimental')
     """
     # Create output directory for this recording
     recording_output_dir = output_dir
@@ -269,12 +299,24 @@ def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: s
     with open(modified_config_path, 'w') as f:
         json.dump(algorithm_config, f, indent=2)
     print(f"Saved modified algorithm config to {modified_config_path}")
+
+    # Load and preprocess data
+    data = load_emg_data(edf_path, data_type)
+    start_time = algorithm_config['Config']['start_time']
+    end_time = algorithm_config['Config']['end_time']
+    sf = algorithm_config['Config']['sampling_frequency']
+    data = data[:, start_time*sf:end_time*sf]
+    
+    print(f"Data shape: {data.shape}")
+    # Extract metadata for logging purposes
+    metadata = {'filename': edf_path.name, 'format': 'edf'}
     
     # Run CBSS decomposition
     decompose_cbss(
-        data=str(edf_path),
+        data=data,
         output_dir=str(recording_output_dir),
-        algorithm_config=str(modified_config_path)
+        algorithm_config=str(modified_config_path),
+        metadata=metadata  # Used by logger to track input data provenance
     )
 
 
@@ -301,15 +343,15 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
             recording_config = get_experimental_config(edf_path)
         
         # Generate algorithm configuration
-        algo_config = generate_algorithm_config(algorithm_config, recording_config)
+        algo_config = generate_algorithm_config(algorithm_config, recording_config, algorithm)
         
         # Route to appropriate processing function
         if algorithm.lower() == 'scd':
             if container is None:
                 raise ValueError("Container path is required for SCD algorithm")
-            process_scd_recording(edf_path, output_dir, algo_config, container)
+            process_scd_recording(edf_path, output_dir, algo_config, container, data_type)
         elif algorithm.lower() == 'cbss':
-            process_cbss_recording(edf_path, output_dir, algo_config)
+            process_cbss_recording(edf_path, output_dir, algo_config, data_type)
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
             
@@ -321,11 +363,11 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
 
 def main():
     parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD or CBSS algorithm')
-    parser.add_argument('--bids_root', default=BIDS_ROOT,
+    parser.add_argument('--bids_root', default=None,
                       help='Root directory of the BIDS dataset')
-    parser.add_argument('--output_dir', default=OUTPUT_DIR,
+    parser.add_argument('--output_dir', default=None,
                       help='Output directory for decomposition results')
-    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], default=ALGORITHM,
+    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], default='scd',
                       help='Algorithm to use for decomposition')
     parser.add_argument('--algorithm_config', default=None,
                       help='Path to algorithm configuration file (optional)')
@@ -338,6 +380,14 @@ def main():
     
     args = parser.parse_args()
     
+    # Set default paths based on algorithm choice
+    DATASET_NAME = 'Caillet_et_al_2023'
+    BIDS_ROOT = args.bids_root or f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
+    SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
+    CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'
+    OUTPUT_DIR = args.output_dir or f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{args.algorithm}_outputs/{DATASET_NAME}'
+    CONTAINER = args.container or f'/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
+    
     # Set default config and container based on algorithm choice
     if args.algorithm_config is None:
         args.algorithm_config = SCD_CONFIG if args.algorithm == 'scd' else CBSS_CONFIG
@@ -345,8 +395,8 @@ def main():
         args.container = CONTAINER
     
     # Convert paths to Path objects
-    bids_root = Path(args.bids_root)
-    output_dir = Path(args.output_dir)
+    bids_root = Path(BIDS_ROOT)
+    output_dir = Path(OUTPUT_DIR)
     
     # Create DataFrame of BIDS files
     try:

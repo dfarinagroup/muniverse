@@ -3,6 +3,9 @@
     "Description": "Configuration parameters for CBSS algorithm",
 
     "Config": {
+        "start_time": 0,
+        "end_time": -1,
+        "sampling_frequency": 2048,
         "bandpass": [20, 500],
         "bandpass_order": 2,
         "notch_frequency": 50,
