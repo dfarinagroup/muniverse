@@ -345,8 +345,11 @@ class basic_cBSS:
             # Predict source and estimate the source quality
             sources[i,:] = w.T @ white_sig
             spikes[i], sil[i] = est_spike_times(sources[i,:], fsamp, cluster=self.cluster_method)
-            isi      = np.diff(spikes[i]/fsamp)
-            cov  = np.std(isi) / np.mean(isi)
+            if len(spikes[i]) > 2:
+                isi  = np.diff(spikes[i]/fsamp)
+                cov  = np.std(isi) / np.mean(isi)
+            else:
+                cov = np.inf
 
             # Refinement loop
             if len(spikes[i]) > 10 and self.refinement_loop:
