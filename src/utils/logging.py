@@ -234,7 +234,7 @@ class BaseMetadataLogger:
                 "Commit": "unknown",
             }
     
-    def _add_generated_by(self, name: str, url: str, commit: str, branch: Optional[str] = None, file: Optional[str] = None, license: Optional[str] = None):
+    def add_generated_by(self, name: str, url: str, commit: str, branch: Optional[str] = None, file: Optional[str] = None, license: Optional[str] = None):
         """Add a generator to the GeneratedBy list.
         
         Args:
@@ -281,7 +281,7 @@ class SimulationLogger(BaseMetadataLogger):
         # Add MUniverse generator info
         package_root = self._get_package_root()
         muniverse_info = self._get_git_info(str(package_root))
-        self._add_generated_by(
+        self.add_generated_by(
             name="MUniverse Data Generation",
             url=muniverse_info["URL"],
             commit=muniverse_info["Commit"],
@@ -291,7 +291,7 @@ class SimulationLogger(BaseMetadataLogger):
         )
         
         # Add NeuroMotion generator info
-        self._add_generated_by(
+        self.add_generated_by(
             name="NeuroMotion",
             url="https://github.com/shihan-ma/NeuroMotion.git",
             commit="590369ec2f395e6e228aa9dc58bf0fb87a2c0329",
@@ -340,20 +340,12 @@ class AlgorithmLogger(BaseMetadataLogger):
         # Add MUniverse generator info
         package_root = self._get_package_root()
         muniverse_info = self._get_git_info(str(package_root))
-        self._add_generated_by(
+        self.add_generated_by(
             name="MUniverse Decomposition",
             url=muniverse_info["URL"],
             commit=muniverse_info["Commit"],
             branch=muniverse_info["Branch"],
             file="muniverse/algorithms/decomposition.py"
-        )
-        
-        # Add SCD generator info
-        self._add_generated_by(
-            name="Swarm Contrastive Decomposition",
-            url="https://github.com/AgneGris/swarm-contrastive-decomposition.git",
-            commit="632a9ad041cf957584926d6b5cc64b7fe741e9eb",
-            license="Creative Commons Attribution-NonCommercial 4.0 International Public License"
         )
     
     def set_input_data(self, file_name: str, file_format: str):
