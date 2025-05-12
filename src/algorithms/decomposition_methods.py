@@ -1,5 +1,8 @@
 import numpy as np
 from .decomposition_routines import *
+
+from .pre_processing import *
+
 import sys
 import os
 
