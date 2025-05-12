@@ -377,9 +377,15 @@ def main():
     BIDS_ROOT = f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
     OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{args.algorithm}_outputs/{DATASET_NAME}'
 
+<<<<<<< Updated upstream
     SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
     CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'    
     CONTAINER = '/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
+=======
+    SCD_CONFIG = f'/rds/general/user/dc23/home/EMG/muniverse-cluster/configs/scd.json'
+    CBSS_CONFIG = f'/rds/general/user/dc23/home/EMG/muniverse-cluster/configs/cbss.json'    
+    CONTAINER = args.container or f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/muniverse_scd.sif'
+>>>>>>> Stashed changes
     
     # Set default config and container based on algorithm choice
     algorithm_config = SCD_CONFIG if args.algorithm == 'scd' else CBSS_CONFIG
