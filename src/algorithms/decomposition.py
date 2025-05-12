@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 
 from .decomposition_methods import upper_bound, basic_cBSS
+from .decomposition_routines import spike_dict_to_long_df
 from ..utils.logging import AlgorithmLogger
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -89,10 +90,12 @@ def decompose_scd(
             if data_path.suffix == '.edf':
                 # Load EDF and save as .npy
                 raw = read_edf(data_path)
-                
                 # Read channels.tsv file to get channel information
-                channels_df = pd.read_csv(data_path.parent / f"{data_path.stem.replace('_emg', '')}_channels.tab", delimiter='\t')
-                n_channels = len(channels_df[channels_df['type'].str.startswith('EMG')])
+                try:
+                    channels_df = pd.read_csv(data_path.parent / f"{data_path.stem.replace('_emg', '')}_channels.tab", delimiter='\t')
+                    n_channels = len(channels_df[channels_df['type'].str.startswith('EMG')])
+                except FileNotFoundError:
+                    n_channels = raw.num_signals
                 emg_data = np.stack([raw.signals[i].data for i in range(n_channels)])
                 temp_emg_path = temp_dir / "temp_emg.npy"
                 np.save(temp_emg_path, emg_data)
@@ -239,79 +242,132 @@ def decompose_upperbound(
     return results, {}
 
 def decompose_cbss(
-    data: np.ndarray,
-    algorithm_config: Optional[str],
-    output_dir: Path
+    data: Union[str, np.ndarray],
+    output_dir: Path,
+    algorithm_config: Optional[str] = None,
 ) -> Tuple[Dict, Dict]:
     """
     Run CBSS decomposition.
     
     Args:
-        data: EMG data array (channels x samples)
+        data: Either a path to input data file (.npy or .edf) or numpy array of EMG data
         algorithm_config: Optional path to algorithm configuration JSON file
         output_dir: Directory to save results
     
     Returns:
         Tuple containing:
         - Dictionary with decomposition results
-        - Dictionary with processing metadata
+        - Dictionary with process metadata
     """
     # Initialize logger
     logger = AlgorithmLogger()
     
     # Set input data information
-    logger.set_input_data(
-        file_name="numpy_array",
-        file_format="npy"
-    )
+    if isinstance(data, str):
+        data_path = Path(data)
+        logger.set_input_data(
+            file_name=data_path.name,
+            file_format=data_path.suffix[1:]  # Remove the dot
+        )
+    else:
+        logger.set_input_data(
+            file_name="numpy_array",
+            file_format="npy"
+        )
     
-    # Load algorithm config if provided, otherwise use defaults
+    # Load and set algorithm configuration
     if algorithm_config:
         algo_cfg = load_config(algorithm_config)
+        logger.set_algorithm_config(algo_cfg)
     else:
-        algo_cfg = None  # Will use defaults
+        config_dir = Path(__file__).parent.parent.parent / "configs"
+        algorithm_config = config_dir / "cbss.json"
+        if not algorithm_config.exists():
+            raise FileNotFoundError(f"Default CBSS config not found at {algorithm_config}")
+        algo_cfg = load_config(algorithm_config)
+        logger.set_algorithm_config(algo_cfg)
     
-    logger.set_algorithm_config(algo_cfg)
-    
-    # Add preprocessing step
-    logger.add_processing_step("Preprocessing", {
-        "InputFormat": "numpy_array",
-        "Description": "Input data is already in numpy format"
-    })
-    
-    # Initialize and run CBSS
-    cbss = basic_cBSS(config=algo_cfg)
-    sources, spikes, sil, mu_filters = cbss.decompose(data, fsamp=2048)  # TODO: Make sampling frequency configurable
-    
-    # Add decomposition step
-    logger.add_processing_step("Decomposition", {
-        "Method": "CBSS",
-        "Configuration": algo_cfg,
-        "Description": "Run CBSS algorithm on input data"
-    })
-    
-    # Prepare results
-    results = {
-        'sources': sources,
-        'spikes': spikes,
-        'sil': sil,
-        'mu_filters': mu_filters
-    }
-    
-    # Save results
-    save_decomposition_results(output_dir, results, {})
-    
-    # Log output files
-    for root, _, files in os.walk(output_dir):
-        for file in files:
-            file_path = os.path.join(root, file)
-            logger.add_output(file_path, os.path.getsize(file_path))
-    
-    # Finalize and save the log
-    log_path = logger.finalize(output_dir)
-    print(f"Run log saved to: {log_path}")
-    
-    return results, {}
+    # Create a unique run directory with timestamp
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    run_id = f"run_{timestamp}"
+    run_dir = os.path.join(output_dir, run_id)
+    os.makedirs(run_dir, exist_ok=True)
+
+    try:
+        # Load and preprocess data
+        if isinstance(data, str):
+            data_path = Path(data)
+            if data_path.suffix == '.edf':
+                # Load EDF and extract EMG data
+                raw = read_edf(data_path)
+                try:
+                    channels_df = pd.read_csv(data_path.parent / f"{data_path.stem.replace('_emg', '')}_channels.tab", delimiter='\t')
+                    n_channels = len(channels_df[channels_df['type'].str.startswith('EMG')])
+                except FileNotFoundError:
+                    n_channels = raw.num_signals
+                emg_data = np.stack([raw.signals[i].data for i in range(n_channels)])
+            else:  # .npy file
+                emg_data = np.load(data_path)
+        else:
+            emg_data = data
+
+        # Add preprocessing step
+        logger.add_processing_step("Preprocessing", {
+            "InputFormat": data_path.suffix[1:] if isinstance(data, str) else "numpy_array",
+            "Description": "Load and prepare EMG data for CBSS decomposition"
+        })
+
+        # Initialize and run CBSS with config
+        cbss = basic_cBSS(config=algo_cfg)
+        sources, spikes, sil, _ = cbss.decompose(emg_data, fsamp=2048) 
+        
+        # Add decomposition step
+        logger.add_processing_step("Decomposition", {
+            "Method": "CBSS",
+            "Configuration": algo_cfg,
+            "Description": "Run CBSS algorithm on input data"
+        })
+        
+        # Prepare results
+        results = {
+            'sources': sources,
+            'spikes': spikes,
+            'silhouette': sil
+        }
+        
+        # Save results in appropriate formats
+        # 1. Save spikes as TSV in long format
+        spikes_df = spike_dict_to_long_df(spikes, fsamp=2048)
+        spikes_path = os.path.join(run_dir, 'predicted_timestamps.tsv')
+        spikes_df.to_csv(spikes_path, sep='\t', index=False)
+        
+        # 2. Save sources as compressed NPZ
+        sources_path = os.path.join(run_dir, 'predicted_sources.npz')
+        np.savez_compressed(sources_path, sources=sources)
+        
+        # 3. Save silhouette scores as compressed NPZ
+        sil_path = os.path.join(run_dir, 'silhouette.npz')
+        np.savez_compressed(sil_path, silhouette=sil)
+        
+        print(f"[INFO] Decomposition completed successfully at {run_dir}")
+        logger.set_return_code("cbss", 0)
+        
+        # Log output files
+        for root, _, files in os.walk(run_dir):
+            for file in files: 
+                file_path = os.path.join(root, file)
+                logger.add_output(file_path, os.path.getsize(file_path))
+        
+        # Finalize and save the log
+        log_path = logger.finalize(run_dir)
+        print(f"Run log saved to: {log_path}")
+        
+        return results, logger.log_data
+            
+    except Exception as e:
+        print(f"[ERROR] Decomposition failed: {str(e)}")
+        logger.set_return_code("cbss", 1)
+        raise
 
 def save_decomposition_results(output_dir: Path, results: Dict, metadata: Dict):
     """Save decomposition results and metadata."""

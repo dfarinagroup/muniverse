@@ -1,0 +1,28 @@
+{
+    "Name": "CBSS Configuration",
+    "Description": "Configuration parameters for CBSS algorithm",
+
+    "Config": {
+        "bandpass": [20, 500],
+        "bandpass_order": 2,
+        "notch_frequency": 50,
+        "notch_n_harmonics": 3,
+        "notch_order": 2,
+        "notch_width": 1,
+        "ext_fact": 12,
+        "whitening_method": "ZCA",
+        "whitening_reg": "auto",
+        "ica_n_iter": 100,
+        "opt_initalization": "random",
+        "opt_function_exp": 3,
+        "opt_max_iter": 100,
+        "opt_tol": 1e-4,
+        "source_deflation": "gram-schmidt",
+        "peel_off": "false",
+        "cluster_method": "kmeans",
+        "random_seed": 1909,
+        "refinement_loop": true,
+        "sil_th": 0.9,
+        "cov_th": 0.35
+    }
+}

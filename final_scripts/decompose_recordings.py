@@ -6,17 +6,18 @@ import argparse
 import numpy as np
 import pandas as pd
 import edfio
-import scipy
 from pathlib import Path
-from muniverse.algorithms.decomposition import decompose_scd
+from muniverse.algorithms.decomposition import decompose_scd, decompose_cbss
 from typing import Optional
 import re
 
 
-DATASET_NAME = 'Grison_et_al_2025'
+DATASET_NAME = 'neuromotion-test'
 BIDS_ROOT = f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
-CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
-OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/scd_outputs/{DATASET_NAME}'
+ALGORITHM = 'cbss'
+SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
+CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'
+OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{ALGORITHM}_outputs/{DATASET_NAME}'
 CONTAINER = f'/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
 
 
@@ -24,7 +25,7 @@ def extract_bids_components(filename: str) -> tuple[str, str, str]:
     """Extract BIDS components (subject, session, task) from filename."""
     # Define patterns for each component
     patterns = {
-        'subject': r'sub-(\d+)',
+        'subject': r'sub-(?:sim)?(\d+)',
         'task': r'task-(\w+)_run'
     }
     
@@ -189,13 +190,97 @@ def generate_algorithm_config(base_config_path: str, recording_config: dict) -> 
     algo_config['Config']['end_time'] = recording_config['end_time']
     algo_config['Config']['sampling_frequency'] = recording_config['sampling_frequency']
     algo_config['Config']['extension_factor'] = int(1000 / recording_config['n_electrodes']) + 1
+    algo_config['Config']['low_pass_cutoff'] = recording_config['low_pass_cutoff']
     algo_config['Config']['use_coeff_var_fitness'] = recording_config['cov']
     
     return algo_config
 
 
+def process_scd_recording(edf_path: Path, output_dir: Path, algorithm_config: str, container: str) -> None:
+    """
+    Process a single recording using SCD algorithm.
+    
+    Args:
+        edf_path (Path): Path to the EDF file
+        output_dir (Path): Base output directory for decomposition results
+        algorithm_config (str): Path to the algorithm configuration file
+        container (str): Path to the Singularity container
+    """
+    # Create output directory for this recording
+    recording_output_dir = output_dir
+    recording_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save modified config to output directory
+    modified_config_path = recording_output_dir / 'algorithm_config.json'
+    with open(modified_config_path, 'w') as f:
+        json.dump(algorithm_config, f, indent=2)
+    print(f"Saved modified algorithm config to {modified_config_path}")
+    
+    # Run SCD decomposition
+    decompose_scd(
+        data=str(edf_path),
+        output_dir=str(recording_output_dir),
+        algorithm_config=str(modified_config_path),
+        engine='singularity',
+        container=container
+    )
+    
+    # Find the log file in the output directory
+    log_files = list(recording_output_dir.glob('*_log.json'))
+    output_log_path = log_files[0]
+    print(f"Found log file: {output_log_path}")
+    
+    with open(output_log_path, 'r') as f:
+        output_log = json.load(f)
+    
+    # Check runtime environment for GPU availability
+    runtime_env = output_log.get('RuntimeEnvironment', {})
+    gpu_list = runtime_env.get('Host', {}).get('GPU', [])
+    
+    # Update device in algorithm configuration
+    if gpu_list and len(gpu_list) > 0:
+        output_log['AlgorithmConfiguration']['Config']['device'] = 'cuda'
+        print(f"GPU detected: {gpu_list[0]}, updating log with 'cuda' device")
+    else:
+        output_log['AlgorithmConfiguration']['Config']['device'] = 'cpu'
+        print("No GPU detected, updating log with 'cpu' device")
+    
+    # Save updated log file
+    with open(output_log_path, 'w') as f:
+        json.dump(output_log, f, indent=2)
+    print(f"Updated device information in {output_log_path}")
+
+
+def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: str) -> None:
+    """
+    Process a single recording using CBSS algorithm.
+    
+    Args:
+        edf_path (Path): Path to the EDF file
+        output_dir (Path): Base output directory for decomposition results
+        algorithm_config (str): Path to the algorithm configuration file
+    """
+    # Create output directory for this recording
+    recording_output_dir = output_dir
+    recording_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save modified config to output directory
+    modified_config_path = recording_output_dir / 'algorithm_config.json'
+    with open(modified_config_path, 'w') as f:
+        json.dump(algorithm_config, f, indent=2)
+    print(f"Saved modified algorithm config to {modified_config_path}")
+    
+    # Run CBSS decomposition
+    decompose_cbss(
+        data=str(edf_path),
+        output_dir=str(recording_output_dir),
+        algorithm_config=str(modified_config_path)
+    )
+
+
 def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str, 
-                     container: str, data_type: str, data_config_path: Optional[Path] = None):
+                     container: Optional[str], data_type: str, data_config_path: Optional[Path] = None,
+                     algorithm: str = 'scd'):
     """
     Process a single recording using EDF file and optional simulation log config.
     
@@ -203,85 +288,61 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
         edf_path (Path): Path to the EDF file
         output_dir (Path): Base output directory for decomposition results
         algorithm_config (str): Path to the algorithm configuration file
-        container (str): Path to the Singularity container
+        container (Optional[str]): Path to the Singularity container (only needed for SCD)
         data_type (str): Type of data ('simulated' or 'experimental')
         data_config_path (Optional[Path]): Path to the simulation log config file (for simulated data)
+        algorithm (str): Algorithm to use ('scd' or 'cbss')
     """
-    # Create output directory for this recording
-    recording_output_dir = output_dir
-    recording_output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Get recording configuration based on data type
-    if data_type == 'simulated':
-        recording_config = get_simulation_config(data_config_path)
-    else:
-        recording_config = get_experimental_config(edf_path)
-    
-    # Generate algorithm configuration
-    algo_config = generate_algorithm_config(algorithm_config, recording_config)
-    
-    # Save modified config to output directory
-    modified_config_path = recording_output_dir / 'algorithm_config.json'
-    with open(modified_config_path, 'w') as f:
-        json.dump(algo_config, f, indent=2)
-    print(f"Saved modified algorithm config to {modified_config_path}")
-    
-    # Run decomposition
     try:
-        decompose_scd(
-            data=str(edf_path),
-            output_dir=str(recording_output_dir),
-            algorithm_config=str(modified_config_path),
-            engine='singularity',
-            container=container
-        )
-        print(f"Successfully decomposed recording")
-        
-        # Find the log file in the output directory
-        log_files = list(recording_output_dir.glob('*_log.json'))
-        output_log_path = log_files[0]
-        print(f"Found log file: {output_log_path}")
-        
-        with open(output_log_path, 'r') as f:
-            output_log = json.load(f)
-        
-        # Check runtime environment for GPU availability
-        runtime_env = output_log.get('RuntimeEnvironment', {})
-        gpu_list = runtime_env.get('Host', {}).get('GPU', [])
-        
-        # Update device in algorithm configuration
-        if gpu_list and len(gpu_list) > 0:
-            output_log['AlgorithmConfiguration']['Config']['device'] = 'cuda'
-            print(f"GPU detected: {gpu_list[0]}, updating log with 'cuda' device")
+        # Get recording configuration based on data type
+        if data_type == 'simulated':
+            recording_config = get_simulation_config(data_config_path)
         else:
-            output_log['AlgorithmConfiguration']['Config']['device'] = 'cpu'
-            print("No GPU detected, updating log with 'cpu' device")
+            recording_config = get_experimental_config(edf_path)
         
-        # Save updated log file
-        with open(output_log_path, 'w') as f:
-            json.dump(output_log, f, indent=2)
-        print(f"Updated device information in {output_log_path}")
+        # Generate algorithm configuration
+        algo_config = generate_algorithm_config(algorithm_config, recording_config)
+        
+        # Route to appropriate processing function
+        if algorithm.lower() == 'scd':
+            if container is None:
+                raise ValueError("Container path is required for SCD algorithm")
+            process_scd_recording(edf_path, output_dir, algo_config, container)
+        elif algorithm.lower() == 'cbss':
+            process_cbss_recording(edf_path, output_dir, algo_config)
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
+            
+        print(f"Successfully decomposed recording using {algorithm.upper()}")
             
     except Exception as e:
         print(f"Error processing recording: {str(e)}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD algorithm')
+    parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD or CBSS algorithm')
     parser.add_argument('--bids_root', default=BIDS_ROOT,
                       help='Root directory of the BIDS dataset')
     parser.add_argument('--output_dir', default=OUTPUT_DIR,
                       help='Output directory for decomposition results')
-    parser.add_argument('--algorithm_config', default=CONFIG,
-                      help='Path to algorithm configuration file')
-    parser.add_argument('--container', default=CONTAINER,
-                      help='Path to Singularity container')
+    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], default=ALGORITHM,
+                      help='Algorithm to use for decomposition')
+    parser.add_argument('--algorithm_config', default=None,
+                      help='Path to algorithm configuration file (optional)')
+    parser.add_argument('--container', default=None,
+                      help='Path to Singularity container (only needed for SCD)')
     parser.add_argument('--min_id', type=int, default=0,
                       help='Minimum ID to process (inclusive)')
     parser.add_argument('--max_id', type=int, default=None,
                       help='Maximum ID to process (inclusive). If None, process until the end.')
     
     args = parser.parse_args()
+    
+    # Set default config and container based on algorithm choice
+    if args.algorithm_config is None:
+        args.algorithm_config = SCD_CONFIG if args.algorithm == 'scd' else CBSS_CONFIG
+    if args.algorithm == 'scd' and args.container is None:
+        args.container = CONTAINER
     
     # Convert paths to Path objects
     bids_root = Path(args.bids_root)
@@ -301,6 +362,7 @@ def main():
     df_to_process = df.iloc[args.min_id:max_id + 1]
     
     print(f"\nProcessing recordings from ID {args.min_id} to {max_id} (total: {len(df_to_process)})")
+    print(f"Using {args.algorithm.upper()} algorithm")
     print("\nSample of files to process:")
     print(df_to_process.head())
     
@@ -313,7 +375,8 @@ def main():
             algorithm_config=args.algorithm_config,
             container=args.container,
             data_type=row['data_type'],
-            data_config_path=Path(row['log_config_path']) if row['data_type'] == 'simulated' else None
+            data_config_path=Path(row['log_config_path']) if row['data_type'] == 'simulated' else None,
+            algorithm=args.algorithm
         )
 
 if __name__ == '__main__':
