@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-from scipy.signal import correlate, correlation_lags
+from scipy.signal import correlate, correlation_lags, find_peaks
+from scipy.spatial.distance import cdist
 
 def match_spikes(s1, s2, shift=0, tol=0.001):
     """
@@ -200,13 +201,13 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
         
 
     """
-    source_labels_1 = sorted(df1['source_id'].unique())
-    source_labels_2 = sorted(df2['source_id'].unique())
+    source_labels_1 = sorted(df1['unit_id'].unique())
+    source_labels_2 = sorted(df2['unit_id'].unique())
     used_labels = set()
     results = []
 
     for l1 in source_labels_1:
-        spikes_1 = df1[df1['source_id'] == l1]['spike_time'].values
+        spikes_1 = df1[df1['unit_id'] == l1]['spike_time'].values
         spike_train_1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
         best_match = None
         best_score = 0
@@ -215,11 +216,11 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
             if l2 in used_labels:
                 continue
 
-            spikes_2 = df2[df2['source_id'] == l2]['spike_time'].values
+            spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
             spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
             tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
-            denom = max(len(spikes_1), len(spikes_2))
+            denom = len(spikes_2)
             match_score = tp / denom if denom > 0 else 0
 
             if match_score > best_score:
@@ -229,14 +230,112 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
         if best_match and best_score >= threshold:
             l1, l2, tp, fp, fn, shift = best_match
             results.append({
-                'source_df1': l1,
-                'source_df2': l2,
-                'match_score': best_score,
+                'unit_id': l1,
+                'unit_id_ref': l2,
+                #'match_score': best_score,
                 'delay_seconds': shift/fsamp,
-                'common_spikes': tp,
-                'only_df2': fp,
-                'only_df1': fn
+                'TP': tp,
+                'FN': fn,
+                'FP': fp
             })
             used_labels.add(l2)
+        else:
+            # If no match was found, mark as unmatched
+            results.append({
+                'unit_id': l1,
+                'unit_id_ref': None,
+                #'match_score': 0,
+                'delay_seconds': None,
+                'TP': 0,
+                'FN': 0,
+                'FP': len(spikes_1)
+            })   
 
     return pd.DataFrame(results)
+
+def pseudo_sil_score(source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001):
+    """
+    Computes a silhouette-like quality score for predicted spikes based on 
+    peak detection and background spike amplitudes.
+
+    Args:
+        - source (np.ndarray): The source signal.
+        - predicted_spikes (np.ndarray): Indices of predicted spike times.
+        - fsamp : float Sampling frequency (Hz).
+        - min_peak_distance_ms (float): Minimum distance between peaks (for peak detection), in seconds.
+        - match_dist (float): Window size (± s) around predicted spikes to exclude from background.
+
+    Returns:
+        - sil (float): Silhouette-like quality score.
+    """
+
+    spikes = np.asarray(spikes, dtype=int)
+    match_window = int(round(fsamp * match_dist))
+    min_dist = int(round(fsamp * min_peak_dist))
+
+    source = source * abs(source)
+
+    # Step 1: Detect peaks
+    detected_peaks, _ = find_peaks(source, distance=min_dist)
+
+    # Step 2: Exclude predicted spikes ± match_window
+    mask = np.ones(len(detected_peaks), dtype=bool)
+    for spike in spikes:
+        mask &= np.abs(detected_peaks - spike[:, None]) > match_window
+
+    background_spikes = detected_peaks[mask]
+
+    # Step 3: Compute amplitudes
+    if len(spikes) < 2 or len(background_spikes) == 0:
+        return 0.0
+
+    pred_amps = source[spikes].reshape(-1, 1)
+    back_amps = source[background_spikes].reshape(-1, 1)
+
+    within = np.sum(cdist(pred_amps, pred_amps, metric='sqeuclidean')) if len(pred_amps) > 1 else 0.0
+    between = np.sum(cdist(pred_amps, back_amps, metric='sqeuclidean'))
+
+    sil = (between - within) / max(between, within) if max(between, within) > 0 else 0.0
+    return sil
+
+def get_basic_spike_statistics(spike_times, min_num_spikes=10):
+    """
+    TODO: Description
+    
+    """
+
+    if len(spike_times) > min_num_spikes:
+        # Get the interspike intervals
+        isi  = np.diff(spike_times)
+        # Reject periods where the neuron was inactive
+        std_isi = np.std(isi)
+        isi = isi[isi <= 10*std_isi]
+        # Compute the CoV of the interspike intervals
+        cov  = np.std(isi) / np.mean(isi)
+        # Compute the mean discharge rate
+        mean_fr = np.mean(1 / isi)
+    else:
+        cov = np.inf
+        mean_fr = 0
+    
+    return cov, mean_fr
+
+def summarize_signal_based_metrics(sources, df, fsamp):
+
+    unique_labels = df['unit_id'].unique()
+
+    results = []
+
+    for i in np.arange(len(unique_labels)):
+        spikes = df[df['unit_id'] == unique_labels[i]]['spike_time'].values
+        cov_isi, mean_dr = get_basic_spike_statistics(spikes)
+        sil = pseudo_sil_score(sources[i,:], fsamp)
+        results.append({
+            'unit_id': unique_labels[i],
+            'sil': sil,
+            'cov_isi': cov_isi,
+            'mean_dr': mean_dr
+            })
+        
+    return pd.DataFrame(results)
+

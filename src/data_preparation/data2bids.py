@@ -684,13 +684,13 @@ class bids_decomp_derivatives(bids_emg_recording):
         # Store essential information for BIDS compatible folder structure in a dictonary
         if format == 'standalone':
             self.datasetname = datasetname + '-' + pipelinename
-            self.derivative_root = root + self.datasetname + '/'
+            self.root = root + self.datasetname + '/'
             
         else:
             self.datasetname = datasetname
-            self.derivative_root = root +  datasetname + '/derivatives/' + pipelinename + '/' 
+            self.root = root +  datasetname + '/derivatives/' + pipelinename + '/' 
 
-        self.derivative_datapath = self.derivative_root + datapath 
+        self.derivative_datapath = self.root + datapath 
         self.pipelinename = pipelinename
 
         self.source = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
@@ -725,7 +725,7 @@ class bids_decomp_derivatives(bids_emg_recording):
         # write *_predictedsources.edf file 
         self.source.write(name + 'predictedsources.edf')     
         # write dataset.json
-        fname = self.derivative_root + '/' + 'dataset.json'
+        fname = self.root + '/' + 'dataset.json'
         if self.overwrite or not os.path.isfile(fname):
             with open(fname, 'w') as f:
                 json.dump(self.dataset_sidecar, f) 
@@ -757,7 +757,7 @@ class bids_decomp_derivatives(bids_emg_recording):
         if os.path.isfile(fname):
             self.source = read_edf(fname)         
         # read dataset.json
-        fname = self.derivative_root + '/' + 'dataset.json'
+        fname = self.root + '/' + 'dataset.json'
         if os.path.isfile(fname):
             with open(fname, 'r') as f:
                 self.dataset_sidecar = json.load(f) 
