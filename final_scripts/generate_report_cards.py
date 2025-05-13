@@ -4,7 +4,7 @@ import pandas as pd
 import json
 import os
 from edfio import *
-from muniverse.evaluation.evaluate import *
+from muniverse.evaluation.report_card_routines import *
 from muniverse.data_preparation.data2bids import *
 from pathlib import Path
 import glob
@@ -63,6 +63,20 @@ def main():
         for j in np.arange(len(files)):
             sub, ses, task, run, _ = get_recording_info(filenames[j])
 
+            my_emg_data = bids_emg_recording(root=root + '/Datasets/', 
+                                             datasetname=datasetname, 
+                                             subject=sub, 
+                                             task=task, 
+                                             session=ses, 
+                                             run=run, 
+                                             datatype=datatype)
+            
+            my_emg_data.read()
+
+            channel_idx = np.asarray(my_emg_data.channels[my_emg_data.channels['type'] == 'EMG'].index).astype(int)
+
+            emg_data = edf_to_numpy(my_emg_data.emg_data, channel_idx)            
+
             my_derivative = bids_decomp_derivatives(pipelinename=pipelinename, 
                                                     root=root + '/Benchmarks/', 
                                                     datasetname=datasetname, 
@@ -74,12 +88,17 @@ def main():
             
             my_derivative.read()
 
+            global_report = get_global_metrics(emg_data.T, my_derivative.spikes, fsamp, my_derivative.pipeline_sidecar)
+            outputname = (my_derivative.root + my_derivative.datapath +
+                    filenames[j].split('_predictedsources.edf')[0] + '_global_report.tsv')
+            global_report.to_csv(outputname, sep='\t', index=False, header=True)
+
             sources = edf_to_numpy(my_derivative.source,np.arange(my_derivative.source.num_signals))
-            report_card = summarize_signal_based_metrics(sources.T, my_derivative.spikes, fsamp=fsamp)
+            source_report = summarize_signal_based_metrics(sources.T, my_derivative.spikes, fsamp=fsamp)
 
             outputname = (my_derivative.root + my_derivative.datapath +
-                    filenames[j].split('_predictedsources.edf')[0] + '_report_card.tsv')
-            report_card.to_csv(outputname, sep='\t', index=False, header=True)
+                    filenames[j].split('_predictedsources.edf')[0] + '_source_report.tsv')
+            source_report.to_csv(outputname, sep='\t', index=False, header=True)
             print('bla')
 
 
