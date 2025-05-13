@@ -113,7 +113,6 @@ def decompose_scd(
             print(f"[ERROR] Command output: {e.output if hasattr(e, 'output') else 'No output'}")
             print(f"[ERROR] Command stderr: {e.stderr if hasattr(e, 'stderr') else 'No stderr'}")
             logger.set_return_code("run.sh", e.returncode)
-            raise
         
         print(f"[INFO] Results saved to {run_dir}")
         
@@ -127,7 +126,7 @@ def decompose_scd(
         log_path = logger.finalize(run_dir)
         print(f"Run log saved to: {log_path}")
         
-        return None
+        return None, logger.log_data
 
 def decompose_upperbound(
     data: np.ndarray,
@@ -294,22 +293,22 @@ def decompose_cbss(
         print(f"[INFO] Decomposition completed successfully at {run_dir}")
         logger.set_return_code("cbss", 0)
         
-        # Log output files
-        for root, _, files in os.walk(run_dir):
-            for file in files: 
-                file_path = os.path.join(root, file)
-                logger.add_output(file_path, os.path.getsize(file_path))
-        
-        # Finalize and save the log
-        log_path = logger.finalize(run_dir)
-        print(f"Run log saved to: {log_path}")
-        
-        return results, logger.log_data
-            
     except Exception as e:
         print(f"[ERROR] Decomposition failed: {str(e)}")
         logger.set_return_code("cbss", 1)
-        raise
+        results = None
+    
+    # Log output files
+    for root, _, files in os.walk(run_dir):
+        for file in files: 
+            file_path = os.path.join(root, file)
+            logger.add_output(file_path, os.path.getsize(file_path))
+    
+    # Finalize and save the log
+    log_path = logger.finalize(run_dir)
+    print(f"Run log saved to: {log_path}")
+    
+    return results, logger.log_data
 
 def save_decomposition_results(output_dir: Path, results: Dict, metadata: Dict):
     """Save decomposition results and metadata."""
