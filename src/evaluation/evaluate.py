@@ -283,9 +283,9 @@ def signal_based_quality_metrics(source, spikes, fsamp, min_peak_dist=0.01, matc
     quality_metrics['cov_peak'] = np.std(source[spikes])/np.mean(source[spikes])
 
     # Silhouette-like score
-    sil, centroids, background_peaks = pseudo_sil_score(source, spikes, fsamp, 
-                                                       min_peak_dist=min_peak_dist, 
-                                                    match_dist=match_dist)
+    sil, background_peaks = pseudo_sil_score(source, spikes, fsamp, 
+                                             min_peak_dist=min_peak_dist, 
+                                             match_dist=match_dist)
     
     quality_metrics['sil'] = sil
 
@@ -296,7 +296,7 @@ def signal_based_quality_metrics(source, spikes, fsamp, min_peak_dist=0.01, matc
     quality_metrics['sep_prctile90'] = (np.percentile(pred_amps,10) - np.percentile(back_amps,90)) / np.mean(pred_amps)
 
     # Seperation in terms of standard deviations
-    quality_metrics['sep_std'] = (centroids[0] - centroids[1]) / np.std(pred_amps)
+    quality_metrics['sep_std'] = (np.mean(pred_amps) - np.mean(back_amps)) / np.std(pred_amps)
 
     # Pulse-to-noise ration (PNR)
     pnr, noise_indices = calc_pnr(source, spikes)
@@ -354,7 +354,7 @@ def pseudo_sil_score(source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001
 
     sil = (between - within) / max(between, within) if max(between, within) > 0 else 0.0
 
-    return sil, centroids, background_spikes
+    return sil, background_spikes
 
 def calc_pnr(source, spikes):
     """
