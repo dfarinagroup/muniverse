@@ -5,7 +5,7 @@ from ..algorithms.decomposition_routines import peel_off
 from ..algorithms.pre_processing import bandpass_signals, notch_signals
 from datetime import datetime
 
-def summarize_signal_based_metrics(sources, df, fsamp):
+def summarize_signal_based_metrics(sources, df, fsamp, datasetname, filename, target_muscle='n.a'):
     """
     TODO Add description
     
@@ -22,6 +22,9 @@ def summarize_signal_based_metrics(sources, df, fsamp):
         quality_metrics = signal_based_quality_metrics(sources[i,:], spike_indices, fsamp)
         results.append({
             'unit_id': int(unique_labels[i]),
+            'datasetname': datasetname,
+            'filename': filename,
+            'target_muscle': target_muscle,
             'n_spikes': int(quality_metrics['n_spikes']),
             'sil': quality_metrics['sil'],
             'pnr': quality_metrics['pnr'],
@@ -75,9 +78,9 @@ def get_runtime(pipeline_sidecar):
 
     return runtime
 
-def get_global_metrics(emg_data, spikes_df, fsamp, pipeline_sidecar):
+def get_global_metrics(emg_data, spikes_df, fsamp, pipeline_sidecar, datasetname, filename, target_muscle='n.a'):
 
-    # Extract time configuration
+    # Extract time configuration for computing the reconstruction error
     start_time = pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
     end_time = pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
     start_idx = int(start_time * fsamp)
@@ -86,6 +89,8 @@ def get_global_metrics(emg_data, spikes_df, fsamp, pipeline_sidecar):
     explained_var = compute_reconstruction_error(emg_data, spikes_df, fsamp=fsamp, timeframe=[start_idx, end_idx])
     runtime = get_runtime(pipeline_sidecar)
 
-    results = {'runtime': [runtime], 'explained_var': [explained_var]}
+    results = {'datasetname': [datasetname], 'filename': [filename],
+               'target_muscle': [target_muscle], 'runtime': [runtime], 
+               'explained_var': [explained_var]}
 
     return pd.DataFrame(results)
