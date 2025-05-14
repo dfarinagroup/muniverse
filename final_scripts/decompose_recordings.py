@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 import edfio
 from pathlib import Path
-from muniverse.algorithms.decomposition import decompose_scd, decompose_cbss
+from muniverse.algorithms.decomposition import decompose_scd, decompose_cbss, decompose_upperbound
 from typing import Optional
 import re
+import traceback
 
 
 def extract_bids_components(filename: str) -> tuple[str, str, str]:
@@ -319,6 +320,104 @@ def process_cbss_recording(edf_path: Path, output_dir: Path, algorithm_config: s
         metadata=metadata  # Used by logger to track input data provenance
     )
 
+# Note: The unnecessary functions for upperbound were removed to simplify the code
+
+
+def process_upperbound_recording(edf_path: Path, output_dir: Path, data_type: str,
+                simulation_file: Optional[Path] = None,
+                algorithm_config: Optional[str] = None) -> None:
+  """
+  Process a single recording using Upperbound algorithm.
+  
+  Args:
+    edf_path (Path): Path to the EDF file
+    output_dir (Path): Base output directory for decomposition results
+    data_type (str): Type of data ('simulated' or 'experimental')
+    simulation_file (Optional[Path]): Path to the simulation.json file
+    algorithm_config (Optional[str]): Path to the algorithm configuration file
+  """
+  # Set default MUAP cache directory
+  MUAP_CACHE_DIR = '/rds/general/ephemeral/user/pm1222/ephemeral/muniverse/datasets/muapcache/'
+  muap_cache_dir = Path(MUAP_CACHE_DIR)
+
+
+  
+  try:
+    # Create output directory for this recording
+    recording_output_dir = output_dir
+    recording_output_dir.mkdir(parents=True, exist_ok=True)
+        # Save modified config to output directory
+    modified_config_path = recording_output_dir / 'algorithm_config.json'
+    with open(modified_config_path, 'w') as f:
+        json.dump(algorithm_config, f, indent=2)
+    print(f"Saved modified algorithm config to {modified_config_path}")
+    
+    # Load EMG data
+    # Load and preprocess data
+    data = load_emg_data(edf_path, data_type)
+    start_time = algorithm_config['Config']['start_time']
+    end_time = algorithm_config['Config']['end_time']
+    sf = algorithm_config['Config']['sampling_frequency']
+    data = data[:, start_time*sf:end_time*sf]
+    
+    print(f"Data shape: {data.shape}")
+    # Extract metadata for logging purposes
+    metadata = {'filename': edf_path.name, 'format': 'edf'}
+    
+    # Find the simulation file if not explicitly provided
+    if not simulation_file and data_type == 'simulated':
+      # Find simulation.json file using the same prefix as the EDF file
+      file_prefix = edf_path.stem.replace('_emg', '')
+      simulation_file = edf_path.parent / f"{file_prefix}_simulation.json"
+      
+      if not simulation_file.exists():
+        print(f"Simulation file not found at {simulation_file}")
+        return
+      print(f"Found simulation file: {simulation_file}")
+    
+    # If no simulation file was found/provided, we can't proceed
+    if not simulation_file:
+      print("No simulation file found. Cannot proceed with upperbound decomposition.")
+      return
+    
+    # Find MUAP cache file
+    muap_cache_file = None
+    if muap_cache_dir.exists():
+      muap_cache_files = list(muap_cache_dir.glob('*muaps.npy'))
+      if muap_cache_files:
+        muap_cache_file = muap_cache_files[0]
+        print(f"Found MUAP cache file: {muap_cache_file}")
+      else:
+        print(f"Warning: No MUAP cache files found in {muap_cache_dir}")
+        return
+    else:
+      print(f"Warning: MUAP cache directory does not exist: {muap_cache_dir}")
+      return
+    
+    # Extract metadata for logging purposes
+    metadata = {'filename': edf_path.name, 'format': 'edf', 'data_type': data_type}
+    
+    # Run upperbound decomposition with the updated parameter names
+    decompose_upperbound(
+      data=data,
+      output_dir=recording_output_dir,
+      simulation_config=str(simulation_file), # Changed parameter name
+      muap_cache_file=str(muap_cache_file),
+      algorithm_config=str(modified_config_path),
+      metadata=metadata
+    )
+    
+    print(f"Successfully decomposed recording using Upperbound algorithm")
+  
+  except Exception as e:
+    print(f"Error processing recording: {str(e)}")
+    # Save error details to a file
+    error_log_path = output_dir / f"{edf_path.stem}_error.log"
+    with open(error_log_path, 'w') as f:
+      f.write(f"Error processing {edf_path.name}: {str(e)}\n")
+      f.write(traceback.format_exc())
+    print(f"Error details saved to {error_log_path}")
+
 
 def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str, 
                      container: Optional[str], data_type: str, data_config_path: Optional[Path] = None,
@@ -333,7 +432,7 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
         container (Optional[str]): Path to the Singularity container (only needed for SCD)
         data_type (str): Type of data ('simulated' or 'experimental')
         data_config_path (Optional[Path]): Path to the simulation log config file (for simulated data)
-        algorithm (str): Algorithm to use ('scd' or 'cbss')
+        algorithm (str): Algorithm to use ('scd', 'cbss', or 'upperbound')
     """
     try:
         # Get recording configuration based on data type
@@ -342,16 +441,27 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
         else:
             recording_config = get_experimental_config(edf_path)
         
-        # Generate algorithm configuration
         algo_config = generate_algorithm_config(algorithm_config, recording_config, algorithm)
         
-        # Route to appropriate processing function
+        # Route to appropriate processing function based on algorithm
         if algorithm.lower() == 'scd':
+            # Get recording configuration based on data type
+            
             if container is None:
                 raise ValueError("Container path is required for SCD algorithm")
             process_scd_recording(edf_path, output_dir, algo_config, container, data_type)
+            
         elif algorithm.lower() == 'cbss':
             process_cbss_recording(edf_path, output_dir, algo_config, data_type)
+            
+        elif algorithm.lower() == 'upperbound':
+            # For upperbound, we use a different processing approach
+            process_upperbound_recording(
+                edf_path=edf_path, 
+                output_dir=output_dir, 
+                data_type=data_type,
+                simulation_file=data_config_path, 
+                algorithm_config=algo_config)
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
             
@@ -359,16 +469,18 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
             
     except Exception as e:
         print(f"Error processing recording: {str(e)}")
+        print(traceback.format_exc())
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD or CBSS algorithm')
+    parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD, CBSS, or Upperbound algorithm')
     parser.add_argument('-d', '--dataset_name', help='Name of the dataset to process')
-    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], help='Algorithm to use for decomposition')
+    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss', 'upperbound'], help='Algorithm to use for decomposition')
     parser.add_argument('--min_id', type=int, default=0,
                       help='Minimum ID to process (inclusive)')
     parser.add_argument('--max_id', type=int, default=None,
                       help='Maximum ID to process (inclusive). If None, process until the end.')
+
     
     args = parser.parse_args()
     
@@ -377,18 +489,22 @@ def main():
     BIDS_ROOT = f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/bids/{DATASET_NAME}'
     OUTPUT_DIR = f'/rds/general/user/pm1222/ephemeral/muniverse/interim/{args.algorithm}_outputs/{DATASET_NAME}'
 
-<<<<<<< Updated upstream
-    SCD_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/scd.json'
-    CBSS_CONFIG = f'/rds/general/user/pm1222/home/muniverse-demo/configs/cbss.json'    
-    CONTAINER = '/rds/general/user/pm1222/home/muniverse-demo/environment/muniverse_scd.sif'
-=======
     SCD_CONFIG = f'/rds/general/user/dc23/home/EMG/muniverse-cluster/configs/scd.json'
     CBSS_CONFIG = f'/rds/general/user/dc23/home/EMG/muniverse-cluster/configs/cbss.json'    
-    CONTAINER = args.container or f'/rds/general/user/pm1222/ephemeral/muniverse/datasets/muniverse_scd.sif'
->>>>>>> Stashed changes
+    UPPERBOUND_CONFIG = f'/rds/general/user/dc23/home/EMG/muniverse-cluster/configs/upperbound.json' 
+    CONTAINER = f'/rds/general/user/pm1222/ephemeral/muniverse/muniverse_scd.sif'
     
-    # Set default config and container based on algorithm choice
-    algorithm_config = SCD_CONFIG if args.algorithm == 'scd' else CBSS_CONFIG
+    # Set default config based on algorithm choice
+    if args.algorithm == 'scd':
+        algorithm_config = SCD_CONFIG
+    elif args.algorithm == 'cbss':
+        algorithm_config = CBSS_CONFIG
+    else:  # upperbound
+        algorithm_config = UPPERBOUND_CONFIG
+    
+    # Set MUAP cache directory for upperbound algorithm
+
+
     
     # Convert paths to Path objects
     bids_root = Path(BIDS_ROOT)
@@ -396,10 +512,11 @@ def main():
     
     # Create DataFrame of BIDS files
     try:
-        df = pd.read_csv(bids_root / 'bids_dataframe.csv')
+        df = pd.read_csv(bids_root / f'bids_dataframe_todo_{args.algorithm}.csv')
     except FileNotFoundError:
-        df = create_bids_dataframe(bids_root)
-        df.to_csv(bids_root / 'bids_dataframe.csv', index=False)
+        # df = create_bids_dataframe(bids_root)
+        # df.to_csv(bids_root / 'bids_dataframe.csv', index=False)
+        raise FileNotFoundError('bids not found')
 
     print(f"\nFound {len(df)} recordings in BIDS structure")
     
@@ -422,8 +539,7 @@ def main():
             container=CONTAINER,
             data_type=row['data_type'],
             data_config_path=Path(row['log_config_path']) if row['data_type'] == 'simulated' else None,
-            algorithm=args.algorithm
-        )
+            algorithm=args.algorithm)
 
 if __name__ == '__main__':
     main()

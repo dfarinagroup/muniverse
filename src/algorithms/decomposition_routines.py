@@ -348,23 +348,31 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
     return residual_sig, comp_sig
 
 
-def spike_dict_to_long_df(spike_dict, sort=True, fsamp = 2048):
+
+def spike_dict_to_long_df(spike_dict, sort=True, fsamp=2048):
     """
     Convert a dictionary of spike instances into a long-formatted DataFrame.
 
     Parameters:
         spike_dict (dict): Keys are unit IDs, values are lists or arrays of spike times.
         sort (bool): Whether to sort the result by unit and spike time.
+        fsamp (float): Sampling frequency to convert sample indices to time.
 
     Returns:
-        pd.DataFrame: Long-formatted DataFrame with columns ['unit_id', 'spike_time']
+        pd.DataFrame: Long-formatted DataFrame with columns ['source_id', 'spike_time']
     """
+    import pandas as pd
+    
     rows = []
     for unit_id, spikes in spike_dict.items():
         for t in spikes:
             rows.append({"source_id": unit_id, "spike_time": t/fsamp})
     
+    # If no spikes were found, create an empty DataFrame with the correct columns
+    if not rows:
+        return pd.DataFrame(columns=["source_id", "spike_time"])
+        
     df = pd.DataFrame(rows)
-    if sort:
+    if sort and not df.empty:
         df = df.sort_values(by=["source_id", "spike_time"]).reset_index(drop=True)
     return df

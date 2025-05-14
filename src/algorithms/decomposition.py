@@ -130,22 +130,22 @@ def decompose_scd(
 
 def decompose_upperbound(
     data: np.ndarray,
-    data_generation_config: str,
-    muap_cache_file: Optional[str],
-    algorithm_config: Optional[str],
     output_dir: Path,
-    metadata_file: Optional[str] = None
+    simulation_config: str,  # Changed parameter name
+    muap_cache_file: Optional[str] = None,
+    algorithm_config: Optional[str] = None,
+    metadata: Optional[Dict] = None
 ) -> Tuple[Dict, Dict]:
     """
     Run upperbound decomposition.
 
     Args:
         data: EMG data array (channels x samples)
-        data_generation_config: output_config from data generation
-        muaps_cache_file: File where MUAPs are saved 
-        algorithm_config: Optional path to algorithm configuration JSON file
         output_dir: Directory to save results
-        metadata_file: Optional path to metadata JSON file for electrode selection info
+        simulation_config: Path to simulation configuration JSON file
+        muap_cache_file: Path to MUAP cache file
+        algorithm_config: Optional path to algorithm configuration JSON file
+        metadata: Optional dictionary containing input data metadata for logging
 
     Returns:
         Tuple containing:
@@ -154,12 +154,13 @@ def decompose_upperbound(
     """
     # Initialize logger
     logger = AlgorithmLogger()
-
+    print(metadata)
     # Set input data information
-    logger.set_input_data(
-        file_name="numpy_array",
-        file_format="npy"
-    )
+    if metadata:
+        logger.set_input_data(file_name=metadata['filename'], file_format=metadata['format'])
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
     # Load algorithm config if provided, otherwise use defaults
     if algorithm_config:
         algo_cfg = load_config(algorithm_config)
@@ -177,14 +178,10 @@ def decompose_upperbound(
     # Initialize and run upperbound
     ub = upper_bound(config=SimpleNamespace(**algo_cfg))
 
+
     # Use the new load_muaps method to get the MUAPs
-    muaps_reshaped, fsamp, angle = ub.load_muaps(data_generation_config, muap_cache_file, metadata_file)
-
-    # Move EMG to Nchannels, Nsamples shape
-    data = data.T
-    print(data.shape) 
-    sources, spikes, sil = ub.decompose(data, muaps_reshaped, fsamp=fsamp)
-
+    muaps_reshaped, fsamp, angle = ub.load_muaps(simulation_config, muap_cache_file)  # Updated method call
+    
     # Add decomposition step
     logger.add_processing_step("Decomposition", {
         "Method": "UpperBound",
@@ -192,30 +189,39 @@ def decompose_upperbound(
         "Description": "Run UpperBound algorithm on input data",
         "MuapFile": str(muap_cache_file),
         "AngleUsed": angle,
-        "MetadataFile": str(metadata_file) if metadata_file else "None"
+        "SimulationConfig": str(simulation_config)  # Updated logging
     })
+
+    # Move EMG to Nchannels, Nsamples shape
+    sources, spikes, sil, mu_filters = ub.decompose(data, muaps_reshaped, fsamp=fsamp)  # Updated to receive mu_filters
 
     # Prepare results
     results = {
         'sources': sources,
         'spikes': spikes,
-        'silhouette': sil
+        'silhouette': sil,
+        'mu_filters': mu_filters  # Include filters in results
     }
 
-    # Save results
-    save_decomposition_results(output_dir, results, {})
+    logger.set_return_code("upperbound", 0)
 
+    # Create a unique run directory with timestamp
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    run_id = f"run_{timestamp}"
+    run_dir = os.path.join(output_dir, run_id)
+    os.makedirs(run_dir, exist_ok=True)
+    # Save results using the optimized format
+    save_decomposition_results(run_dir, results, {}, fsamp=fsamp)
     # Log output files
-    for root, _, files in os.walk(output_dir):
+    for root, _, files in os.walk(run_dir):
         for file in files:
             file_path = os.path.join(root, file)
             logger.add_output(file_path, os.path.getsize(file_path))
-
     # Finalize and save the log
-    log_path = logger.finalize(output_dir)
+    log_path = logger.finalize(run_dir)
     print(f"Run log saved to: {log_path}")
 
-    return results, {}
+    return results, logger.log_data
 
 def decompose_cbss(
     data: np.ndarray,
@@ -276,19 +282,8 @@ def decompose_cbss(
             'silhouette': sil
         }
         
-        # Save results in appropriate formats
-        # 1. Save spikes as TSV in long format
-        spikes_df = spike_dict_to_long_df(spikes, fsamp=algo_cfg['sampling_frequency'])
-        spikes_path = os.path.join(run_dir, 'predicted_timestamps.tsv')
-        spikes_df.to_csv(spikes_path, sep='\t', index=False)
-        
-        # 2. Save sources as compressed NPZ
-        sources_path = os.path.join(run_dir, 'predicted_sources.npz')
-        np.savez_compressed(sources_path, sources=sources)
-        
-        # 3. Save silhouette scores as compressed NPZ
-        sil_path = os.path.join(run_dir, 'silhouette.npz')
-        np.savez_compressed(sil_path, silhouette=sil)
+        # Save results using the optimized format
+        save_decomposition_results(run_dir, results, {}, fsamp=algo_cfg['sampling_frequency'])
         
         print(f"[INFO] Decomposition completed successfully at {run_dir}")
         logger.set_return_code("cbss", 0)
@@ -310,21 +305,44 @@ def decompose_cbss(
     
     return results, logger.log_data
 
-def save_decomposition_results(output_dir: Path, results: Dict, metadata: Dict):
-    """Save decomposition results and metadata."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save results
-    results_path = output_dir / "decomposition_results.pkl"
-    metadata_path = output_dir / "processing_metadata.json"
-    
-    # Save results
-    import pickle
-    with open(results_path, 'wb') as f:
-        pickle.dump(results, f)
-    
-    # Save metadata
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
-    
-    return results_path, metadata_path
+def save_decomposition_results(output_dir: Path, results: Dict, metadata: Dict, fsamp: Optional[float] = None):
+  """
+  Save decomposition results and metadata in optimized formats.
+  
+  Args:
+    output_dir: Directory to save results
+    results: Dictionary of decomposition results containing sources, spikes, silhouette, etc.
+    metadata: Dictionary with processing metadata
+    fsamp: Sampling frequency, needed for converting spikes to time format
+  """
+  output_dir = Path(output_dir)
+  output_dir.mkdir(parents=True, exist_ok=True)
+  # 1. Save spikes as TSV in long format if fsamp is provided
+  if fsamp is not None and 'spikes' in results:
+    spikes_df = spike_dict_to_long_df(results['spikes'], fsamp=fsamp)
+    spikes_path = output_dir / 'predicted_timestamps.tsv'
+    spikes_df.to_csv(spikes_path, sep='\t', index=False)
+  
+  # 2. Save sources as compressed NPZ
+  if 'sources' in results:
+    sources_path = output_dir / 'predicted_sources.npz'
+    np.savez_compressed(sources_path, sources=results['sources'])
+  
+  # 3. Save silhouette scores as compressed NPZ
+  if 'silhouette' in results:
+    sil_path = output_dir / 'silhouette.npz'
+    np.savez_compressed(sil_path, silhouette=results['silhouette'])
+  
+  # 4. Save MU filters as compressed NPZ
+  if 'mu_filters' in results:
+    filters_path = output_dir / 'mu_filters.npz'
+    np.savez_compressed(filters_path, mu_filters=results['mu_filters'])
+  
+  # 5. Save metadata as JSON (keeping this for compatibility)
+  metadata_path = output_dir / "processing_metadata.json"
+  with open(metadata_path, 'w') as f:
+    json.dump(metadata, f, indent=2)
+  
+  return output_dir
+
+

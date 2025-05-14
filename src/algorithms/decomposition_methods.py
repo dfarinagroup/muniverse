@@ -1,8 +1,6 @@
 import numpy as np
 from .decomposition_routines import *
-
 from .pre_processing import *
-
 import sys
 import os
 
@@ -12,8 +10,6 @@ class upper_bound:
     Class for computing an upper bound of convolutive blind source 
     separation (cBSS) based motor neuron indedification making use 
     of a known ground-truth.
-
-
     '''
 
     def __init__(self, config=None, **kwargs):
@@ -22,11 +18,9 @@ class upper_bound:
         self.whitening_method = 'ZCA'
         self.whitening_reg  = 'auto'
         self.cluster_method  = 'kmeans'
-        
         # Added by DH 
         self.sil_th = 0.9
         self.min_num_spikes = 10
-
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
@@ -50,36 +44,47 @@ class upper_bound:
             else:
                 raise AttributeError(f"Invalid parameter: {key}")    
                 
-    def load_muaps(self, data_generation_config, muap_cache_file, metadata_file=None):
+    def load_muaps(self, simulation_config_path, muap_cache_file):
         """
-        Load and prepare MUAPs for decomposition.
+        Load and prepare MUAPs for decomposition using a single simulation configuration file.
 
         Args:
-            data_generation_config: Path to data generation configuration file
+            simulation_config_path: Path to simulation configuration JSON file
             muap_cache_file: Path to MUAP cache file
-            metadata_file: Path to metadata JSON file for electrode selection info
 
         Returns:
             muaps_reshaped: Reshaped MUAPs ready for decomposition
             fsamp: Sampling frequency from config
             angle: Angle used for MUAP selection
         """
-        # Load all the necessary files
+        # Load simulation configuration file
         import json
         
-        # Load configuration file
-        with open(data_generation_config, 'r') as f:
-            config = json.load(f)
-        fsamp = config['RecordingConfiguration']['SamplingFrequency']
+        with open(simulation_config_path, 'r') as f:
+            simulation_config = json.load(f)
         
+        # Extract configuration from the simulation config
+        config = simulation_config.get('InputData', {}).get('Configuration', {})
+        if not config:
+            # Fallback: if it's already the direct configuration without the outer structure
+            config = simulation_config.get('Configuration', simulation_config)
+        
+        # Get sampling frequency
+        fsamp = config.get('RecordingConfiguration', {}).get('SamplingFrequency')
+        if not fsamp:
+            raise ValueError("Could not find sampling frequency in simulation config")
+        
+        # Load MUAPs from cache
         if muap_cache_file is not None:
             print(f"Loading MUAPs from cache: {muap_cache_file}")
             muaps_full = np.load(muap_cache_file, allow_pickle=True)
         else:
             raise ValueError("MUAP cache file is required for decomposition")
 
-        # Now find the correct muaps according to the config
-        movement_dof = config['MovementConfiguration']['MovementDOF']
+        # Extract movement information
+        movement_config = config.get('MovementConfiguration', {})
+        movement_dof = movement_config.get('MovementDOF')
+        
         # Generate angle labels
         if movement_dof == "Flexion-Extension":
             min_angle, max_angle = -65, 65
@@ -89,7 +94,7 @@ class upper_bound:
             min_angle, max_angle = -65, 65  # Default to Flexion-Extension range
             print(f"Warning: Unknown movement DOF '{movement_dof}'. Using default angle range.")
 
-        constant_angle = config['MovementConfiguration']["MovementProfileParameters"]['TargetAngle']
+        constant_angle = movement_config.get("MovementProfileParameters", {}).get('TargetAngle')
 
         muap_dof_samples = muaps_full.shape[1]
         angle_labels = np.linspace(min_angle, max_angle, muap_dof_samples).astype(int)
@@ -101,27 +106,32 @@ class upper_bound:
         # Reshape MUAPs from (n_mu, n_rows, n_cols, n_samples) to (n_mu, n_channels, n_samples)
         n_mu, n_rows, n_cols, n_samples = muaps.shape
         
-        # Check if we need to use subset of electrodes based on metadata
+        # Check if we need to use subset of electrodes based on simulation config
         selected_indices = None
-        if metadata_file and os.path.exists(metadata_file):
-            try:
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
+        
+        # Extract electrode array info from config
+        electrode_config = config.get('RecordingConfiguration', {}).get('ElectrodeConfiguration', {})
+        desired_n_cols = electrode_config.get('DesiredNCols')
+        
+        # Get selected columns from simulation metadata if available
+        if 'OutputData' in simulation_config and 'Metadata' in simulation_config['OutputData']:
+            center_column = simulation_config['OutputData']['Metadata'].get('CenterColumn')
+            
+            # If center column is specified and desired columns is less than total columns
+            if center_column is not None and desired_n_cols and desired_n_cols < n_cols:
+                # Calculate how many columns to take on each side of the center column
+                half_width = desired_n_cols // 2
                 
-                # Extract electrode array info from metadata
-                electrode_info = metadata.get("simulation_info", {}).get("electrode_array", {})
-                selected_columns = electrode_info.get("selected_columns", None)
-                rows = electrode_info.get("rows", n_rows)
+                # Use the same wrapping logic as in run_neuromotion.py
+                # Biomime grid wraps around -- use modulo to handle wrapping
+                selected_columns = [(center_column - half_width + i) % n_cols for i in range(desired_n_cols)]
                 
-                if selected_columns is not None:
-                    # Generate selected indices based on columns
-                    selected_indices = []
-                    for col in selected_columns:
-                        selected_indices.extend([col * rows + row for row in range(rows)])
-                    
-                    print(f"Using {len(selected_indices)} electrodes from metadata (columns: {selected_columns})")
-            except Exception as e:
-                print(f"Error reading metadata file: {str(e)}. Using all electrodes.")
+                # Generate selected indices based on columns
+                selected_indices = []
+                for col in selected_columns:
+                    selected_indices.extend([col * n_rows + row for row in range(n_rows)])
+                
+                print(f"Using {len(selected_indices)} electrodes (columns: {selected_columns})")
         
         # Reshape the MUAPs
         if selected_indices:
@@ -158,19 +168,18 @@ class upper_bound:
         sources = np.zeros((n_mu, sig.shape[1]))
         spikes = {i: [] for i in range(n_mu)}
         sil = np.zeros(n_mu)
-        
         # Initialize mu_filters array
         white_dim = sig.shape[0] * self.ext_fact  # Dimension after extension
         mu_filters = np.zeros((white_dim, n_mu))
 
         # Extend signals and subtract the mean
         ext_sig = extension(sig, self.ext_fact)
+
         ext_mean = np.mean(ext_sig, axis=1, keepdims=True) 
         ext_sig -= ext_mean
 
         # Whiten the extended signals
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
-
         # Loop over each MU
         for i in np.arange(n_mu):
             # Get the optimal MU filter
@@ -185,8 +194,6 @@ class upper_bound:
         sources, spikes, sil, mu_filters = remove_bad_sources(sources, spikes, sil, mu_filters, 
                                                             threshold=self.sil_th, 
                                                             min_num_spikes=self.min_num_spikes)
-        # TODO Dimitris maybe keep the interface similar with the rest
-        # and return the filters aswell
         return sources, spikes, sil, mu_filters
 
 
@@ -228,7 +235,6 @@ class upper_bound:
         """
         # ToDo
         pass
-    
     
 
 class basic_cBSS:
