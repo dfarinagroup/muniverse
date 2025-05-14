@@ -5,19 +5,19 @@ from ..algorithms.decomposition_routines import peel_off
 from ..algorithms.pre_processing import bandpass_signals, notch_signals
 from datetime import datetime
 
-def summarize_signal_based_metrics(sources, df, fsamp, datasetname, filename, target_muscle='n.a'):
+def summarize_signal_based_metrics(sources, spikes_df, fsamp, datasetname, filename, target_muscle='n.a'):
     """
     TODO Add description
     
     """
 
-    unique_labels = df['unit_id'].unique()
+    unique_labels = spikes_df['unit_id'].unique()
 
     results = []
 
     for i in np.arange(len(unique_labels)):
-        spike_indices = df[df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
-        spike_times = df[df['unit_id'] == unique_labels[i]]['spike_time'].values
+        spike_indices = spikes_df[spikes_df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
+        spike_times = spikes_df[spikes_df['unit_id'] == unique_labels[i]]['spike_time'].values
         cov_isi, mean_dr = get_basic_spike_statistics(spike_times)
         quality_metrics = signal_based_quality_metrics(sources[i,:], spike_indices, fsamp)
         results.append({
