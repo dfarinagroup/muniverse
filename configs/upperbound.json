@@ -1,0 +1,18 @@
+{
+    "Name": "UpperBound Configuration",
+    "Description": "Configuration parameters for UpperBound algorithm",
+
+    "Config": {
+        "start_time": 0,
+        "end_time": -1,
+        "sampling_frequency": 2048,
+        "bandpass": [20, 500],
+        "ext_fact": 15,
+        "whitening_method": "ZCA",
+        "whitening_reg":"auto",
+        "cluster_method":"kmeans",
+        "sil_th" :0.9,
+        "min_num_spikes":10
+
+    }
+}
