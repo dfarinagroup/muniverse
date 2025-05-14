@@ -143,7 +143,7 @@ def main():
 
         global_report = pd.concat([global_report, my_global_report], ignore_index=True)
         source_report = pd.concat([source_report, my_source_report], ignore_index=True)
-        print('bla')
+        print(f'Finished analyzing {j+1} out of {len(files)} files')
         
     global_report.to_csv(parent_folder + '/report_card_globals.tsv', sep='\t', index=False, header=True)
     source_report.to_csv(parent_folder + '/report_card_sources.tsv', sep='\t', index=False, header=True)
