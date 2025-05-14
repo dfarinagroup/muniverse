@@ -345,7 +345,7 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
 
     residual_sig = sig - comp_sig
 
-    return residual_sig, comp_sig
+    return residual_sig, comp_sig, waveform
 
 
 

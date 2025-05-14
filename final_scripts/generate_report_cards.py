@@ -113,11 +113,14 @@ def main():
         t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
 
         # Get global report
-        my_global_report = get_global_metrics(emg_data=emg_data.T, 
-                                              spikes_df=my_derivative.spikes, 
-                                              fsamp=fsamp, 
+        timeframe = [int(t0 * fsamp), int(t1 * fsamp)]
+        explained_var, muap_rms = compute_reconstruction_error(sig=emg_data.T, 
+                                                               spikes_df=my_derivative.spikes, 
+                                                               fsamp=fsamp, 
+                                                               timeframe=timeframe)
+
+        my_global_report = get_global_metrics(explained_var=explained_var,
                                               pipeline_sidecar=my_derivative.pipeline_sidecar,
-                                              t_win = [t0, t1],
                                               datasetname=datasetname, 
                                               filename=filenames[j], 
                                               target_muscle=target_muscle
@@ -127,7 +130,8 @@ def main():
         # Summarize all sources
         sources = edf_to_numpy(my_derivative.source,np.arange(my_derivative.source.num_signals))
         my_source_report = summarize_signal_based_metrics(sources=sources.T, 
-                                                          spikes_df=my_derivative.spikes, 
+                                                          spikes_df=my_derivative.spikes,
+                                                          muap_rms=muap_rms, 
                                                           fsamp=fsamp,
                                                           datasetname=datasetname,
                                                           filename=filenames[j],
