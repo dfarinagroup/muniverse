@@ -148,12 +148,12 @@ def main():
             
             my_ref_derivative.read()
             
-            start_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
-            end_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
+            #start_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
+            #end_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
             
             df = evaluate_spike_matches(my_derivative.spikes, my_ref_derivative.spikes, 
-                                        t_start = start_time, 
-                                        t_end = end_time)
+                                        t_start = t0, 
+                                        t_end = t1)
             
             my_source_report = pd.merge(my_source_report, df, on='unit_id')
 
