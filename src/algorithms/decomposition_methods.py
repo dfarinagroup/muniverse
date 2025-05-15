@@ -263,7 +263,7 @@ class basic_cBSS:
         self.opt_max_iter = 100
         self.opt_tol = 1e-4
         self.source_deflation = 'gram-schmidt'
-        self.peel_off = 'false'
+        self.peel_off = True
         self.cluster_method  = 'kmeans'
         self.random_seed = 1909
         self.refinement_loop = True
@@ -387,7 +387,7 @@ class basic_cBSS:
 
             # Peel-off the detected source
             if self.peel_off and sil[i] > self.sil_th and cov < self.cov_th:
-                white_sig, _ = peel_off(white_sig, spikes[i], win=0.025, fsamp=fsamp) 
+                white_sig, _, _ = peel_off(white_sig, spikes[i], win=0.025, fsamp=fsamp) 
 
         # Remove duplicates        
         sources, spikes, sil, mu_filters = remove_duplicates(sources, spikes, sil, mu_filters, fsamp,
