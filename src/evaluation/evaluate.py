@@ -391,19 +391,21 @@ def get_basic_spike_statistics(spike_times, min_num_spikes=10):
     
     """
 
+    cov = np.inf
+    mean_fr = 0
+    
     if len(spike_times) > min_num_spikes:
         # Get the interspike intervals
         isi  = np.diff(spike_times)
         # Reject periods where the neuron was inactive
         std_isi = np.std(isi)
         isi = isi[isi <= 10*std_isi]
-        # Compute the CoV of the interspike intervals
-        cov  = np.std(isi) / np.mean(isi)
-        # Compute the mean discharge rate
-        mean_fr = np.mean(1 / isi)
-    else:
-        cov = np.inf
-        mean_fr = 0
+
+        if len(isi) > 1:
+            # Compute the CoV of the interspike intervals
+            cov  = np.std(isi) / np.mean(isi)
+            # Compute the mean discharge rate
+            mean_fr = np.mean(1 / isi)
     
     return cov, mean_fr
 
