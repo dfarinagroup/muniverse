@@ -1,0 +1,137 @@
+{
+    "@context": {
+        "@language": "en",
+        "@vocab": "https://schema.org/",
+        "citeAs": "cr:citeAs",
+        "column": "cr:column",
+        "conformsTo": "dct:conformsTo",
+        "cr": "http://mlcommons.org/croissant/",
+        "rai": "http://mlcommons.org/croissant/RAI/",
+        "data": {
+            "@id": "cr:data",
+            "@type": "@json"
+        },
+        "dataType": {
+            "@id": "cr:dataType",
+            "@type": "@vocab"
+        },
+        "dct": "http://purl.org/dc/terms/",
+        "examples": {
+            "@id": "cr:examples",
+            "@type": "@json"
+        },
+        "extract": "cr:extract",
+        "field": "cr:field",
+        "fileProperty": "cr:fileProperty",
+        "fileObject": "cr:fileObject",
+        "fileSet": "cr:fileSet",
+        "format": "cr:format",
+        "includes": "cr:includes",
+        "isLiveDataset": "cr:isLiveDataset",
+        "jsonPath": "cr:jsonPath",
+        "key": "cr:key",
+        "md5": "cr:md5",
+        "parentField": "cr:parentField",
+        "path": "cr:path",
+        "recordSet": "cr:recordSet",
+        "references": "cr:references",
+        "regex": "cr:regex",
+        "repeated": "cr:repeated",
+        "replace": "cr:replace",
+        "sc": "https://schema.org/",
+        "separator": "cr:separator",
+        "source": "cr:source",
+        "subField": "cr:subField",
+        "transform": "cr:transform",
+        "wd": "https://www.wikidata.org/wiki/"
+    },
+    "@type": "sc:Dataset",
+    "conformsTo": "http://mlcommons.org/croissant/1.0",
+    "name": "Hybrid Tibialis Dataset",
+    "url": "https://doi.org/10.7910/DVN/YHTGGA",
+    "creator": [
+        {
+            "@type": "Person",
+            "givenName": "Pranav",
+            "familyName": "Mamidanna",
+            "affiliation": {
+                "@type": "Organization",
+                "name": "Imperial College London"
+            },
+            "sameAs": "https://orcid.org/0000-0002-2095-3314",
+            "@id": "https://orcid.org/0000-0002-2095-3314",
+            "identifier": "https://orcid.org/0000-0002-2095-3314",
+            "name": "Mamidanna, Pranav"
+        }
+    ],
+    "description": "Hybrid tibialis dataset curated by Dr Robin Rohlen and Dimitrios Halatsis for the MUniverse Benchmark.",
+    "keywords": [
+        "Engineering"
+    ],
+    "license": "http://creativecommons.org/licenses/by/4.0",
+    "datePublished": "2025-05-15",
+    "dateModified": "2025-05-15",
+    "includedInDataCatalog": {
+        "@type": "DataCatalog",
+        "name": "Harvard Dataverse",
+        "url": "https://dataverse.harvard.edu"
+    },
+    "publisher": {
+        "@type": "Organization",
+        "name": "Harvard Dataverse"
+    },
+    "version": "1.0",
+    "citeAs": "@data{DVN/YHTGGA_2025,author = {Mamidanna, Pranav},publisher = {Harvard Dataverse},title = {Hybrid Tibialis Dataset},year = {2025},url = {https://doi.org/10.7910/DVN/YHTGGA}}",
+    "distribution": [
+        {
+            "@type": "cr:FileObject",
+            "@id": "sub-sim01.tar",
+            "name": "sub-sim01.tar",
+            "encodingFormat": "application/x-tar",
+            "md5": "849866ca2cf318f1bb315adecefc39ca",
+            "contentSize": "711997440",
+            "description": "",
+            "contentUrl": "https://dataverse.harvard.edu/api/access/datafile/11446070"
+        },
+        {
+            "@type": "cr:FileObject",
+            "@id": "sub-sim02.tar",
+            "name": "sub-sim02.tar",
+            "encodingFormat": "application/x-tar",
+            "md5": "19804e274494d8d9c56534fbae86557a",
+            "contentSize": "708526080",
+            "description": "",
+            "contentUrl": "https://dataverse.harvard.edu/api/access/datafile/11446067"
+        },
+        {
+            "@type": "cr:FileObject",
+            "@id": "sub-sim03.tar",
+            "name": "sub-sim03.tar",
+            "encodingFormat": "application/x-tar",
+            "md5": "2d05678d82fbee762c2ef2a62a799bf2",
+            "contentSize": "710184960",
+            "description": "",
+            "contentUrl": "https://dataverse.harvard.edu/api/access/datafile/11446071"
+        },
+        {
+            "@type": "cr:FileObject",
+            "@id": "sub-sim04.tar",
+            "name": "sub-sim04.tar",
+            "encodingFormat": "application/x-tar",
+            "md5": "3571d0075f0b15cbff52d8106e52ac98",
+            "contentSize": "708454400",
+            "description": "",
+            "contentUrl": "https://dataverse.harvard.edu/api/access/datafile/11446068"
+        },
+        {
+            "@type": "cr:FileObject",
+            "@id": "sub-sim05.tar",
+            "name": "sub-sim05.tar",
+            "encodingFormat": "application/x-tar",
+            "md5": "ffd453f9b0622a26ebfb1bbd405b6c18",
+            "contentSize": "657868800",
+            "description": "",
+            "contentUrl": "https://dataverse.harvard.edu/api/access/datafile/11446069"
+        }
+    ]
+}
