@@ -208,6 +208,7 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
 
     for l1 in source_labels_1:
         spikes_1 = df1[df1['unit_id'] == l1]['spike_time'].values
+        spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
         spike_train_1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
         best_match = None
         best_score = 0
@@ -217,6 +218,7 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
                 continue
 
             spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
             tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
