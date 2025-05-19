@@ -7,39 +7,64 @@ from datetime import datetime
 
 def signal_based_metrics(emg_data, sources, spikes_df, pipeline_sidecar, fsamp, datasetname, filename, target_muscle='n.a'):
     """
-    TODO Add description
+    Summarize signal and source based quality metrics as well as metadata in report cards
+
+    Args:
+        - emg_data (ndarray): EMG signal the decomposition was applied on (n_channels x time_samples)
+        - sources (ndarray): Sources decomposed from the EMG data (n_sources x time_samples)
+        - spikes_df (pd.DataFrame): Long formated dictonary of motor neuron spikes
+        - pipeline_sidecar (dict): Log file of a BIDS decomposition derivative
+        - fsamp (float): Sampling rate in Hz
+        - datasetname (str): Name of the source dataset
+        - filename (str): Name of the decomposed file
+        - target_muscle (str): Muscle of interesst
+
+    Returns:
+        - global_report (pd.DataFrame): Summary of signal-based quality metrics and metadata
+        - source_report (pd.DataFrame): Summary of source-specific perfomance metrics
+
     
     """
 
+    # Algorithm name
     pipelinename = pipeline_sidecar['PipelineName']
 
+    # Algorithm runtime
     runtime = get_runtime(pipeline_sidecar)
 
+    # Time window the decomposition was run on
     t0, t1 = get_time_window(pipeline_sidecar, pipelinename)
     timeframe = [int(t0 * fsamp), int(t1 * fsamp)]
     
+    # Compute the variance of the EMG signal that is explained by the decomposition
     explained_var, muap_rms = compute_reconstruction_error(sig=emg_data, 
                                                            spikes_df=spikes_df, 
                                                            fsamp=fsamp, 
                                                            timeframe=timeframe)
     
+    # Summarize gloabl performance metrics together with metadata
     global_report = {'datasetname': [datasetname], 'filename': [filename],
                      'target_muscle': [target_muscle], 'runtime': [runtime], 
                       'explained_var': [explained_var]}
     
     global_report = pd.DataFrame(global_report)
 
+    # Get a list of the extracted sources
     unique_labels = spikes_df['unit_id'].unique()
 
     if sources.shape[0] == 1:
+        # Output an empty dataframe if no source was detected
         source_report = pd.DataFrame()
     else:
         source_report = []
 
         for i in np.arange(len(unique_labels)):
+            # Extact spike times and indices
             spike_indices = spikes_df[spikes_df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
             spike_times = spikes_df[spikes_df['unit_id'] == unique_labels[i]]['spike_time'].values
+            # Get spiking source statistics
             cov_isi, mean_dr = get_basic_spike_statistics(spike_times)
+            # Compute a set of source-based quality metrics
             quality_metrics = signal_based_quality_metrics(sources[i,:], spike_indices, fsamp)
             source_report.append({
                 'unit_id': int(unique_labels[i]),
@@ -82,7 +107,6 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
     Returns:
         results (DataFrame): Table of matched units
         
-
     """
     source_labels_1 = sorted(df1['unit_id'].unique())
     source_labels_2 = sorted(df2['unit_id'].unique())
@@ -152,6 +176,22 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
     return pd.DataFrame(results)
 
 def compute_reconstruction_error(sig, spikes_df, timeframe = None, win=0.05, fsamp=2048):
+    """
+    Compute the fraction of the variance of an EMG signal that 
+    is explained by a decomposition output
+
+    Args:
+        - sig (ndarray): The emg data (channels x time_samples)
+        - spikes_df (pd.DataFrame): Long formated dictonary of motor neuron spikes
+        - timeframe (None or tuple): Time window the decomposition was applied to (start_idx, end_idx)
+        - win (float): Plus/minus the duration in seconds of the window used to estimate the MUAP
+        - fsamp (float): Sampling rate of the EMG signal in Hz   
+
+    Returns:
+        - explained_var (float): Fraction of variance explained by the decomposition
+        - waveform_rms (ndarray): Relative RMS-amplitude of each source   
+    
+    """
 
     sig = bandpass_signals(sig, fsamp)
     sig = notch_signals(sig, fsamp)
@@ -178,17 +218,22 @@ def compute_reconstruction_error(sig, spikes_df, timeframe = None, win=0.05, fsa
         reconstructed_sig += comp_sig
         waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
 
-    # if timeframe is not None:
-    #     sig[:, :timeframe[0]] = 0
-    #     sig[:, timeframe[1]:] = 0  
-    #     residual_sig[:, :timeframe[0]] = 0
-    #     residual_sig[:, timeframe[1]:] = 0    
-
     explained_var = 1 - np.var(residual_sig) / np.var(sig)    
 
     return explained_var, waveform_rms
 
 def get_runtime(pipeline_sidecar):
+    """
+    Helper function to extract the runtime from
+    an algorithm log file.
+
+    Args:
+        - pipeline_sidecar (dict): Log file of a BIDS decomposition derivative
+
+    Returns:
+        - runtime (float): Algorithm runtime in seconds    
+    
+    """
 
     t0 = pipeline_sidecar['Execution']['Timing']['Start']
     t1 = pipeline_sidecar['Execution']['Timing']['End']
@@ -201,10 +246,26 @@ def get_runtime(pipeline_sidecar):
     return runtime
 
 def get_time_window(pipeline_sidecar, pipelinename):
+    """
+    Helper function to extract the time window the decomposition was
+    peformed from a log file.
+
+    Args:
+        - pipeline_sidecar (dict): Log file of a BIDS decomposition derivative
+        - pipelinename (str): Name of the algorithm generating the derivative
+
+    Returns:
+        - t0 (float): Start time in seconds 
+        - t1 (float): End time in seconds     
+    
+    """
 
     if pipelinename == 'cbss':
         t0 = pipeline_sidecar['AlgorithmConfiguration']['start_time']
         t1 = pipeline_sidecar['AlgorithmConfiguration']['end_time']
+    elif pipelinename == 'upperbound':
+        t0 = pipeline_sidecar['AlgorithmConfiguration']['start_time']
+        t1 = pipeline_sidecar['AlgorithmConfiguration']['end_time']    
     elif pipelinename == 'scd':
         t0 = pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
         t1 = pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
@@ -212,13 +273,3 @@ def get_time_window(pipeline_sidecar, pipelinename):
         raise ValueError('Invalid algorithm')   
 
     return t0, t1
-
-def get_global_metrics(explained_var, pipeline_sidecar, datasetname, filename, target_muscle='n.a'):
-
-    runtime = get_runtime(pipeline_sidecar)
-
-    results = {'datasetname': [datasetname], 'filename': [filename],
-               'target_muscle': [target_muscle], 'runtime': [runtime], 
-               'explained_var': [explained_var]}
-
-    return pd.DataFrame(results)

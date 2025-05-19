@@ -11,10 +11,18 @@ from pathlib import Path
 import glob
 
 def list_files(root, extension):
+    """
+    Helper function to list all files in folder "root" with an extension "extension"
+    
+    """
     files = list(root.rglob(f'*{extension}'))
     return files
 
 def get_recording_info(source_file_name):
+    """
+    Helper function to extract metadata from a BIDS recording filename
+
+    """
     splitname = source_file_name.split('_')
 
     if splitname[1].split('-')[0] == 'ses':
@@ -33,40 +41,42 @@ def get_recording_info(source_file_name):
     return sub, ses, task, run, data_type
 
 def main():
+    """
+    Main script controlable via the CLI
+    
+    """
     parser = argparse.ArgumentParser(description='Generate report card for a decomposition pipeline applied to a dataset')
     parser.add_argument('-d', '--dataset_name', help='Name of the dataset to process')
     parser.add_argument('-r', '--bids_root',  default='/Users/thomi/Documents/muniverse-data', help='Path to the muniverse datasets')
-    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], help='Algorithm to use for decomposition')
+    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss', 'upperbound'], help='Algorithm to use for decomposition')
     parser.add_argument('-g', '--ground_truth', default='none', choices=['none', 'expert_ref', 'simulation'], help='Type of ground-truth reference')
 
+    # Parse function arguments
     args = parser.parse_args()
-
     datasetname = args.dataset_name
     pipelinename = args.algorithm
     root = args.bids_root
     ground_truth = args.ground_truth
 
+    # Path to the BIDS derivative dataset
     parent_folder = root + '/Benchmarks/' + datasetname + '-' + pipelinename
-
-    # # Get all folders that are part of the benchmark
-    # folders = [f for f in os.listdir(parent_folder)
-    #        if os.path.isdir(os.path.join(parent_folder, f))]
-
-    datatype = 'emg'
-
-    global_report = pd.DataFrame()
-    source_report = pd.DataFrame()
-
-
+    # Identify all derivatives that are part of the dataset
     files = list_files(Path(parent_folder), '_predictedsources.edf')
     filenames = [f.name for f in files]
+
+    # Initalize the report cards
+    global_report = pd.DataFrame()
+    source_report = pd.DataFrame()
+    
+    # Set the datatype to EMG
+    datatype = 'emg'
 
     for j in np.arange(len(files)):
 
         # Extract the relevant information of one recording
         sub, ses, task, run, _ = get_recording_info(filenames[j])
 
-        # Get the raw data
+        # BIDS-EMG recording
         my_emg_data = bids_emg_recording(root=root + '/Datasets/', 
                                             datasetname=datasetname, 
                                             subject=sub, 
@@ -77,17 +87,17 @@ def main():
         
         my_emg_data.read()
 
+        # Extract the EMG data
         channel_idx = np.asarray(my_emg_data.channels[my_emg_data.channels['type'] == 'EMG'].index).astype(int)
-
         emg_data = edf_to_numpy(my_emg_data.emg_data, channel_idx)
 
-        # Extract some metadata
+        # Extract some relevant metadata from the BIDS-EMG dataset
         fsamp = float(my_emg_data.channels.loc[0, 'sampling_frequency'])
         target_muscle = my_emg_data.channels.loc[0, 'target_muscle']
         if datasetname == 'Caillet_et_al_2023':
             target_muscle = 'Tibialis Anterior'            
 
-        # Get the decomposition
+        # BIDS decomposition derivative
         my_derivative = bids_decomp_derivatives(pipelinename=pipelinename, 
                                                 root=root + '/Benchmarks/', 
                                                 datasetname=datasetname, 
@@ -102,6 +112,7 @@ def main():
         # Summarize all sources
         sources = edf_to_numpy(my_derivative.source,np.arange(my_derivative.source.num_signals))
 
+        # Compute gloab and source based metrics (always possible)
         my_global_report, my_source_report = signal_based_metrics(emg_data=emg_data.T, 
                                                                   sources=sources.T, 
                                                                   spikes_df=my_derivative.spikes, 
@@ -114,6 +125,7 @@ def main():
 
         # If availible get get ground truth / reference decomposition
         if ground_truth == 'expert_ref':
+            # BIDS derivative of the reference decomposition
             my_ref_derivative = bids_decomp_derivatives(pipelinename='reference', 
                                                         root=root + '/Benchmarks/', 
                                                         datasetname=datasetname, 
@@ -125,29 +137,37 @@ def main():
             
             my_ref_derivative.read()
 
+            # Time frame the decomposition was applied to
             t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
-                        
+
+            # Comapre the decomposition to reference spikes            
             df = evaluate_spike_matches(my_derivative.spikes, my_ref_derivative.spikes, 
                                         t_start = t0, t_end = t1, fsamp=fsamp)
-            
+            # Add the output to the report card
             my_source_report = pd.merge(my_source_report, df, on='unit_id')
 
         elif ground_truth == 'simulation':
+            # Link to the ground truth spikes
             splitname = filenames[j].split('_predictedsources.edf')[0]
             fname = f"my_emg_data.datapath{splitname}_predictedspikes.tsv"   
             gt_spikes = pd.read_csv(fname, sep='\t', header=True)
 
+            # Time frame the decomposition was applied to
             t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
 
+            # Comapre the decomposition to reference spikes 
             df = evaluate_spike_matches(my_derivative.spikes, gt_spikes, 
                                         t_start = t0, t_end = t1, fsamp=fsamp)
             
+            # Add the output to the report card
             my_source_report = pd.merge(my_source_report, df, on='unit_id')
 
+        # Update report cards
         global_report = pd.concat([global_report, my_global_report], ignore_index=True)
         source_report = pd.concat([source_report, my_source_report], ignore_index=True)
         print(f'Finished analyzing {j+1} out of {len(files)} files')
-        
+
+    # Save the results    
     global_report.to_csv(parent_folder + '/report_card_globals.tsv', sep='\t', index=False, header=True)
     source_report.to_csv(parent_folder + '/report_card_sources.tsv', sep='\t', index=False, header=True)
 

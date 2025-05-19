@@ -346,7 +346,16 @@ def calc_pnr(source, spikes):
 
 def get_basic_spike_statistics(spike_times, min_num_spikes=10):
     """
-    TODO: Description
+    Compute the mean firing rate (Hz) and the coefficient of variation
+    of the interspike intervalls given a spike train
+
+    Args:
+        - spike_times (ndarray): Array of spike times (in seconds)
+        - min_num_spikes (int): Minimum number of spikes required for the analysis
+
+    Returns:
+        - cov (float): Coefficient of variation of the interspike intervalls
+        - mean_fr (float): Mean discharge rate of the neuron
     
     """
 
