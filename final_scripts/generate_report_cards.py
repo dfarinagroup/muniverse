@@ -155,9 +155,15 @@ def main():
             # Time frame the decomposition was applied to
             t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
 
-            # Comapre the decomposition to reference spikes 
-            df = evaluate_spike_matches(my_derivative.spikes, gt_spikes, 
-                                        t_start = t0, t_end = t1, fsamp=fsamp)
+            # Compare the decomposition to reference spikes 
+            if pipelinename == 'upperbound':
+                # If we save all sources, in upperbound we can simplify source matching as it is already known
+                df = evaluate_spike_matches(my_derivative.spikes, gt_spikes, 
+                                            t_start = t0, t_end = t1, fsamp=fsamp,
+                                            pre_matched=True)
+            else:
+                df = evaluate_spike_matches(my_derivative.spikes, gt_spikes, 
+                                            t_start = t0, t_end = t1, fsamp=fsamp)
             
             # Add the output to the report card
             my_source_report = pd.merge(my_source_report, df, on='unit_id')
