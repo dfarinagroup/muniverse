@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from scipy.signal import correlate, correlation_lags, find_peaks
+from scipy.signal import correlate, correlation_lags, find_peaks, convolve
 from scipy.stats import kurtosis, skew
 
 def match_spikes(s1, s2, shift=0, tol=0.001):
@@ -14,8 +14,9 @@ def match_spikes(s1, s2, shift=0, tol=0.001):
         - tol (float): Common spikes are in a window [spike-tol, spike+tol]
 
     Returns:
-        - overlap (float): Maximum cross-correlation
-        - best_shift (float): Delay that maximizes the cross-correlation     
+        - tp (float): Number of true positive spikes
+        - fp (float): Number of false positive spikes
+        - fn (float): Number of false negative spikes  
 
     """
 
@@ -41,6 +42,37 @@ def match_spikes(s1, s2, shift=0, tol=0.001):
     tp = matched_1.sum()
     fp = (~matched_1).sum()
     fn = (~matched_2).sum()
+    return tp, fp, fn
+
+def match_spike_trains(s1, s2, shift=0, tol=0.001, fsamp=10000):
+    """
+    Match spike times of two neurons given time shift and tolerance.
+
+    Args:
+        - s1 (ndarray): Spike times of the first neuron (in seconds)
+        - s2 (ndarray): Spike times of the second neuron (in seconds) 
+        - shift (float): Temporal delay between the spinking activity (in seconds)
+        - tol (float): Common spikes are in a window [spike-tol, spike+tol]
+        - fsamp (float): Sampling frequency in Hz
+
+    Returns:
+        - tp (float): Number of true positive spikes
+        - fp (float): Number of false positive spikes
+        - fn (float): Number of false negative spikes    
+
+    """
+
+    s2 = np.roll(s2,shift)
+
+    kernel = np.ones(int(2 * tol * fsamp) + 1)
+
+    masked_s1 = convolve(s1,kernel, mode='same') > 0
+    masked_s2 = convolve(s2,kernel, mode='same') > 0
+
+    tp = np.logical_and(s1>0, masked_s2).sum()
+    fp = np.logical_and(s1>0, ~masked_s2).sum()
+    fn = np.logical_and(s2>0, ~masked_s1).sum()
+
     return tp, fp, fn
 
 def get_bin_spikes(spike_indices, n_samples):
@@ -182,7 +214,7 @@ def label_sources(df, fsamp=10000, t_start=0, t_end=60, threshold=0.3, max_shift
 
 
 def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001, 
-                           max_shift=0.1, fsamp = 10000, threshold=0.3, pre_matched=False):
+                           max_shift=0.1, fsamp = 2048, threshold=0.3, pre_matched=False):
     """
     Match spiking sources betwee two data sets.
 
@@ -219,10 +251,11 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
             spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
-            tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+            #tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+            tp, fp, fn = match_spike_trains(spike_train_1,spike_train_2, shift=shift,tol=tol,fsamp=fsamp)
             best_score = 1 
             best_match = (l1, l2, tp, fp, fn, shift)
-            
+
         else:
             for l2 in source_labels_2:
                 if l2 in used_labels:
@@ -232,7 +265,8 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
                 spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
                 spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
                 _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
-                tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
+                #tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
+                tp, fp, fn = match_spike_trains(spike_train_1,spike_train_2, shift=shift,tol=tol,fsamp=fsamp)
                 denom = len(spikes_2)
                 match_score = tp / denom if denom > 0 else 0
 
