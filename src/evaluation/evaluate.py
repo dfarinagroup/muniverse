@@ -182,7 +182,7 @@ def label_sources(df, fsamp=10000, t_start=0, t_end=60, threshold=0.3, max_shift
 
 
 def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001, 
-                           max_shift=0.1, fsamp = 10000, threshold=0.3):
+                           max_shift=0.1, fsamp = 10000, threshold=0.3, pre_matched=False):
     """
     Match spiking sources betwee two data sets.
 
@@ -213,21 +213,32 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
         best_match = None
         best_score = 0
 
-        for l2 in source_labels_2:
-            if l2 in used_labels:
-                continue
-
+        if pre_matched:
+            l2 = l1
             spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
             spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
-            tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
-            denom = len(spikes_2)
-            match_score = tp / denom if denom > 0 else 0
+            tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+            best_score = 1 
+            best_match = (l1, l2, tp, fp, fn, shift)
+            
+        else:
+            for l2 in source_labels_2:
+                if l2 in used_labels:
+                    continue
 
-            if match_score > best_score:
-                best_score = match_score
-                best_match = (l1, l2, tp, fp, fn, shift)
+                spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
+                spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+                spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
+                _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
+                tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
+                denom = len(spikes_2)
+                match_score = tp / denom if denom > 0 else 0
+
+                if match_score > best_score:
+                    best_score = match_score
+                    best_match = (l1, l2, tp, fp, fn, shift)
 
         if best_match and best_score >= threshold:
             l1, l2, tp, fp, fn, shift = best_match
