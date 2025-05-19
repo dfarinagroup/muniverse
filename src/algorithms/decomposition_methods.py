@@ -174,7 +174,7 @@ class upper_bound:
         ext_sig = extension(sig, self.ext_fact)
 
         ext_mean = np.mean(ext_sig, axis=1, keepdims=True) 
-        ext_sig -= ext_mean
+        #ext_sig -= ext_mean
 
         # Remove the edges from the exteneded signal
         ext_sig[:,:self.ext_fact*2] = 0
