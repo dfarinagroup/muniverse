@@ -32,30 +32,19 @@ def get_recording_info(source_file_name):
 
     return sub, ses, task, run, data_type
 
-def get_time_window(pipeline_sidecar, pipelinename):
-
-    if pipelinename == 'cbss':
-        t0 = pipeline_sidecar['AlgorithmConfiguration']['start_time']
-        t1 = pipeline_sidecar['AlgorithmConfiguration']['end_time']
-    elif pipelinename == 'scd':
-        t0 = pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
-        t1 = pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
-    else:
-        raise ValueError('Invalid algorithm')   
-
-    return t0, t1
-
 def main():
     parser = argparse.ArgumentParser(description='Generate report card for a decomposition pipeline applied to a dataset')
     parser.add_argument('-d', '--dataset_name', help='Name of the dataset to process')
     parser.add_argument('-r', '--bids_root',  default='/Users/thomi/Documents/muniverse-data', help='Path to the muniverse datasets')
     parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], help='Algorithm to use for decomposition')
+    parser.add_argument('-g', '--ground_truth', default='none', choices=['none', 'expert_ref', 'simulation'], help='Type of ground-truth reference')
 
     args = parser.parse_args()
 
     datasetname = args.dataset_name
     pipelinename = args.algorithm
     root = args.bids_root
+    ground_truth = args.ground_truth
 
     parent_folder = root + '/Benchmarks/' + datasetname + '-' + pipelinename
 
@@ -110,37 +99,21 @@ def main():
         
         my_derivative.read()
 
-        t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
-
-        # Get global report
-        timeframe = [int(t0 * fsamp), int(t1 * fsamp)]
-        explained_var, muap_rms = compute_reconstruction_error(sig=emg_data.T, 
-                                                               spikes_df=my_derivative.spikes, 
-                                                               fsamp=fsamp, 
-                                                               timeframe=timeframe)
-
-        my_global_report = get_global_metrics(explained_var=explained_var,
-                                              pipeline_sidecar=my_derivative.pipeline_sidecar,
-                                              datasetname=datasetname, 
-                                              filename=filenames[j], 
-                                              target_muscle=target_muscle
-                                              )
-
-
         # Summarize all sources
         sources = edf_to_numpy(my_derivative.source,np.arange(my_derivative.source.num_signals))
-        my_source_report = summarize_signal_based_metrics(sources=sources.T, 
-                                                          spikes_df=my_derivative.spikes,
-                                                          muap_rms=muap_rms, 
-                                                          fsamp=fsamp,
-                                                          datasetname=datasetname,
-                                                          filename=filenames[j],
-                                                          target_muscle=target_muscle
-                                                          )
+
+        my_global_report, my_source_report = signal_based_metrics(emg_data=emg_data.T, 
+                                                                  sources=sources.T, 
+                                                                  spikes_df=my_derivative.spikes, 
+                                                                  pipeline_sidecar=my_derivative.pipeline_sidecar, 
+                                                                  fsamp=fsamp, 
+                                                                  datasetname=datasetname, 
+                                                                  filename=filenames[j], 
+                                                                  target_muscle=target_muscle)
 
 
         # If availible get get ground truth / reference decomposition
-        if datasetname == 'Grison_et_al_2025':
+        if ground_truth == 'expert_ref':
             my_ref_derivative = bids_decomp_derivatives(pipelinename='reference', 
                                                         root=root + '/Benchmarks/', 
                                                         datasetname=datasetname, 
@@ -151,13 +124,23 @@ def main():
                                                         datatype=datatype)
             
             my_ref_derivative.read()
-            
-            #start_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['start_time']
-            #end_time = my_derivative.pipeline_sidecar['AlgorithmConfiguration']['Config']['end_time']
-            
+
+            t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
+                        
             df = evaluate_spike_matches(my_derivative.spikes, my_ref_derivative.spikes, 
-                                        t_start = t0, 
-                                        t_end = t1)
+                                        t_start = t0, t_end = t1, fsamp=fsamp)
+            
+            my_source_report = pd.merge(my_source_report, df, on='unit_id')
+
+        elif ground_truth == 'simulation':
+            splitname = filenames[j].split('_predictedsources.edf')[0]
+            fname = f"my_emg_data.datapath{splitname}_predictedspikes.tsv"   
+            gt_spikes = pd.read_csv(fname, sep='\t', header=True)
+
+            t0, t1 = get_time_window(my_derivative.pipeline_sidecar, pipelinename)
+
+            df = evaluate_spike_matches(my_derivative.spikes, gt_spikes, 
+                                        t_start = t0, t_end = t1, fsamp=fsamp)
             
             my_source_report = pd.merge(my_source_report, df, on='unit_id')
 
