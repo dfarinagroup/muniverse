@@ -159,12 +159,6 @@ def max_xcorr(sig1, sig2, max_shift=1000):
     overlap = corr_win[best_idx]
     best_shift = lags_win[best_idx]
 
-    #corr = np.correlate(sig1, sig2, mode='full')
-    #mid = len(sig1) - 1
-    #shift_range = range(mid - max_shift, mid + max_shift + 1)
-    #best_shift = max(shift_range, key=lambda i: corr[i])
-    #overlap = corr[best_shift]
-    #best_shift = best_shift - mid
     return overlap, best_shift
 
 def label_sources(df, fsamp=10000, t_start=0, t_end=60, threshold=0.3, max_shift=0.1, tol=0.001):
@@ -315,10 +309,18 @@ def pseudo_sil_score(source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001
 
     return sil, background_spikes
 
-def calc_pnr(source, spikes):
+def calc_pnr(source, spikes_idx):
     """
-    TODO Add description
+    Calculate the pulse-to-noise ratio, i.e., a logarithmic measure of the amplitude of the 
+    spike cluster compared to the background noise in a source.
+
+    Args:
+        - source (ndarray): Source predicted by a decomposition
+        - spikes_idx (ndarray): Array of spike indices predicted by a decomposition
     
+    Returns:
+        - pnr (float): Pulse-to-noise ratio of a source
+        - noise_indices (ndarray): Array of indices associated with noise    
     """
 
     # Calculate PNR
@@ -327,7 +329,7 @@ def calc_pnr(source, spikes):
     sig = source * abs(source)
 
     expanded_indices = set()
-    for idx in spikes:
+    for idx in spikes_idx:
         for neighbor in [idx-1, idx, idx+1]:
             if 0 <= neighbor < signal_length:
                 expanded_indices.add(neighbor)

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.linalg import toeplitz
-from scipy.signal import find_peaks, convolve
+from scipy.signal import find_peaks
 from scipy.fft import fft, ifft
 from sklearn.cluster import KMeans
 from ..evaluation.evaluate import *
@@ -174,9 +174,27 @@ def gram_schmidt(w, B):
 
     return u
 
-def remove_duplicates(sources, spikes, sil, B, fsamp, max_shift=0.1, tol=0.001, threshold=0.3):
+def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, tol=0.001, threshold=0.3):
     """
-    TODO Add description
+    Sort out source duplicates from a decomposition by clustering spike trains and 
+    only keeping for each unique label the source with the highest spike sources
+
+    Args:
+        - sources (np.ndarray): Original sources (n_mu x n_samples)
+        - spikes (dict): Original ppiking instances of the motor neurons
+        - sil (np.ndarray): Original source quality metric
+        - mu_filters (np.ndarray): Original motor unit filters
+        - fsamp (float): Sampling rate in Hz 
+        - max_shift (float): Maximal delay between two sources in seconds
+        - tol (float): All spikes with a delay lower than tolerance (in seconds) are classified identical
+        - theshold (float): Minimum fraction of common spikes to classify two sources as identical 
+
+    Returns:
+        - new_sources (np.ndarray): Updated sources (n_mu x n_samples)
+        - new_spikes (dict): Updated spiking instances of the motor neurons
+        - new_sil (np.ndarray): Updated source quality metric
+        - new_filters (np.ndarray): Updated motor unit filters
+
 
     """
     n_source = sources.shape[0]
@@ -197,7 +215,8 @@ def remove_duplicates(sources, spikes, sil, B, fsamp, max_shift=0.1, tol=0.001, 
             # Compute the delay between source i and j
             _ , shift = max_xcorr(st1, st2, max_shift=int(max_shift*fsamp))
             # Compute the number of common spikes
-            tp, _, _ = match_spikes(spikes[i], spikes[j], shift=shift, tol=tol*fsamp) 
+            #tp, _, _ = match_spikes(spikes[i], spikes[j], shift=shift, tol=tol*fsamp) 
+            tp, _, _ = match_spike_trains(st1, st2, shift=shift, tol=tol, fsamp=fsamp)
             # Calculate the metaching rate and compare with threshold
             denom = max(len(spikes[i]), len(spikes[j]))
             match_score = tp / denom if denom > 0 else 0
@@ -210,7 +229,7 @@ def remove_duplicates(sources, spikes, sil, B, fsamp, max_shift=0.1, tol=0.001, 
     new_sources  = np.zeros((len(unique_labels),sources.shape[1]))
     new_spikes = {i: [] for i in range(len(unique_labels))}
     new_sil = np.zeros(len(unique_labels))
-    new_B = np.zeros((B.shape[0], len(unique_labels)))
+    new_filters = np.zeros((mu_filters.shape[0], len(unique_labels)))
 
     # For each unqiue source select the one with the highest SIL score
     for i in np.arange(len(unique_labels)):
@@ -219,13 +238,28 @@ def remove_duplicates(sources, spikes, sil, B, fsamp, max_shift=0.1, tol=0.001, 
         new_sources[i,:] = sources[best_idx,:]
         new_spikes[i] = spikes[best_idx]
         new_sil[i] = sil[best_idx]
-        new_B[:,i] = B[:,best_idx]
+        new_filters[:,i] = mu_filters[:,best_idx]
 
-    return new_sources, new_spikes, new_sil, new_B
+    return new_sources, new_spikes, new_sil, new_filters
 
-def remove_bad_sources(sources, spikes, sil, B, threshold=0.9, min_num_spikes=10):
+def remove_bad_sources(sources, spikes, sil, mu_filters, threshold=0.9, min_num_spikes=10):
     """
-    TODO Add description
+    Reject sources with a silhoeutte score below a given threshold and that do not 
+    contain a minimum number of spikes.
+
+    Args:
+        - sources (np.ndarray): Original sources (n_mu x n_samples)
+        - spikes (dict): Original ppiking instances of the motor neurons
+        - sil (np.ndarray): Original source quality metric
+        - mu_filters (np.ndarray): Original motor unit filters
+        - theshold (float): Sources with a SIL score below this theshold will be rejected
+        - min_num_spikes (int): Sources with less spikes will be rejected 
+
+    Returns:
+        - new_sources (np.ndarray): Updated sources (n_mu x n_samples)
+        - new_spikes (dict): Updated spiking instances of the motor neurons
+        - new_sil (np.ndarray): Updated source quality metric
+        - new_filters (np.ndarray): Updated motor unit filters
     
     """
 
@@ -241,9 +275,9 @@ def remove_bad_sources(sources, spikes, sil, B, threshold=0.9, min_num_spikes=10
 
     new_sources = np.delete(sources, bad_source_idx.astype(int), axis=0)
     new_sil = np.delete(sil, bad_source_idx.astype(int), axis=0)
-    new_B = np.delete(B, bad_source_idx.astype(int), axis=1)
+    new_filters = np.delete(mu_filters, bad_source_idx.astype(int), axis=1)
 
-    return new_sources, new_spikes, new_sil, new_B   
+    return new_sources, new_spikes, new_sil, new_filters  
 
 def map_source_from_window_to_global_time_idx(sources, spikes, win, n_time_samples): 
     """
