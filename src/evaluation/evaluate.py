@@ -10,7 +10,7 @@ def match_spikes(s1, s2, shift=0, tol=0.001):
     Args:
         - s1 (ndarray): Spike times of the first neuron (in seconds)
         - s2 (ndarray): Spike times of the second neuron (in seconds) 
-        - shift (float): Temporal delay between the spinking activity (in seconds)
+        - shift (float): Temporal delay between the spiking neuron activity (in seconds)
         - tol (float): Common spikes are in a window [spike-tol, spike+tol]
 
     Returns:
@@ -46,19 +46,19 @@ def match_spikes(s1, s2, shift=0, tol=0.001):
 
 def match_spike_trains(s1, s2, shift=0, tol=0.001, fsamp=10000):
     """
-    Match spike times of two neurons given time shift and tolerance.
+    Match spike trains of two neurons given sample shift and tolerance.
 
     Args:
-        - s1 (ndarray): Spike times of the first neuron (in seconds)
-        - s2 (ndarray): Spike times of the second neuron (in seconds) 
-        - shift (float): Temporal delay between the spinking activity (in seconds)
-        - tol (float): Common spikes are in a window [spike-tol, spike+tol]
+        - s1 (ndarray): Binary spike train of the first neuron
+        - s2 (ndarray): Binary spike train of the second neuron 
+        - shift (int): Delay between the spike trains (in samples)
+        - tol (float): Common spikes are in a window [spike-tol, spike+tol] (unit: seconds)
         - fsamp (float): Sampling frequency in Hz
 
     Returns:
-        - tp (float): Number of true positive spikes
-        - fp (float): Number of false positive spikes
-        - fn (float): Number of false negative spikes    
+        - tp (int): Number of true positive spikes
+        - fp (int): Number of false positive spikes
+        - fn (int): Number of false negative spikes    
 
     """
 
