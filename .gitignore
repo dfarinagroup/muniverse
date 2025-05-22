@@ -41,6 +41,8 @@ ENV/
 
 # Logs
 *.log
+*.sh.e*
+*.sh.o*
 
 # Data folder
 data/

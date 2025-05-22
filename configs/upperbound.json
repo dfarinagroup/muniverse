@@ -9,10 +9,9 @@
         "bandpass": [20, 500],
         "ext_fact": 15,
         "whitening_method": "ZCA",
-        "whitening_reg":"auto",
-        "cluster_method":"kmeans",
-        "sil_th" :0.9,
-        "min_num_spikes":10
-
+        "whitening_reg": "auto",
+        "cluster_method": "kmeans",
+        "sil_th": 0.0,
+        "min_num_spikes": 1
     }
 }

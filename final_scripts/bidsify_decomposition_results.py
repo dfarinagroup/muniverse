@@ -15,7 +15,7 @@ def list_files(root, extension):
 def main():
     parser = argparse.ArgumentParser(description='Convert the output of a decomposition in BIDS format')
     parser.add_argument('-d', '--dataset_name', help='Name of the dataset to process')
-    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss'], help='Algorithm to use for decomposition')
+    parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss', 'upperbound'], help='Algorithm to use for decomposition')
     parser.add_argument('-r', '--bids_root',  default='/rds/general/user/pm1222/ephemeral/muniverse/', help='Path to the muniverse datasets')
     parser.add_argument('-s', '--source_root', help='Path to the raw decomposition outputs')
     
@@ -25,7 +25,7 @@ def main():
     datasetname = args.dataset_name
     pipelinename = args.algorithm
     root = args.bids_root
-    source_root = args.source_root
+    source_root = args.source_root 
 
     # Link to the source dataset
     source_dataset = bids_dataset(datasetname=datasetname, root=root + '/datasets/bids/')
@@ -52,7 +52,7 @@ def main():
         emg_recording.read()
 
         # fsamp = emg_recording.channels.loc[0, 'sampling_frequency']
-        if pipelinename == 'scd':
+        if pipelinename == 'scd' or pipelinename == 'upperbound':
             config = pipeline_sidecar['AlgorithmConfiguration']['Config']
         elif pipelinename == 'cbss':
             config = pipeline_sidecar['AlgorithmConfiguration']
@@ -68,7 +68,7 @@ def main():
 
         # Initalize BIDS deivatives class
         my_derivative = bids_decomp_derivatives(pipelinename=pipelinename, 
-                                                root=root + '/derivatives/bids/', 
+                                                root=root + '/derivatives/bids/temp', 
                                                 datasetname=datasetname, 
                                                 subject=emg_recording.subject_id, 
                                                 task=emg_recording.task.split('-')[1], 
@@ -85,29 +85,30 @@ def main():
         try:
             spikes_file = str(list_files(files[i].parent, '.tsv')[0])
             spikes_df = pd.read_csv(spikes_file, delimiter='\t')
-            if pipelinename == 'cbss':
+            if pipelinename == 'cbss' or pipelinename == 'upperbound':
                 spikes_df['spike_time'] = spikes_df['spike_time'] + start_time
                 spikes_df['timestamp'] = (spikes_df['spike_time'] * fsamp).astype(int)
                 spikes_df = spikes_df.rename(columns={'source_id': 'unit_id'})
             elif pipelinename == 'scd':
                 spikes_df['timestamp'] += int(start_time*fsamp)
-                spikes_df['spike_time'] = (spikes_df['timestamp']/fsamp).astype(int)
+                spikes_df['spike_time'] = spikes_df['timestamp']/fsamp
             
                 # Ensure we have exactly the required columns in the correct order
                 spikes_df = spikes_df[['unit_id', 'spike_time', 'timestamp']]
         except:
             print(f'No spikes file found for {source_file_name}, skipping...')
+            spikes_df = pd.DataFrame(columns=['unit_id', 'spike_time', 'timestamp'])
 
         # Get the predicted sources 
         # If algorithm is CBSS, the sources are "sources", (channels, samples)
         # If algorithm is SCD, the sources are "predicted_sources", (samples, channels)
         try:
-            predicted_sources = str(list_files(files[i].parent, '.npz')[0])
+            predicted_sources = str(list_files(files[i].parent, 'sources.npz')[0])
             if pipelinename == 'scd':
                 key = 'predicted_sources'
                 predicted_sources = np.load(predicted_sources)
                 predicted_sources = predicted_sources[key]
-            elif pipelinename == 'cbss':
+            elif pipelinename == 'cbss' or pipelinename == 'upperbound':
                 key = 'sources'
                 predicted_sources = np.load(predicted_sources)
                 predicted_sources = predicted_sources[key].T
@@ -131,4 +132,3 @@ def main():
 
 if __name__ == '__main__':
     main()        
-
