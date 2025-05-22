@@ -35,13 +35,20 @@ def signal_based_metrics(emg_data, sources, spikes_df, pipeline_sidecar, fsamp, 
     # Time window the decomposition was run on
     t0, t1 = get_time_window(pipeline_sidecar, pipelinename)
     timeframe = [int(t0 * fsamp), int(t1 * fsamp)]
+
+    # If using upper bound filter sources befor computing the reconstruction error
+    if pipelinename == 'upperbound':
+        sil_th = 0.85
+    else:
+        sil_th = 0.0
     
     # Compute the variance of the EMG signal that is explained by the decomposition
     explained_var, muap_rms = compute_reconstruction_error(sig=emg_data, 
                                                            sources=sources,
                                                            spikes_df=spikes_df, 
                                                            fsamp=fsamp, 
-                                                           timeframe=timeframe)
+                                                           timeframe=timeframe,
+                                                           sil_th=sil_th)
     
     # Summarize gloabl performance metrics together with metadata
     global_report = {'datasetname': [datasetname], 'filename': [filename],
