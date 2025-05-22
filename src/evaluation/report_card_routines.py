@@ -38,6 +38,7 @@ def signal_based_metrics(emg_data, sources, spikes_df, pipeline_sidecar, fsamp, 
     
     # Compute the variance of the EMG signal that is explained by the decomposition
     explained_var, muap_rms = compute_reconstruction_error(sig=emg_data, 
+                                                           sources=sources,
                                                            spikes_df=spikes_df, 
                                                            fsamp=fsamp, 
                                                            timeframe=timeframe)
@@ -175,17 +176,19 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
 
     return pd.DataFrame(results)
 
-def compute_reconstruction_error(sig, spikes_df, timeframe = None, win=0.05, fsamp=2048):
+def compute_reconstruction_error(sig, sources, spikes_df, timeframe = None, win=0.05, fsamp=2048, sil_th=0.85):
     """
     Compute the fraction of the variance of an EMG signal that 
     is explained by a decomposition output
 
     Args:
         - sig (ndarray): The emg data (channels x time_samples)
+        - sources (ndarray): The predicted sources (n_sources x time_samples)
         - spikes_df (pd.DataFrame): Long formated dictonary of motor neuron spikes
         - timeframe (None or tuple): Time window the decomposition was applied to (start_idx, end_idx)
         - win (float): Plus/minus the duration in seconds of the window used to estimate the MUAP
-        - fsamp (float): Sampling rate of the EMG signal in Hz   
+        - fsamp (float): Sampling rate of the EMG signal in Hz
+        - sil_th (float): Only consider sources with a sufficiently high silhouette score   
 
     Returns:
         - explained_var (float): Fraction of variance explained by the decomposition
@@ -203,6 +206,12 @@ def compute_reconstruction_error(sig, spikes_df, timeframe = None, win=0.05, fsa
 
     df = spikes_df.copy()
 
+    sil_vals = np.zeros(len(unique_labels))
+
+    for i in np.arange(len(unique_labels)):
+        spike_indices = df[df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
+        sil_vals[i], _ = pseudo_sil_score(sources[i], spike_indices, fsamp)
+
     if timeframe is not None:
         sig = sig[:, timeframe[0]:timeframe[1]]
         residual_sig = residual_sig[:, timeframe[0]:timeframe[1]]
@@ -213,10 +222,11 @@ def compute_reconstruction_error(sig, spikes_df, timeframe = None, win=0.05, fsa
     waveform_rms = np.zeros(len(unique_labels))         
 
     for i in np.arange(len(unique_labels)):
-        spike_indices = df[df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
-        residual_sig, comp_sig, waveform = peel_off(residual_sig, spike_indices, win=win, fsamp=fsamp)
-        reconstructed_sig += comp_sig
-        waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
+        if sil_vals[i] > sil_th:
+            spike_indices = df[df['unit_id'] == unique_labels[i]]['timestamp'].values.astype(int)
+            residual_sig, comp_sig, waveform = peel_off(residual_sig, spike_indices, win=win, fsamp=fsamp)
+            reconstructed_sig += comp_sig
+            waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
 
     explained_var = 1 - np.var(residual_sig) / np.var(sig)    
 
