@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy.optimize import linear_sum_assignment
 from .evaluate import *
 from ..algorithms.decomposition_routines import peel_off
 from ..algorithms.pre_processing import bandpass_signals, notch_signals
@@ -118,68 +119,67 @@ def evaluate_spike_matches(df1, df2, t_start = 0, t_end = 60, tol=0.001,
     """
     source_labels_1 = sorted(df1['unit_id'].unique())
     source_labels_2 = sorted(df2['unit_id'].unique())
-    used_labels = set()
-    results = []
 
-    for l1 in source_labels_1:
-        spikes_1 = df1[df1['unit_id'] == l1]['spike_time'].values
-        spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
-        spike_train_1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
-        best_match = None
-        best_score = 0
+    # Asign source labels using the Hungarian method
+    if not pre_matched:
+        cost_matrix = np.zeros((len(source_labels_1), len(source_labels_2)))
 
-        if pre_matched:
-            l2 = l1
-            spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
-            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
-            spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
-            _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
-            #tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
-            tp, fp, fn = match_spike_trains(spike_train_1,spike_train_2, shift=shift,tol=tol,fsamp=fsamp)
-            best_score = 1 
-            best_match = (l1, l2, tp, fp, fn, shift)
+        for i, l1 in enumerate(source_labels_1):
 
-        else:
-            for l2 in source_labels_2:
-                if l2 in used_labels:
-                    continue
+            spikes_1 = df1[df1['unit_id'] == l1]['spike_time'].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
+
+            for j, l2 in enumerate(source_labels_2):
 
                 spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
                 spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
                 spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
                 _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
-                #tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol) 
                 tp, fp, fn = match_spike_trains(spike_train_1,spike_train_2, shift=shift,tol=tol,fsamp=fsamp)
                 denom = len(spikes_2)
                 match_score = tp / denom if denom > 0 else 0
 
-                if match_score > best_score:
-                    best_score = match_score
-                    best_match = (l1, l2, tp, fp, fn, shift)
+                cost_matrix[i,j] = 1 - match_score
 
-        if best_match and best_score >= threshold:
-            l1, l2, tp, fp, fn, shift = best_match
-            results.append({
-                'unit_id': l1,
-                'unit_id_ref': l2,
-                #'match_score': best_score,
-                'delay_seconds': shift/fsamp,
-                'TP': tp,
-                'FN': fn,
-                'FP': fp
-            })
-            used_labels.add(l2)
+        row_ind, col_ind = linear_sum_assignment(cost_matrix) 
+
+    else:
+        row_ind = np.arange(len(source_labels_1))
+        col_ind = np.arange(len(source_labels_2))           
+
+    results = []
+
+    for l1 in source_labels_1:
+        if l1 in row_ind:
+            idx = np.argmax(row_ind == l1)
+            l2 = source_labels_2[col_ind[idx]]
+
+            spikes_1 = df1[df1['unit_id'] == l1]['spike_time'].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
+
+            spikes_2 = df2[df2['unit_id'] == l2]['spike_time'].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+            spike_train_2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
+            _ , shift = max_xcorr(spike_train_1, spike_train_2, max_shift=int(max_shift*fsamp))
+            tp, fp, fn = match_spike_trains(spike_train_1,spike_train_2, shift=shift,tol=tol,fsamp=fsamp)
+            denom = len(spikes_2)
+            match_score = tp / denom if denom > 0 else 0
+            delay = shift/fsamp
+            if match_score < threshold:
+                l2, tp, fp, fn, delay = None, 0, 0, len(spikes_1), None
         else:
-            # If no match was found, mark as unmatched
-            results.append({
-                'unit_id': l1,
-                'unit_id_ref': None,
-                #'match_score': 0,
-                'delay_seconds': None,
-                'TP': 0,
-                'FN': 0,
-                'FP': len(spikes_1)
-            })   
+            l2, tp, fp, fn, delay = None, 0, 0, len(spikes_1), None
+
+        results.append({
+            'unit_id': l1,
+            'unit_id_ref': l2,
+            'delay_seconds': delay,
+            'TP': tp,
+            'FN': fn,
+            'FP': fp
+        })
 
     return pd.DataFrame(results)
 
