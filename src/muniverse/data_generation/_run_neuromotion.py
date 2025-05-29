@@ -2,35 +2,43 @@
 # run_neuromotion.py - Enhanced version that uses subject-specific configuration
 
 import argparse
-import os
-import torch
-import time
-import pickle
 import json
-import numpy as np
+import os
+import pickle
+import sys
+import time
+
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+import numpy as np
+import torch
 from easydict import EasyDict as edict
 from scipy.signal import butter, filtfilt
+from tqdm import tqdm
 
-import sys
-sys.path.append('.')
+sys.path.append(".")
 
-from NeuroMotion.MSKlib.MSKpose import MSKModel
-from NeuroMotion.MNPoollib.MNPool import MotoneuronPool
-from NeuroMotion.MNPoollib.mn_utils import generate_emg_mu, normalise_properties
-from NeuroMotion.MNPoollib.mn_params import DEPTH, ANGLE, MS_AREA, NUM_MUS, mn_default_settings
 from BioMime.models.generator import Generator
-from BioMime.utils.basics import update_config, load_generator
+from BioMime.utils.basics import load_generator, update_config
+from NeuroMotion.MNPoollib.mn_params import (
+    ANGLE,
+    DEPTH,
+    MS_AREA,
+    NUM_MUS,
+    mn_default_settings,
+)
+from NeuroMotion.MNPoollib.mn_utils import generate_emg_mu, normalise_properties
+from NeuroMotion.MNPoollib.MNPool import MotoneuronPool
+from NeuroMotion.MSKlib.MSKpose import MSKModel
 
 
 def load_config(config_path):
     """Load configuration from JSON file."""
-    with open(config_path, 'r') as f:
-        if config_path.endswith('.json'):
+    with open(config_path, "r") as f:
+        if config_path.endswith(".json"):
             config = json.load(f)
         else:  # Fallback for YAML if needed
             import yaml
+
             config = yaml.safe_load(f)
     return edict(config)
 
@@ -43,45 +51,46 @@ def build_movement_profile(movement_config):
     Build a movement profile based on the configuration.
     Always generates the full range of motion for the chosen degree of freedom
     to create a complete library of MUAPs.
-    
+
     Args:
         movement_config: Movement configuration from the JSON file
-    
+
     Returns:
         tuple: (poses, durations, total_duration, steps)
     """
     movement_dof = movement_config.MovementDOF
-    
+
     # For MUAP generation, we always use the full range of motion
     fs_mov = 50  # temporal frequency in Hz (sampling rate for movement)
-    
+
     if movement_dof == "Flexion-Extension":
         # For flexion-extension, we go from max extension to max flexion
         # Default range is -65 (extension) to 65 (flexion) degrees
         r_ext = -65
         r_flex = 65
-        
+
         # Always use the full range of motion for the MUAP library
-        poses = ['ext', 'default', 'flex']
+        poses = ["ext", "default", "flex"]
         durations = np.abs([r_ext, r_flex]) / fs_mov
-        
+
     elif movement_dof == "Radial-Ulnar-deviation":
         # For radial-ulnar deviation, default values
         r_rad = -10
         r_uln = 25
-        
+
         # Always use the full range of motion for the MUAP library
-        poses = ['rdev', 'default', 'udev']
+        poses = ["rdev", "default", "udev"]
         durations = np.abs([r_rad, r_uln]) / fs_mov
-        
 
     else:
-        raise ValueError(f"Unsupported MovementDOF: '{movement_dof}'. Only 'Flexion-Extension' and 'Radial-Ulnar-deviation' are supported.")
+        raise ValueError(
+            f"Unsupported MovementDOF: '{movement_dof}'. Only 'Flexion-Extension' and 'Radial-Ulnar-deviation' are supported."
+        )
 
     # Calculate the total duration and number of steps
     total_duration = np.sum(durations)
     steps = int(np.round(total_duration * fs_mov))
-    
+
     return poses, durations, total_duration, steps
 
 
@@ -93,14 +102,18 @@ def _adjust_duration(fs, movement_duration, movement_profile):
         movement_profile = movement_profile[:expected_samples]
     elif len(movement_profile) < expected_samples:
         # Pad with zeros if shorter than expected
-        movement_profile = np.pad(movement_profile, (0, expected_samples - len(movement_profile)), 'constant')
+        movement_profile = np.pad(
+            movement_profile, (0, expected_samples - len(movement_profile)), "constant"
+        )
 
     return movement_profile
 
 
-def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, ramp_duration, hold_duration):
+def create_trapezoid_effort(
+    fs, movement_duration, effort_level, rest_duration, ramp_duration, hold_duration
+):
     """Create a trapezoidal effort profile.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
@@ -108,7 +121,7 @@ def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, 
         rest_duration (float): Duration of rest period in seconds.
         ramp_duration (float): Duration of ramp up/down in seconds.
         hold_duration (float): Duration of sustained effort in seconds.
-        
+
     Returns:
         numpy.ndarray: Effort profile.
     """
@@ -116,28 +129,32 @@ def create_trapezoid_effort(fs, movement_duration, effort_level, rest_duration, 
     rest_samples = round(fs * rest_duration)
     ramp_samples = round(fs * ramp_duration)
     hold_samples = round(fs * hold_duration)
-    
-    muscle_force = np.concatenate([
-        np.zeros(rest_samples),
-        np.linspace(0, effort_level, ramp_samples),
-        np.ones(hold_samples) * effort_level,
-        np.linspace(effort_level, 0, ramp_samples),
-        np.zeros(rest_samples)
-    ])
-    
+
+    muscle_force = np.concatenate(
+        [
+            np.zeros(rest_samples),
+            np.linspace(0, effort_level, ramp_samples),
+            np.ones(hold_samples) * effort_level,
+            np.linspace(effort_level, 0, ramp_samples),
+            np.zeros(rest_samples),
+        ]
+    )
+
     # Add an extra second at the end (zero padding)
     extra_samples = round(fs * 1.0)  # 1 second
     muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
 
     # Ensure the profile doesn't exceed the specified duration
     muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
-    
+
     return muscle_force
 
 
-def create_triangular_effort(fs, movement_duration, effort_level, rest_duration, ramp_duration, n_reps=1):
+def create_triangular_effort(
+    fs, movement_duration, effort_level, rest_duration, ramp_duration, n_reps=1
+):
     """Create a triangular effort profile with specified parameters.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
@@ -145,36 +162,40 @@ def create_triangular_effort(fs, movement_duration, effort_level, rest_duration,
         rest_duration (float): Duration of rest period in seconds.
         ramp_duration (float): Duration of ramp up/down in seconds.
         n_reps (int, optional): Number of repetitions. Defaults to 1.
-        
+
     Returns:
         numpy.ndarray: Effort profile.
     """
     # One contraction consists of rest - ramp up - ramp down - rest
     rest_samples = round(fs * rest_duration)
     ramp_samples = round(fs * ramp_duration)
-    one_contraction = np.concatenate([
-        np.zeros(rest_samples),
-        np.linspace(0, effort_level, ramp_samples),
-        np.linspace(effort_level, 0, ramp_samples),
-        np.zeros(rest_samples)
-    ])
-    
+    one_contraction = np.concatenate(
+        [
+            np.zeros(rest_samples),
+            np.linspace(0, effort_level, ramp_samples),
+            np.linspace(effort_level, 0, ramp_samples),
+            np.zeros(rest_samples),
+        ]
+    )
+
     # Repeat the contraction pattern n_reps times
     muscle_force = np.tile(one_contraction, n_reps)
-    
+
     # Add an extra second at the end (zero padding)
     extra_samples = round(fs * 1.0)  # 1 second
     muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
 
     # Ensure the profile doesn't exceed the specified duration
     muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
-    
+
     return muscle_force
 
 
-def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, n_reps=1, ramp_duration=1):
+def create_ballistic_effort(
+    fs, movement_duration, effort_level, rest_duration, n_reps=1, ramp_duration=1
+):
     """Create a ballistic effort profile with very quick ramp up.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
@@ -182,37 +203,46 @@ def create_ballistic_effort(fs, movement_duration, effort_level, rest_duration, 
         rest_duration (float): Duration of rest period in seconds.
         n_reps (int, optional): Number of repetitions. Defaults to 1.
         ramp_duration (float, optional): Duration of ramp up in seconds. Defaults to 1s.
-        
+
     Returns:
         numpy.ndarray: Effort profile.
     """
     # Create one contraction cycle
     rest_samples = round(fs * rest_duration)
     ramp_samples = round(fs * ramp_duration)
-    
+
     # One contraction consists of rest followed by rapid ramp up followed by rest
-    one_contraction = np.concatenate([
-        np.zeros(rest_samples),
-        np.linspace(0, effort_level, ramp_samples),
-        np.zeros(rest_samples)
-    ])
-    
+    one_contraction = np.concatenate(
+        [
+            np.zeros(rest_samples),
+            np.linspace(0, effort_level, ramp_samples),
+            np.zeros(rest_samples),
+        ]
+    )
+
     # Repeat the contraction pattern n_reps times
     muscle_force = np.tile(one_contraction, n_reps)
-    
+
     # Add an extra second at the end (zero padding)
     extra_samples = round(fs * 1.0)  # 1 second
     muscle_force = np.concatenate([muscle_force, np.zeros(extra_samples)])
-    
+
     # Ensure the profile doesn't exceed the specified duration
     muscle_force = _adjust_duration(fs, movement_duration, muscle_force)
-    
+
     return muscle_force
 
 
-def create_sinusoidal_effort(fs, movement_duration, effort_level, sin_frequency, sin_amplitude=None, rest_duration=0):
+def create_sinusoidal_effort(
+    fs,
+    movement_duration,
+    effort_level,
+    sin_frequency,
+    sin_amplitude=None,
+    rest_duration=0,
+):
     """Create a sinusoidal effort profile with optional base effort level and amplitude.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
@@ -221,7 +251,7 @@ def create_sinusoidal_effort(fs, movement_duration, effort_level, sin_frequency,
         sin_amplitude (float, optional): Amplitude of sinusoid oscillation (0-1).
             If None, uses half of the effort_level.
         rest_duration (float, optional): Initial rest period in seconds.
-        
+
     Returns:
         numpy.ndarray: Effort profile.
     """
@@ -230,19 +260,21 @@ def create_sinusoidal_effort(fs, movement_duration, effort_level, sin_frequency,
         sin_amplitude = sin_amplitude / 100.0
     else:
         sin_amplitude = effort_level / 2.0
-    
+
     # Time vector (excluding rest period)
     active_duration = movement_duration - rest_duration
     t = np.arange(round(fs * active_duration)) / fs
-    
+
     # Create sinusoidal profile
     # Ensure effort level stays within [0, 1] range
     # Base oscillation around effort_level with amplitude sin_amplitude
-    active_profile = effort_level + sin_amplitude * np.sin(2 * np.pi * sin_frequency * t)
-    
+    active_profile = effort_level + sin_amplitude * np.sin(
+        2 * np.pi * sin_frequency * t
+    )
+
     # Clip to ensure values stay in valid range [0, 1]
     active_profile = np.clip(active_profile, 0, 1)
-    
+
     # Add rest period if specified
     if rest_duration > 0:
         rest_samples = round(fs * rest_duration)
@@ -250,10 +282,10 @@ def create_sinusoidal_effort(fs, movement_duration, effort_level, sin_frequency,
         ext = np.concatenate((rest_profile, active_profile))
     else:
         ext = active_profile
-    
+
     # Ensure the total length matches the movement duration
     ext = _adjust_duration(fs, movement_duration, ext)
-        
+
     return ext
 
 
@@ -274,82 +306,81 @@ def create_constant_effort(fs, movement_duration, effort_level):
 
 def create_effort_profile(fs, movement_duration, profile_params):
     """Create an effort profile based on the movement parameters.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
         profile_params (easydict.EasyDict): Movement profile parameters.
-        
+
     Returns:
         numpy.ndarray: Effort profile.
     """
     effort_level = profile_params.EffortLevel / 100.0  # Convert percentage to decimal
-    
-    if hasattr(profile_params, 'EffortProfile'):
+
+    if hasattr(profile_params, "EffortProfile"):
         if profile_params.EffortProfile == "Trapezoid":
             return create_trapezoid_effort(
-                fs, 
-                movement_duration, 
-                effort_level, 
-                profile_params.RestDuration, 
-                profile_params.RampDuration, 
-                profile_params.HoldDuration, 
+                fs,
+                movement_duration,
+                effort_level,
+                profile_params.RestDuration,
+                profile_params.RampDuration,
+                profile_params.HoldDuration,
             )
         elif profile_params.EffortProfile == "Sinusoid":
             # Convert sinusoidal parameters from percentages to decimal
-            sin_amplitude = getattr(profile_params, 'SinAmplitude', None)
-            rest_duration = getattr(profile_params, 'RestDuration', 0)
+            sin_amplitude = getattr(profile_params, "SinAmplitude", None)
+            rest_duration = getattr(profile_params, "RestDuration", 0)
             return create_sinusoidal_effort(
-                fs, 
-                movement_duration, 
-                effort_level, 
+                fs,
+                movement_duration,
+                effort_level,
                 profile_params.SinFrequency,
                 sin_amplitude,
-                rest_duration
+                rest_duration,
             )
         elif profile_params.EffortProfile == "Triangular":
-            n_reps = getattr(profile_params, 'NRepetitions', 1)
+            n_reps = getattr(profile_params, "NRepetitions", 1)
             return create_triangular_effort(
                 fs,
                 movement_duration,
                 effort_level,
                 profile_params.RestDuration,
                 profile_params.RampDuration,
-                n_reps
+                n_reps,
             )
         elif profile_params.EffortProfile == "Ballistic":
-            n_reps = getattr(profile_params, 'NRepetitions', 1)
-            ramp_duration = getattr(profile_params, 'RampDuration', 0.05)  # Default 50ms
+            n_reps = getattr(profile_params, "NRepetitions", 1)
+            ramp_duration = getattr(
+                profile_params, "RampDuration", 0.05
+            )  # Default 50ms
             return create_ballistic_effort(
                 fs,
                 movement_duration,
                 effort_level,
                 profile_params.RestDuration,
                 n_reps,
-                ramp_duration
+                ramp_duration,
             )
         elif profile_params.EffortProfile == "Constant":
-            return create_constant_effort(
-                fs,
-                movement_duration,
-                effort_level
-            )
+            return create_constant_effort(fs, movement_duration, effort_level)
 
-    
     # Default case - constant effort profile
     return create_constant_effort(fs, movement_duration, effort_level)
 
 
-def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, muap_dof_samples):
+def generate_angle_profile(
+    fs, movement_duration, profile_params, movement_dof, muap_dof_samples
+):
     """Create an angle profile based on the movement parameters.
-    
+
     Args:
         fs (float): Sampling frequency in Hz.
         movement_duration (float): Total duration in seconds.
         profile_params (easydict.EasyDict): Movement profile parameters.
         movement_dof (str): Degree of freedom ("Flexion-Extension" or "Radial-Ulnar").
         muap_dof_samples (int): Number of MUAP samples for the given DoF
-        
+
     Returns:
         tuple: (angle_profile, muap_angle_labels)
             - angle_profile: Array of angles for each time point
@@ -368,63 +399,67 @@ def generate_angle_profile(fs, movement_duration, profile_params, movement_dof, 
         # Default range for unknown DOF
         min_angle = -60
         max_angle = 60
-    
+
     # Create the angle labels that correspond to the MUAP library
     # Assuming 130 angle steps in the MUAP library (can be adjusted)
     num_angle_steps = muap_dof_samples
     muap_angle_labels = np.linspace(min_angle, max_angle, num_angle_steps).astype(int)
-    
+
     # Create angle profile based on the specified profile type
-    if hasattr(profile_params, 'AngleProfile'):
+    if hasattr(profile_params, "AngleProfile"):
         if profile_params.AngleProfile == "Constant":
             # Constant angle (isometric) - the simplest case
-            target_angle = getattr(profile_params, 'TargetAngle', 0)
+            target_angle = getattr(profile_params, "TargetAngle", 0)
             # Ensure the target angle is within the range of available angles
             target_angle = np.clip(target_angle, min_angle, max_angle)
             angle_profile = np.ones(round(fs * movement_duration)) * target_angle
-        
+
         elif profile_params.AngleProfile == "Sinusoid":
             # Sinusoidal angle variation
-            target_angle = getattr(profile_params, 'TargetAngle', 0)
-            sin_amplitude = getattr(profile_params, 'SinAmplitude', 0.3)
-            sin_frequency = getattr(profile_params, 'SinFrequency', 0.2)
+            target_angle = getattr(profile_params, "TargetAngle", 0)
+            sin_amplitude = getattr(profile_params, "SinAmplitude", 0.3)
+            sin_frequency = getattr(profile_params, "SinFrequency", 0.2)
 
             # Time vector
             t = np.arange(round(fs * movement_duration)) / fs
 
             # Generate sinusoidal angle profile around the target angle
-            angle_profile = target_angle + sin_amplitude * np.sin(2 * np.pi * sin_frequency * t)
+            angle_profile = target_angle + sin_amplitude * np.sin(
+                2 * np.pi * sin_frequency * t
+            )
 
             # Clip profile to stay within the physical limits
             angle_profile = np.clip(angle_profile, min_angle, max_angle)
-                
+
         elif profile_params.AngleProfile == "Triangular":
-            target_angle = getattr(profile_params, 'TargetAngle', 0)
-            rest_duration = getattr(profile_params, 'RestDuration', 0)
-            ramp_duration = getattr(profile_params, 'RampDuration', 5)
-            n_repetitions = getattr(profile_params, 'NRepetitions', 3)
+            target_angle = getattr(profile_params, "TargetAngle", 0)
+            rest_duration = getattr(profile_params, "RestDuration", 0)
+            ramp_duration = getattr(profile_params, "RampDuration", 5)
+            n_repetitions = getattr(profile_params, "NRepetitions", 3)
 
             # One ramp: up and down (triangle wave), duration is 2 * ramp_duration
             rest_samples = round(fs * rest_duration)
             ramp_samples = round(fs * ramp_duration)
-            
+
             # Generate one cycle
-            one_contraction = np.concatenate([
-                np.zeros(rest_samples),
-                np.linspace(0, target_angle, ramp_samples),
-                np.linspace(target_angle, 0, ramp_samples),
-                np.zeros(rest_samples)
-            ])
-            
+            one_contraction = np.concatenate(
+                [
+                    np.zeros(rest_samples),
+                    np.linspace(0, target_angle, ramp_samples),
+                    np.linspace(target_angle, 0, ramp_samples),
+                    np.zeros(rest_samples),
+                ]
+            )
+
             # Repeat the cycle
             angle_profile = np.tile(one_contraction, n_repetitions)
-            
+
             # Clip or pad to fit total duration
             angle_profile = _adjust_duration(fs, movement_duration, angle_profile)
     else:
         # Default to constant profile at 0 degrees if no profile specified
         angle_profile = np.ones(round(fs * movement_duration)) * 0
-    
+
     return angle_profile, muap_angle_labels
 
 
@@ -438,9 +473,9 @@ def get_curr_angle_muap(curr_angle, unit_muaps_angles, angle_labels):
 
     Returns:
         np.ndarray: MUAPs corresponding to the current angle
-    """    
+    """
 
-    idx = np.argmin( np.abs(angle_labels - curr_angle) )
+    idx = np.argmin(np.abs(angle_labels - curr_angle))
     muap = unit_muaps_angles[idx]
 
     return muap
@@ -462,8 +497,8 @@ def generate_emg(muaps, spikes, muap_angle_labels, angle_profile):
 
     # Initialise dimensions
     _, _, ch_rows, ch_cols, win = muaps.shape
-    offset = win//2
-    
+    offset = win // 2
+
     # Check number of active units
     units_active = 0
     for sp in spikes:
@@ -487,42 +522,54 @@ def generate_emg(muaps, spikes, muap_angle_labels, angle_profile):
             curr_muap = get_curr_angle_muap(curr_angle, muaps[unit], muap_angle_labels)
 
             # Deal with edge cases
-            init_emg = np.max([0, firing-offset])
-            end_emg = np.min([firing+offset, time_samples])
+            init_emg = np.max([0, firing - offset])
+            end_emg = np.min([firing + offset, time_samples])
 
-            init_muap = init_emg - (firing-offset)          # 0 if the window is inside the range
-            end_muap = end_emg - (firing+offset) + offset*2   # win if the window is inside the range
+            init_muap = init_emg - (
+                firing - offset
+            )  # 0 if the window is inside the range
+            end_muap = (
+                end_emg - (firing + offset) + offset * 2
+            )  # win if the window is inside the range
 
             # Add contribution to EMG
-            emg[:,:, init_emg:end_emg] += curr_muap[:,:,init_muap:end_muap]
+            emg[:, :, init_emg:end_emg] += curr_muap[:, :, init_muap:end_muap]
 
     return emg
 
 
 def generate_spike_trains(mn_pool, effort_profile, fs):
     """Generate spike trains based on an effort profile.
-    
+
     Args:
         mn_pool (MotoneuronPool): The motoneuron pool object.
         effort_profile (numpy.ndarray): The effort profile.
         fs (float): Sampling frequency in Hz.
-    
+
     Returns:
         tuple: (modified_effort, spikes, firing_rates, inter_pulse_intervals)
     """
     # Initialize the motoneuron pool
     mn_pool.init_twitches(fs)
     mn_pool.init_quisistatic_ef_model()
-    
+
     # Generate spike trains
     ext_new, spikes, fr, ipis = mn_pool.generate_spike_trains(effort_profile, fit=False)
-    
+
     return ext_new, spikes, fr, ipis
 
 
-def generate_emg_signal(muaps, spikes, time_samples, muap_angle_labels, angle_profile, noise_level_db=None, noise_seed=None):
+def generate_emg_signal(
+    muaps,
+    spikes,
+    time_samples,
+    muap_angle_labels,
+    angle_profile,
+    noise_level_db=None,
+    noise_seed=None,
+):
     """Generate EMG signal by convolving MUAPs with spike trains, using angle profiles.
-    
+
     Args:
         muaps (numpy.ndarray): MUAPs with shape (num_mus, angle_steps, n_row, n_col, time_length).
         spikes (list): List of spike trains.
@@ -531,34 +578,34 @@ def generate_emg_signal(muaps, spikes, time_samples, muap_angle_labels, angle_pr
         angle_profile (numpy.ndarray): Angle profile for the simulation.
         noise_level_db (float, optional): Noise level in dB. If None, no noise is added.
         noise_seed (int, optional): Random seed for noise generation.
-    
+
     Returns:
         numpy.ndarray: EMG signal with shape (samples, n_row*n_col).
     """
     start_time = time.time()
     num_mus = len(spikes)
-    
+
     # Use the generate_emg function from NeuroMotion library for correct angle-based MUAP selection
-    #from NeuroMotion.MNPoollib.mn_utils import generate_emg
+    # from NeuroMotion.MNPoollib.mn_utils import generate_emg
     emg_raw = generate_emg(muaps, spikes, muap_angle_labels, angle_profile)
-    
+
     # Reshape to match expected format (samples, channels)
     _, _, n_row, n_col, _ = muaps.shape
     chs = n_row * n_col
     emg_raw = emg_raw.reshape(chs, -1).T  # Transpose to get (samples, channels)
-    
+
     # Add noise if specified
     if noise_level_db is not None:
         if noise_seed is not None:
             np.random.seed(noise_seed)
-        
+
         std_emg = emg_raw.std()
         std_noise = std_emg * 10 ** (-noise_level_db / 20)
         noise = np.random.normal(0, std_noise, emg_raw.shape)
         emg_raw = emg_raw + noise
-    
+
     print(f"EMG generation completed in {time.time() - start_time:.2f} seconds")
-    
+
     return emg_raw
 
 
@@ -566,11 +613,11 @@ def select_optimal_electrode_columns(emg, desired_cols):
     """
     Selects the optimal subset of electrode columns based on signal energy.
     TODO: Temporarily hardcoded for 10 rows, 32 columns, native BioMime layout. Can be generalised.
-    
+
     Args:
         emg (numpy.ndarray): EMG signal with shape (samples, 10x32).
         desired_cols (int): Number of columns to select. (Must be < 32)
-        
+
     Returns:
         tuple: (selected_emg, column_indices, center_column, selected_indices)
             - selected_emg: EMG signal with only the selected columns
@@ -578,42 +625,58 @@ def select_optimal_electrode_columns(emg, desired_cols):
             - center_column: Index of the column with highest RMS
             - selected_indices: List of indices (0-319) that were selected from the original EMG
     """
-    n_rows = 10; n_cols = 32
+    n_rows = 10
+    n_cols = 32
     # Reshape to separate rows and columns
     emg_reshaped = emg.reshape(-1, n_rows, n_cols)
-    
+
     # Calculate RMS per column (averaging across all rows)
     rms_per_column = np.sqrt(np.mean(np.square(emg_reshaped), axis=(0, 1)))
-    
+
     # Find the column with the highest RMS
     max_col_idx = int(np.argmax(rms_per_column))
     print(f"Column with highest RMS: {max_col_idx}")
-    
+
     # Calculate how many columns to take on each side of the max column
     half_width = desired_cols // 2
-    
+
     # Biomime grid wraps around -- use modulo to handle wrapping
-    selected_cols = [(max_col_idx - half_width + i) % n_cols for i in range(desired_cols)]
-    
+    selected_cols = [
+        (max_col_idx - half_width + i) % n_cols for i in range(desired_cols)
+    ]
+
     # Map selected columns to their corresponding indices in the flattened EMG
     # For each column i, its electrodes are at indices [i*10, i*10+1, ..., i*10+9]
     selected_indices = []
     for col in selected_cols:
         selected_indices.extend([col * n_rows + row for row in range(n_rows)])
-    
+
     selected_emg = emg[:, selected_indices]
     print(f"Selected columns: {selected_cols}")
     print(f"Selected indices in flattened EMG: {selected_indices}")
-    
+
     return selected_emg, selected_cols, max_col_idx
 
 
 def generate_muaps(
-    model_pth, ms_label, movement_cfg, fs_mov, poses, durations, steps, 
-    device, morph, muap_file, fibre_density, fs, filter_cfg, num_mus, subject_seed=None
+    model_pth,
+    ms_label,
+    movement_cfg,
+    fs_mov,
+    poses,
+    durations,
+    steps,
+    device,
+    morph,
+    muap_file,
+    fibre_density,
+    fs,
+    filter_cfg,
+    num_mus,
+    subject_seed=None,
 ):
     """Generate MUAPs for the full range of motion.
-    
+
     Args:
         model_pth (str): Path to the model weights.
         ms_label (str): Target muscle label.
@@ -630,7 +693,7 @@ def generate_muaps(
         filter_cfg (easydict.EasyDict): Filter configuration.
         num_mus (int): Number of motor units to generate.
         subject_seed (int, optional): Subject-specific random seed.
-        
+
     Returns:
         tuple: (muaps, num_mus, properties_dict)
     """
@@ -640,110 +703,127 @@ def generate_muaps(
         original_torch_state = torch.get_rng_state()
         if torch.cuda.is_available():
             original_cuda_state = torch.cuda.get_rng_state()
-        
+
         np.random.seed(subject_seed)
         torch.manual_seed(subject_seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(subject_seed)
-    
+
     # Load model config
-    model_config = update_config('./ckp/config.yaml')
-    
+    model_config = update_config("./ckp/config.yaml")
+
     # PART ONE: Define MSK model, movements, and extract param changes
     msk = MSKModel(
-        model_path = './NeuroMotion/MSKlib/models/ARMS_Wrist_Hand_Model_4.3/',
-        model_name= 'Hand_Wrist_Model_for_development.osim',
-        default_pose_path = './NeuroMotion/MSKlib/models/poses.csv',
+        model_path="./NeuroMotion/MSKlib/models/ARMS_Wrist_Hand_Model_4.3/",
+        model_name="Hand_Wrist_Model_for_development.osim",
+        default_pose_path="./NeuroMotion/MSKlib/models/poses.csv",
     )
-    
+
     # Simulate movement
     msk.sim_mov(fs_mov, poses, durations)
 
     # Define muscles to track
     # Use MSK muscle names for tracking
-    ms_labels_msk = ['ECRB', 'ECRL', 'PL', 'FCU', 'ECU', 'EDCI', 'FDSI']
+    ms_labels_msk = ["ECRB", "ECRL", "PL", "FCU", "ECU", "EDCI", "FDSI"]
     ms_lens = msk.mov2len(ms_labels=ms_labels_msk)
     changes = msk.len2params()
-    steps = changes['steps']
-    
+    steps = changes["steps"]
+
     # Apply muscle name mapping after changes dictionary is generated
     def map_muscle_names_msk(changes_dict):
-        msk_to_biomime_map = {'EDCI': 'EDI'}
-        
+        msk_to_biomime_map = {"EDCI": "EDI"}
+
         mapped_dict = changes_dict.copy()
         # Apply renaming to each parameter DataFrame
-        for param in ['len', 'cv', 'depth']:
+        for param in ["len", "cv", "depth"]:
             if param in mapped_dict:
-                mapped_dict[param] = mapped_dict[param].rename(columns=msk_to_biomime_map)
-                
+                mapped_dict[param] = mapped_dict[param].rename(
+                    columns=msk_to_biomime_map
+                )
+
         return mapped_dict
-    
+
     # Apply the mapping function to the changes dictionary
     changes = map_muscle_names_msk(changes)
-    
+
     # PART TWO: Define the MotoneuronPool of one muscle
     if morph:
-        with open(muap_file, 'rb') as fl:
+        with open(muap_file, "rb") as fl:
             db = pickle.load(fl)
-        
+
     # Use specified number of motor units
     mn_pool = MotoneuronPool(num_mus, ms_label, **mn_default_settings)
-    
+
     # Create a dictionary to store the properties
     properties_dict = {}
-    
+
     # Assign physiological properties
-    num_fb = np.round(MS_AREA[ms_label] * fibre_density)    # total number within one muscle
-    config = edict({
-        'num_fb': num_fb,
-        'depth': DEPTH[ms_label],
-        'angle': ANGLE[ms_label],
-        'iz': [0.5, 0.1],
-        'len': [1.0, 0.05],
-        'cv': [4, 0.3]      # Recommend not setting std too large. cv range in training dataset is [3, 4.5]
-    })
+    num_fb = np.round(
+        MS_AREA[ms_label] * fibre_density
+    )  # total number within one muscle
+    config = edict(
+        {
+            "num_fb": num_fb,
+            "depth": DEPTH[ms_label],
+            "angle": ANGLE[ms_label],
+            "iz": [0.5, 0.1],
+            "len": [1.0, 0.05],
+            "cv": [
+                4,
+                0.3,
+            ],  # Recommend not setting std too large. cv range in training dataset is [3, 4.5]
+        }
+    )
 
     if morph:
-        num, depth, angle, iz, cv, length, base_muaps = normalise_properties(db, num_mus, steps)
+        num, depth, angle, iz, cv, length, base_muaps = normalise_properties(
+            db, num_mus, steps
+        )
         # Store properties in dictionary
         properties_dict = {
-            'num': num.cpu().numpy() if isinstance(num, torch.Tensor) else num,
-            'depth': depth.cpu().numpy() if isinstance(depth, torch.Tensor) else depth,
-            'angle': angle.cpu().numpy() if isinstance(angle, torch.Tensor) else angle,
-            'iz': iz.cpu().numpy() if isinstance(iz, torch.Tensor) else iz,
-            'cv': cv.cpu().numpy() if isinstance(cv, torch.Tensor) else cv,
-            'len': length.cpu().numpy() if isinstance(length, torch.Tensor) else length
+            "num": num.cpu().numpy() if isinstance(num, torch.Tensor) else num,
+            "depth": depth.cpu().numpy() if isinstance(depth, torch.Tensor) else depth,
+            "angle": angle.cpu().numpy() if isinstance(angle, torch.Tensor) else angle,
+            "iz": iz.cpu().numpy() if isinstance(iz, torch.Tensor) else iz,
+            "cv": cv.cpu().numpy() if isinstance(cv, torch.Tensor) else cv,
+            "len": length.cpu().numpy() if isinstance(length, torch.Tensor) else length,
         }
     else:
         properties = mn_pool.assign_properties(config, normalise=True)
         # Store original properties
         properties_dict = {key: val for key, val in properties.items()}
-        
+
         # Continue with existing code
-        num = torch.from_numpy(properties['num']).reshape(num_mus, 1).repeat(1, steps)
-        depth = torch.from_numpy(properties['depth']).reshape(num_mus, 1).repeat(1, steps)
-        angle = torch.from_numpy(properties['angle']).reshape(num_mus, 1).repeat(1, steps)
-        iz = torch.from_numpy(properties['iz']).reshape(num_mus, 1).repeat(1, steps)
-        cv = torch.from_numpy(properties['cv']).reshape(num_mus, 1).repeat(1, steps)
-        length = torch.from_numpy(properties['len']).reshape(num_mus, 1).repeat(1, steps)
-    
+        num = torch.from_numpy(properties["num"]).reshape(num_mus, 1).repeat(1, steps)
+        depth = (
+            torch.from_numpy(properties["depth"]).reshape(num_mus, 1).repeat(1, steps)
+        )
+        angle = (
+            torch.from_numpy(properties["angle"]).reshape(num_mus, 1).repeat(1, steps)
+        )
+        iz = torch.from_numpy(properties["iz"]).reshape(num_mus, 1).repeat(1, steps)
+        cv = torch.from_numpy(properties["cv"]).reshape(num_mus, 1).repeat(1, steps)
+        length = (
+            torch.from_numpy(properties["len"]).reshape(num_mus, 1).repeat(1, steps)
+        )
+
     # PART THREE: Simulate MUAPs using BioMime during the movement
-    if ms_label == 'FCU_u' or ms_label == 'FCU_h':
-        tgt_ms_labels = ['FCU'] * num_mus
+    if ms_label == "FCU_u" or ms_label == "FCU_h":
+        tgt_ms_labels = ["FCU"] * num_mus
     else:
         tgt_ms_labels = [ms_label] * num_mus
 
-    ch_depth = changes['depth'].loc[:, tgt_ms_labels]
-    ch_cv = changes['cv'].loc[:, tgt_ms_labels]
-    ch_len = changes['len'].loc[:, tgt_ms_labels]
-    
+    ch_depth = changes["depth"].loc[:, tgt_ms_labels]
+    ch_cv = changes["cv"].loc[:, tgt_ms_labels]
+    ch_len = changes["len"].loc[:, tgt_ms_labels]
+
     # Model
     generator = Generator(model_config.Model.Generator)
     generator = load_generator(model_pth, generator, device)
     generator.eval()
 
     # Device
-    if device == 'cuda':
+    if device == "cuda":
         assert torch.cuda.is_available()
         generator.cuda()
 
@@ -753,30 +833,36 @@ def generate_muaps(
     nyq = 0.5 * fs  # Nyquist Frequency
     normal_cutoff = cutoff / nyq
     order = filter_cfg.FilterOrder
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    b, a = butter(order, normal_cutoff, btype="low", analog=False)
 
     print(f"Starting simulation with {num_mus} motor units, {steps} movement steps")
     start_time = time.time()
 
     muaps = []
-    for sp in tqdm(range(steps), dynamic_ncols=True, desc='Simulating MUAPs during dynamic movement...'):
-        cond = torch.vstack((
-            num[:, sp],
-            depth[:, sp] * ch_depth.iloc[sp, :].values,
-            angle[:, sp],
-            iz[:, sp],
-            cv[:, sp] * ch_cv.iloc[sp, :].values,
-            length[:, sp] * ch_len.iloc[sp, :].values,
-        )).transpose(1, 0)
+    for sp in tqdm(
+        range(steps),
+        dynamic_ncols=True,
+        desc="Simulating MUAPs during dynamic movement...",
+    ):
+        cond = torch.vstack(
+            (
+                num[:, sp],
+                depth[:, sp] * ch_depth.iloc[sp, :].values,
+                angle[:, sp],
+                iz[:, sp],
+                cv[:, sp] * ch_cv.iloc[sp, :].values,
+                length[:, sp] * ch_len.iloc[sp, :].values,
+            )
+        ).transpose(1, 0)
         if not morph:
             zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
-            if device == 'cuda':
+            if device == "cuda":
                 zi = zi.cuda()
         else:
-            if device == 'cuda':
+            if device == "cuda":
                 base_muaps = base_muaps.cuda()
 
-        if device == 'cuda':
+        if device == "cuda":
             cond = cond.cuda()
 
         if morph:
@@ -784,25 +870,27 @@ def generate_muaps(
         else:
             sim = generator.sample(num_mus, cond.float(), cond.device, zi)
 
-        if device == 'cuda':
+        if device == "cuda":
             sim = sim.permute(0, 2, 3, 1).cpu().detach().numpy()
         else:
             sim = sim.permute(0, 2, 3, 1).detach().numpy()
         num_mu_dim, n_row_dim, n_col_dim, n_time_dim = sim.shape
         sim = filtfilt(b, a, sim.reshape(-1, n_time_dim))
-        muaps.append(sim.reshape(num_mu_dim, n_row_dim, n_col_dim, n_time_dim).astype(np.float32))
+        muaps.append(
+            sim.reshape(num_mu_dim, n_row_dim, n_col_dim, n_time_dim).astype(np.float32)
+        )
 
     muaps = np.array(muaps)
     muaps = np.transpose(muaps, (1, 0, 2, 3, 4))
-    print('--- %s seconds to generate MUAPs ---' % (time.time() - start_time))
-    
+    print("--- %s seconds to generate MUAPs ---" % (time.time() - start_time))
+
     # Restore original random states if using subject-specific seed
     if subject_seed is not None:
         np.random.set_state(original_np_state)
         torch.set_rng_state(original_torch_state)
         if torch.cuda.is_available():
             torch.cuda.set_rng_state(original_cuda_state)
-    
+
     # Return the properties along with the muaps and num_mus
     return muaps, num_mus, properties_dict
 
@@ -810,35 +898,35 @@ def generate_muaps(
 def save_motor_unit_properties_to_csv(properties_dict, csv_file):
     """
     Convert motor unit properties to a DataFrame and save as CSV.
-    
+
     Args:
         properties_dict (dict): Dictionary with property names as keys and numpy arrays as values.
             Each array should have shape (num_mus,) or (num_mus, steps).
         csv_file (str): Path to save the CSV file.
-    
+
     Returns:
         bool: True if saved successfully, False otherwise.
     """
     import pandas as pd
-    
+
     try:
         # Create a DataFrame with one row per motor unit
         df = pd.DataFrame()
-        
+
         # For each property, get the first value (assuming static or just want initial value)
         for prop_name, prop_values in properties_dict.items():
             # If property has shape (num_mus, steps), take the first step
             if isinstance(prop_values, torch.Tensor):
                 prop_values = prop_values.cpu().numpy()
-                
+
             if len(prop_values.shape) > 1 and prop_values.shape[1] > 1:
                 df[prop_name] = prop_values[:, 0]
             else:
                 df[prop_name] = prop_values
-        
+
         # Add a motor unit index column
-        df.insert(0, 'motor_unit_index', range(len(df)))
-        
+        df.insert(0, "motor_unit_index", range(len(df)))
+
         # Save to CSV
         df.to_csv(csv_file, index=False)
         print(f"Saved motor unit properties to {csv_file}")
@@ -848,9 +936,11 @@ def save_motor_unit_properties_to_csv(properties_dict, csv_file):
         return False
 
 
-def cache_muaps(muaps, cache_file, metadata, meta_file, properties_dict=None, properties_csv=None):
+def cache_muaps(
+    muaps, cache_file, metadata, meta_file, properties_dict=None, properties_csv=None
+):
     """Cache MUAPs and metadata to files.
-    
+
     Args:
         muaps (numpy.ndarray): MUAPs to cache.
         cache_file (str): Path to save the MUAPs.
@@ -858,36 +948,37 @@ def cache_muaps(muaps, cache_file, metadata, meta_file, properties_dict=None, pr
         meta_file (str): Path to save the metadata.
         properties_dict (dict, optional): Dictionary of motor unit properties.
         properties_csv (str, optional): Path to save properties CSV.
-        
+
     Returns:
         bool: True if caching succeeded, False otherwise.
     """
     try:
         np.save(cache_file, muaps)
-        
+
         # Save properties if provided
         if properties_dict is not None and properties_csv is not None:
             save_motor_unit_properties_to_csv(properties_dict, properties_csv)
             # Add properties CSV path to metadata
-            metadata['properties_csv'] = properties_csv
-        
-        with open(meta_file, 'w') as f:
+            metadata["properties_csv"] = properties_csv
+
+        with open(meta_file, "w") as f:
             json.dump(metadata, f, indent=2)
-            
+
         print(f"Saved MUAP cache to {cache_file}")
         return True
     except Exception as e:
         print(f"Error saving MUAP cache: {e}")
         return False
 
+
 def load_cached_muaps(cache_file, meta_file, required_metadata):
     """Load cached MUAPs if they exist and are compatible.
-    
+
     Args:
         cache_file (str): Path to the cached MUAPs.
         meta_file (str): Path to the metadata file.
         required_metadata (dict): Required metadata for compatibility.
-        
+
     Returns:
         tuple: (muaps, is_compatible, num_mus, properties_dict)
             - muaps: The loaded MUAPs or None if loading failed
@@ -896,48 +987,66 @@ def load_cached_muaps(cache_file, meta_file, required_metadata):
             - properties_dict: Dictionary of motor unit properties or None
     """
     properties_dict = None
-    
+
     if os.path.exists(cache_file) and os.path.exists(meta_file):
         try:
             # Load metadata to check if the cache matches our requirements
-            with open(meta_file, 'r') as f:
+            with open(meta_file, "r") as f:
                 muap_metadata = json.load(f)
-            
+
             # Check if the cache is compatible
             cache_compatible = (
-                muap_metadata.get('muscle') == required_metadata['muscle'] and
-                muap_metadata.get('fs') == required_metadata['fs'] and
-                muap_metadata.get('subject_id') == required_metadata.get('subject_id')
+                muap_metadata.get("muscle") == required_metadata["muscle"]
+                and muap_metadata.get("fs") == required_metadata["fs"]
+                and muap_metadata.get("subject_id")
+                == required_metadata.get("subject_id")
             )
-            
+
             if cache_compatible:
-                print(f"Found compatible MUAP cache for subject {required_metadata.get('subject_id')}, muscle {required_metadata['muscle']}, loading...")
+                print(
+                    f"Found compatible MUAP cache for subject {required_metadata.get('subject_id')}, muscle {required_metadata['muscle']}, loading..."
+                )
                 muaps = np.load(cache_file, allow_pickle=True)
-                num_mus = muap_metadata.get('num_mus')
-                
+                num_mus = muap_metadata.get("num_mus")
+
                 # Load properties if available
-                properties_csv = muap_metadata.get('properties_csv')
+                properties_csv = muap_metadata.get("properties_csv")
                 if properties_csv and os.path.exists(properties_csv):
                     import pandas as pd
+
                     try:
                         df = pd.read_csv(properties_csv)
                         # Convert DataFrame back to dictionary of numpy arrays
-                        properties_dict = {col: df[col].values for col in df.columns if col != 'motor_unit_index'}
+                        properties_dict = {
+                            col: df[col].values
+                            for col in df.columns
+                            if col != "motor_unit_index"
+                        }
                         print(f"Loaded motor unit properties from {properties_csv}")
                     except Exception as e:
                         print(f"Error loading properties CSV: {e}")
-                
+
                 print(f"Loaded cached MUAPs from {cache_file}, shape: {muaps.shape}")
                 return muaps, True, num_mus, properties_dict
         except Exception as e:
             print(f"Error loading MUAP cache: {e}")
-    
+
     return None, False, None, None
 
 
-def save_outputs(output_dir, emg, spikes, ext, cfg, metadata, angle_profile=None, muaps=None, properties_dict=None):
+def save_outputs(
+    output_dir,
+    emg,
+    spikes,
+    ext,
+    cfg,
+    metadata,
+    angle_profile=None,
+    muaps=None,
+    properties_dict=None,
+):
     """Save all outputs to the specified directory.
-    
+
     Args:
         output_dir (str): Output directory.
         emg (numpy.ndarray): EMG signal.
@@ -948,104 +1057,124 @@ def save_outputs(output_dir, emg, spikes, ext, cfg, metadata, angle_profile=None
         angle_profile (numpy.ndarray, optional): Angle profile.
         muaps (numpy.ndarray, optional): MUAPs.
         properties_dict (dict, optional): Dictionary of motor unit properties.
-        
+
     Returns:
         dict: Paths to saved files.
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Get subject ID for filename prefix
     subject_id = metadata["simulation_info"].get("subject_id", "")
     subject_prefix = f"{subject_id}_" if subject_id else ""
     muscle = metadata["simulation_info"].get("target_muscle", "")
-    
+
     # Prepare output paths with subject ID prefix
     paths = {
-        'emg': os.path.join(output_dir, f'{subject_prefix}{muscle}_emg.npz'),
-        'spikes': os.path.join(output_dir, f'{subject_prefix}{muscle}_spikes.npz'),
-        'effort_profile': os.path.join(output_dir, f'{subject_prefix}{muscle}_effort_profile.npz'),
-        'config': os.path.join(output_dir, f'{subject_prefix}{muscle}_config_used.json'),
-        'metadata': os.path.join(output_dir, f'{subject_prefix}{muscle}_metadata.json')
+        "emg": os.path.join(output_dir, f"{subject_prefix}{muscle}_emg.npz"),
+        "spikes": os.path.join(output_dir, f"{subject_prefix}{muscle}_spikes.npz"),
+        "effort_profile": os.path.join(
+            output_dir, f"{subject_prefix}{muscle}_effort_profile.npz"
+        ),
+        "config": os.path.join(
+            output_dir, f"{subject_prefix}{muscle}_config_used.json"
+        ),
+        "metadata": os.path.join(output_dir, f"{subject_prefix}{muscle}_metadata.json"),
     }
-    
+
     # Save each array as a separate compressed file
-    np.savez_compressed(paths['emg'], emg=emg)
-    np.savez_compressed(paths['spikes'], spikes=np.array(spikes, dtype=object))  # Convert list to numpy array
-    np.savez_compressed(paths['effort_profile'], effort_profile=ext)
-    
+    np.savez_compressed(paths["emg"], emg=emg)
+    np.savez_compressed(
+        paths["spikes"], spikes=np.array(spikes, dtype=object)
+    )  # Convert list to numpy array
+    np.savez_compressed(paths["effort_profile"], effort_profile=ext)
+
     if angle_profile is not None:
-        paths['angle_profile'] = os.path.join(output_dir, f'{subject_prefix}{muscle}_angle_profile.npz')
-        np.savez_compressed(paths['angle_profile'], angle_profile=angle_profile)
-    
+        paths["angle_profile"] = os.path.join(
+            output_dir, f"{subject_prefix}{muscle}_angle_profile.npz"
+        )
+        np.savez_compressed(paths["angle_profile"], angle_profile=angle_profile)
+
     if muaps is not None:
-        paths['muaps'] = os.path.join(output_dir, f'{subject_prefix}{muscle}_muaps.npz')
-        np.savez_compressed(paths['muaps'], muaps=muaps)
-    
+        paths["muaps"] = os.path.join(output_dir, f"{subject_prefix}{muscle}_muaps.npz")
+        np.savez_compressed(paths["muaps"], muaps=muaps)
+
     # Save properties if provided
     if properties_dict is not None:
-        paths['properties'] = os.path.join(output_dir, f'{subject_prefix}{muscle}_mn_properties.csv')
-        save_motor_unit_properties_to_csv(properties_dict, paths['properties'])
-    
+        paths["properties"] = os.path.join(
+            output_dir, f"{subject_prefix}{muscle}_mn_properties.csv"
+        )
+        save_motor_unit_properties_to_csv(properties_dict, paths["properties"])
+
     # Save configuration and metadata as JSON
-    with open(paths['config'], 'w') as f:
+    with open(paths["config"], "w") as f:
         json.dump(cfg, f, indent=2)
-    
-    with open(paths['metadata'], 'w') as f:
+
+    with open(paths["metadata"], "w") as f:
         json.dump(metadata, f, indent=2)
-    
+
     # Print summary of saved files
     print(f"Data saved to:")
     for key, path in paths.items():
         print(f"- {key}: {path}")
-    
+
     return paths
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Generate EMG signals from movements')
-    parser.add_argument('config_path', type=str, help='Path to input configuration JSON file')
-    parser.add_argument('output_dir', type=str, help='Path to output directory')
-    parser.add_argument('--cache_dir', type=str, help='Path to cache directory (optional)', default=None)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate EMG signals from movements")
+    parser.add_argument(
+        "config_path", type=str, help="Path to input configuration JSON file"
+    )
+    parser.add_argument("output_dir", type=str, help="Path to output directory")
+    parser.add_argument(
+        "--cache_dir", type=str, help="Path to cache directory (optional)", default=None
+    )
     args = parser.parse_args()
 
     # Load configuration
     cfg = load_config(args.config_path)
-    
+
     # Set default values from config or use defaults
-    model_pth = cfg.get('PathToBioMimeWeights', './ckp/model_linear.pth')
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    morph = cfg.get('MorphMUAPS', False)
-    muap_file = cfg.get('PathToMUAPFile', './ckp/muap_examples.pkl')
-    
+    model_pth = cfg.get("PathToBioMimeWeights", "./ckp/model_linear.pth")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    morph = cfg.get("MorphMUAPS", False)
+    muap_file = cfg.get("PathToMUAPFile", "./ckp/muap_examples.pkl")
+
     # Subject configuration
     subject_cfg = cfg.SubjectConfiguration
     fibre_density = subject_cfg.FibreDensity
     subject_seed = subject_cfg.SubjectSeed
-    subject_id = subject_cfg.get('SubjectID', f"subject_{subject_seed}")
-    
+    subject_id = subject_cfg.get("SubjectID", f"subject_{subject_seed}")
+
     # Create muscle-to-motor-unit mapping from the config
     muscle_mu_map = {}
-    if hasattr(subject_cfg, 'MuscleLabels') and hasattr(subject_cfg, 'MuscleMotorUnitCounts'):
+    if hasattr(subject_cfg, "MuscleLabels") and hasattr(
+        subject_cfg, "MuscleMotorUnitCounts"
+    ):
         if len(subject_cfg.MuscleLabels) == len(subject_cfg.MuscleMotorUnitCounts):
-            for muscle, count in zip(subject_cfg.MuscleLabels, subject_cfg.MuscleMotorUnitCounts):
+            for muscle, count in zip(
+                subject_cfg.MuscleLabels, subject_cfg.MuscleMotorUnitCounts
+            ):
                 muscle_mu_map[muscle] = count
             print(f"Loaded motor unit counts for {len(muscle_mu_map)} muscles")
         else:
-            print("Warning: MuscleLabels and MuscleMotorUnitCounts have different lengths. Using defaults.")
-    
+            print(
+                "Warning: MuscleLabels and MuscleMotorUnitCounts have different lengths. Using defaults."
+            )
+
     # Set random seed for reproducibility
     print(f"Using subject seed: {subject_seed}")
     np.random.seed(subject_seed)
     torch.manual_seed(subject_seed)
-    if device == 'cuda':
+    if device == "cuda":
         torch.cuda.manual_seed(subject_seed)
-    
+
     # Movement configuration
     movement_cfg = cfg.MovementConfiguration
     ms_label = movement_cfg.TargetMuscle
     movement_duration = movement_cfg.MovementProfileParameters.MovementDuration
-    
+
     # Recording configuration
     recording_cfg = cfg.RecordingConfiguration
     fs = recording_cfg.SamplingFrequency
@@ -1053,15 +1182,15 @@ if __name__ == '__main__':
     filter_cfg = recording_cfg.FilterProperties
     noise_seed = recording_cfg.NoiseSeed
     noise_level_db = recording_cfg.NoiseLeveldb
-    
+
     # Configure electrode array
     n_electrodes = electrode_cfg.NElectrodes
     n_rows = electrode_cfg.NRows
     n_cols = electrode_cfg.NCols
-    
+
     # Get desired number of columns (if specified)
-    desired_cols = electrode_cfg.get('DesiredNCols', n_cols)
-    
+    desired_cols = electrode_cfg.get("DesiredNCols", n_cols)
+
     # Determine the number of motor units to use
     if ms_label in muscle_mu_map:
         # Use muscle-specific MU count from mapping
@@ -1071,29 +1200,32 @@ if __name__ == '__main__':
         # Fallback to default or configuration value
         num_mus = NUM_MUS.get(ms_label, 100)
         print(f"Using default motor unit count for {ms_label}: {num_mus}")
-    
+
     # Setup MUAP cache with subject-specific path
     use_cache = args.cache_dir is not None
     if use_cache:
         muap_cache_dir = args.cache_dir
         os.makedirs(muap_cache_dir, exist_ok=True)
 
-        muap_cache_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_muaps.npy")
-        muap_meta_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_metadata.json")
-        properties_csv_file = os.path.join(muap_cache_dir, f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_mn_properties.csv")
+        muap_cache_file = os.path.join(
+            muap_cache_dir,
+            f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_muaps.npy",
+        )
+        muap_meta_file = os.path.join(
+            muap_cache_dir,
+            f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_metadata.json",
+        )
+        properties_csv_file = os.path.join(
+            muap_cache_dir,
+            f"{subject_id}_{ms_label}_{movement_cfg.MovementDOF}_mn_properties.csv",
+        )
 
         # Required metadata for cache compatibility check
-        required_metadata = {
-            'muscle': ms_label,
-            'fs': fs,
-            'subject_id': subject_id
-        }
+        required_metadata = {"muscle": ms_label, "fs": fs, "subject_id": subject_id}
 
         # Try to load cached MUAPs
         muaps, use_cached_muaps, cached_num_mus, properties_dict = load_cached_muaps(
-            muap_cache_file, 
-            muap_meta_file, 
-            required_metadata
+            muap_cache_file, muap_meta_file, required_metadata
         )
     else:
         use_cached_muaps = False
@@ -1103,12 +1235,26 @@ if __name__ == '__main__':
         # Build movement profile for MUAP generation
         fs_mov = 50  # Temporal frequency for movement simulation
         poses, durations, total_duration, steps = build_movement_profile(movement_cfg)
-        
+
         # Generate MUAPs with subject-specific seed and MU count
         muaps, num_mus, properties_dict = generate_muaps(
-            model_pth, ms_label, movement_cfg, fs_mov, poses, durations, steps,
-            device, morph, muap_file, fibre_density, fs, filter_cfg, num_mus, subject_seed)
-        
+            model_pth,
+            ms_label,
+            movement_cfg,
+            fs_mov,
+            poses,
+            durations,
+            steps,
+            device,
+            morph,
+            muap_file,
+            fibre_density,
+            fs,
+            filter_cfg,
+            num_mus,
+            subject_seed,
+        )
+
         # Cache the MUAPs for future use if cache_dir is provided
         if use_cache:
             muap_cache_metadata = {
@@ -1120,58 +1266,63 @@ if __name__ == '__main__':
                 "device": device,
                 "fiber_density": fibre_density,
                 "subject_seed": subject_seed,
-                "date_created": time.strftime("%Y-%m-%d %H:%M:%S")
+                "date_created": time.strftime("%Y-%m-%d %H:%M:%S"),
             }
-            cache_muaps(muaps, muap_cache_file, muap_cache_metadata, muap_meta_file, properties_dict, properties_csv_file)
-    
+            cache_muaps(
+                muaps,
+                muap_cache_file,
+                muap_cache_metadata,
+                muap_meta_file,
+                properties_dict,
+                properties_csv_file,
+            )
+
     else:
         # If using cached MUAPs, make sure we use the cached number of units
         num_mus = cached_num_mus
-    
+
     # Generate angle profile and angle labels for MUAPs
     profile_params = movement_cfg.MovementProfileParameters
     angle_profile, muap_angle_labels = generate_angle_profile(
-        fs, 
-        movement_duration, 
-        profile_params, 
-        movement_cfg.MovementDOF,
-        muaps.shape[1]
+        fs, movement_duration, profile_params, movement_cfg.MovementDOF, muaps.shape[1]
     )
-    
+
     # Create effort profile
     effort_profile = create_effort_profile(fs, movement_duration, profile_params)
-    
+
     # Initialize motoneuron pool for spike generation
     mn_pool = MotoneuronPool(num_mus, ms_label, **mn_default_settings)
-    
+
     # Generate spike trains
     _, spikes, fr, ipis = generate_spike_trains(mn_pool, effort_profile, fs)
-    
+
     # Generate EMG signal using the angle profile
     emg = generate_emg_signal(
-        muaps, 
-        spikes, 
-        len(effort_profile), 
-        muap_angle_labels, 
-        angle_profile, 
-        noise_level_db, 
-        noise_seed
+        muaps,
+        spikes,
+        len(effort_profile),
+        muap_angle_labels,
+        angle_profile,
+        noise_level_db,
+        noise_seed,
     )
-    
+
     # Select optimal electrode columns if desired_cols is different from n_cols
     original_emg = emg.copy()
     selected_cols = None
     center_column = None
-    
+
     if desired_cols < 32:
         print(f"Selecting {desired_cols} optimal columns from {32}...")
-        emg, selected_cols, center_column = select_optimal_electrode_columns(emg, desired_cols)
+        emg, selected_cols, center_column = select_optimal_electrode_columns(
+            emg, desired_cols
+        )
         # Update n_cols to reflect the selected number
         n_cols = desired_cols
-    
+
     print(emg.shape)
     # Create metadata
-    steps_value = steps if 'steps' in locals() else "unknown"
+    steps_value = steps if "steps" in locals() else "unknown"
     metadata = {
         "simulation_info": {
             "num_motor_units": num_mus,
@@ -1184,38 +1335,50 @@ if __name__ == '__main__':
                 "total_electrodes": n_rows * n_cols,
                 "original_columns": electrode_cfg.NCols,
                 "selected_columns": selected_cols,
-                "center_column": center_column
+                "center_column": center_column,
             },
             "noise_level_db": noise_level_db,
             "movement_duration": movement_duration,
             "movement_dof": movement_cfg.MovementDOF,
             "movement_type": movement_cfg.MovementType,
-            "effort_profile": profile_params.EffortProfile if hasattr(profile_params, 'EffortProfile') else "Default",
+            "effort_profile": (
+                profile_params.EffortProfile
+                if hasattr(profile_params, "EffortProfile")
+                else "Default"
+            ),
             "effort_level": profile_params.EffortLevel,
-            "angle_profile": profile_params.AngleProfile if hasattr(profile_params, 'AngleProfile') else "Constant",
-            "target_angle": getattr(profile_params, 'TargetAngle', 0) if hasattr(profile_params, 'AngleProfile') and profile_params.AngleProfile == "Constant" else None,
+            "angle_profile": (
+                profile_params.AngleProfile
+                if hasattr(profile_params, "AngleProfile")
+                else "Constant"
+            ),
+            "target_angle": (
+                getattr(profile_params, "TargetAngle", 0)
+                if hasattr(profile_params, "AngleProfile")
+                and profile_params.AngleProfile == "Constant"
+                else None
+            ),
             "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
             "muap_cache_used": use_cached_muaps,
             "muap_cache_path": muap_cache_file if use_cached_muaps else None,
             "subject_id": subject_id,
             "subject_seed": subject_seed,
-            "muscle_motor_unit_mapping": muscle_mu_map
+            "muscle_motor_unit_mapping": muscle_mu_map,
         }
     }
 
-    
     # Save only new MUAPs if we generated them
     save_muaps = None if use_cached_muaps or use_cache else muaps
-    
+
     # Save all outputs
     save_outputs(
-        args.output_dir, 
-        emg, 
-        spikes, 
-        effort_profile, 
-        cfg, 
-        metadata, 
-        angle_profile, 
+        args.output_dir,
+        emg,
+        spikes,
+        effort_profile,
+        cfg,
+        metadata,
+        angle_profile,
         save_muaps,
-        properties_dict
+        properties_dict,
     )

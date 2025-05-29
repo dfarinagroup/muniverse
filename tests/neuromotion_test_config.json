@@ -1,0 +1,32 @@
+{
+    "SubjectConfiguration": {
+        "SubjectSeed": 42,
+        "FibreDensity": 0.5
+    },
+    "MovementConfiguration": {
+        "TargetMuscle": "ECRB",
+        "MovementDOF": "Flexion-Extension",
+        "MovementType": "Dynamic",
+        "MovementProfileParameters": {
+            "MovementDuration": 5.0,
+            "EffortLevel": 50,
+            "EffortProfile": "Constant",
+            "AngleProfile": "Constant",
+            "TargetAngle": 0
+        }
+    },
+    "RecordingConfiguration": {
+        "SamplingFrequency": 2048,
+        "ElectrodeConfiguration": {
+            "NElectrodes": 64,
+            "NRows": 8,
+            "NCols": 8
+        },
+        "FilterProperties": {
+            "CutoffFrequency": 500,
+            "FilterOrder": 4
+        },
+        "NoiseLeveldb": -20,
+        "NoiseSeed": 42
+    }
+} 

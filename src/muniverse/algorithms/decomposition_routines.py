@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
+from scipy.fft import fft, ifft
 from scipy.linalg import toeplitz
 from scipy.signal import find_peaks
-from scipy.fft import fft, ifft
 from sklearn.cluster import KMeans
+
 from ..evaluation.evaluate import *
+
 
 def extension(Y, R):
     """
@@ -25,11 +27,12 @@ def extension(Y, R):
         col = np.concatenate(([Y[i, 0]], np.zeros(R - 1)))
         row = Y[i, :]
         T = toeplitz(col, row)
-        eY[i * R:(i + 1) * R, :] = T
+        eY[i * R : (i + 1) * R, :] = T
 
     return eY
 
-def whitening(Y, method='ZCA', backend='ed', regularization='auto', eps=1e-10):
+
+def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10):
     """
     Adaptive whitening function using ZCA, PCA, or Cholesky.
 
@@ -45,10 +48,10 @@ def whitening(Y, method='ZCA', backend='ed', regularization='auto', eps=1e-10):
         Z (ndarray): Whitening matrix
     """
     n_channels, n_samples = Y.shape
-    use_svd = backend == 'svd'
+    use_svd = backend == "svd"
 
-    if method == 'Cholesky':
-        covariance = Y @ Y.T / (n_samples-1)
+    if method == "Cholesky":
+        covariance = Y @ Y.T / (n_samples - 1)
         R = np.linalg.cholesky(covariance)
         Z = np.linalg.inv(R.T)
         wY = Z @ Y
@@ -56,20 +59,20 @@ def whitening(Y, method='ZCA', backend='ed', regularization='auto', eps=1e-10):
 
     # Use SVD
     if use_svd:
-        covariance = Y @ Y.T / (n_samples-1)
-        #covariance = np.cov(Y)
+        covariance = Y @ Y.T / (n_samples - 1)
+        # covariance = np.cov(Y)
         U, S, _ = np.linalg.svd(covariance, full_matrices=False)
-        if regularization == 'auto':
-            reg = np.mean(S[len(S)//2:]**2)
+        if regularization == "auto":
+            reg = np.mean(S[len(S) // 2 :] ** 2)
         elif isinstance(regularization, float):
             reg = regularization
         else:
             reg = 0
-        S_inv = 1. / np.sqrt(S + reg + eps)
+        S_inv = 1.0 / np.sqrt(S + reg + eps)
 
-        if method == 'ZCA':
+        if method == "ZCA":
             Z = U @ np.diag(S_inv) @ U.T
-        elif method == 'PCA':
+        elif method == "PCA":
             Z = np.diag(S_inv) @ U.T
         else:
             raise ValueError("Unknown method.")
@@ -77,20 +80,20 @@ def whitening(Y, method='ZCA', backend='ed', regularization='auto', eps=1e-10):
 
     # Use EIG
     else:
-        covariance = Y @ Y.T / (n_samples-1)
+        covariance = Y @ Y.T / (n_samples - 1)
         S, V = np.linalg.eigh(covariance)
 
-        if regularization == 'auto':
-            reg = np.mean(S[:len(S)//2])
+        if regularization == "auto":
+            reg = np.mean(S[: len(S) // 2])
         elif isinstance(regularization, float):
             reg = regularization
         else:
             reg = 0
-        S_inv = 1. / np.sqrt(S + reg + eps)
+        S_inv = 1.0 / np.sqrt(S + reg + eps)
 
-        if method == 'ZCA':
+        if method == "ZCA":
             Z = V @ np.diag(S_inv) @ V.T
-        elif method == 'PCA':
+        elif method == "PCA":
             Z = np.diag(S_inv) @ V.T
         else:
             raise ValueError("Unknown method.")
@@ -98,7 +101,8 @@ def whitening(Y, method='ZCA', backend='ed', regularization='auto', eps=1e-10):
 
     return wY, Z
 
-def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.01):
+
+def est_spike_times(sig, fsamp, cluster="kmeans", a=2, min_delay=0.01):
     """
     Estimate spike indices given a motor unit source signal and compute
     a silhouette-like metric for source quality quantification
@@ -107,7 +111,7 @@ def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.01):
         sig (np.ndarray): Input signal (motor unit source)
         fsamp (float): Sampling rate in Hz
         cluster (string): Clustering method used to identify the spike indices
-        a (float): Exponent of assymetric power law 
+        a (float): Exponent of assymetric power law
 
     Returns:
         est_spikes (np.ndarray): Estimated spike indices
@@ -118,8 +122,8 @@ def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.01):
     # Assymetric power law that can be useful for contrast enhancement
     sig = np.sign(sig) * sig**a
 
-    if cluster == 'kmeans':
-    
+    if cluster == "kmeans":
+
         # Detect peaks with minimum distance of 10 ms
         min_peak_dist = int(round(fsamp * min_delay))
         peaks, _ = find_peaks(sig, distance=min_peak_dist)
@@ -141,14 +145,19 @@ def est_spike_times(sig, fsamp, cluster = 'kmeans', a = 2, min_delay = 0.01):
 
         # Compute within- and between-cluster distances
         D = kmeans.transform(peak_vals)  # Distances to both centroids
-        sumd = np.sum(D[labels == spike_cluster, spike_cluster]**2) # Exponent 2 for obtaining the squared Euclidian distance
-        between = np.sum(D[labels == spike_cluster, 1 - spike_cluster]**2) # Exponent 2 for obtaining the squared Euclidian distance
-        
+        sumd = np.sum(
+            D[labels == spike_cluster, spike_cluster] ** 2
+        )  # Exponent 2 for obtaining the squared Euclidian distance
+        between = np.sum(
+            D[labels == spike_cluster, 1 - spike_cluster] ** 2
+        )  # Exponent 2 for obtaining the squared Euclidian distance
+
         # Silhouette-inspired score
         denom = max(sumd, between)
         sil = (between - sumd) / denom if denom > 0 else 0.0
 
     return est_spikes, sil
+
 
 def gram_schmidt(w, B):
     """
@@ -176,9 +185,12 @@ def gram_schmidt(w, B):
 
     return u
 
-def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, tol=0.001, threshold=0.3):
+
+def remove_duplicates(
+    sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, tol=0.001, threshold=0.3
+):
     """
-    Sort out source duplicates from a decomposition by clustering spike trains and 
+    Sort out source duplicates from a decomposition by clustering spike trains and
     only keeping for each unique label the source with the highest spike sources
 
     Args:
@@ -186,10 +198,10 @@ def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, to
         - spikes (dict): Original ppiking instances of the motor neurons
         - sil (np.ndarray): Original source quality metric
         - mu_filters (np.ndarray): Original motor unit filters
-        - fsamp (float): Sampling rate in Hz 
+        - fsamp (float): Sampling rate in Hz
         - max_shift (float): Maximal delay between two sources in seconds
         - tol (float): All spikes with a delay lower than tolerance (in seconds) are classified identical
-        - theshold (float): Minimum fraction of common spikes to classify two sources as identical 
+        - theshold (float): Minimum fraction of common spikes to classify two sources as identical
 
     Returns:
         - new_sources (np.ndarray): Updated sources (n_mu x n_samples)
@@ -208,16 +220,16 @@ def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, to
         if new_labels[i] < i:
             continue
 
-        # Make binary spike train of source i    
+        # Make binary spike train of source i
         st1 = get_bin_spikes(spikes[i], sources.shape[1])
-        
-        for j in np.arange(i+1, n_source):
+
+        for j in np.arange(i + 1, n_source):
             # Make binary spike train of source j
             st2 = get_bin_spikes(spikes[j], sources.shape[1])
             # Compute the delay between source i and j
-            _ , shift = max_xcorr(st1, st2, max_shift=int(max_shift*fsamp))
+            _, shift = max_xcorr(st1, st2, max_shift=int(max_shift * fsamp))
             # Compute the number of common spikes
-            #tp, _, _ = match_spikes(spikes[i], spikes[j], shift=shift, tol=tol*fsamp) 
+            # tp, _, _ = match_spikes(spikes[i], spikes[j], shift=shift, tol=tol*fsamp)
             tp, _, _ = match_spike_trains(st1, st2, shift=shift, tol=tol, fsamp=fsamp)
             # Calculate the metaching rate and compare with threshold
             denom = max(len(spikes[i]), len(spikes[j]))
@@ -228,7 +240,7 @@ def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, to
 
     # Get the number of unqiue sources and initalize output variables
     unique_labels = np.unique(new_labels)
-    new_sources  = np.zeros((len(unique_labels),sources.shape[1]))
+    new_sources = np.zeros((len(unique_labels), sources.shape[1]))
     new_spikes = {i: [] for i in range(len(unique_labels))}
     new_sil = np.zeros(len(unique_labels))
     new_filters = np.zeros((mu_filters.shape[0], len(unique_labels)))
@@ -237,16 +249,19 @@ def remove_duplicates(sources, spikes, sil, mu_filters, fsamp, max_shift=0.1, to
     for i in np.arange(len(unique_labels)):
         idx = (new_labels == unique_labels[i]).astype(int)
         best_idx = np.argmax(idx * sil)
-        new_sources[i,:] = sources[best_idx,:]
+        new_sources[i, :] = sources[best_idx, :]
         new_spikes[i] = spikes[best_idx]
         new_sil[i] = sil[best_idx]
-        new_filters[:,i] = mu_filters[:,best_idx]
+        new_filters[:, i] = mu_filters[:, best_idx]
 
     return new_sources, new_spikes, new_sil, new_filters
 
-def remove_bad_sources(sources, spikes, sil, mu_filters, threshold=0.9, min_num_spikes=10):
+
+def remove_bad_sources(
+    sources, spikes, sil, mu_filters, threshold=0.9, min_num_spikes=10
+):
     """
-    Reject sources with a silhoeutte score below a given threshold and that do not 
+    Reject sources with a silhoeutte score below a given threshold and that do not
     contain a minimum number of spikes.
 
     Args:
@@ -255,14 +270,14 @@ def remove_bad_sources(sources, spikes, sil, mu_filters, threshold=0.9, min_num_
         - sil (np.ndarray): Original source quality metric
         - mu_filters (np.ndarray): Original motor unit filters
         - theshold (float): Sources with a SIL score below this theshold will be rejected
-        - min_num_spikes (int): Sources with less spikes will be rejected 
+        - min_num_spikes (int): Sources with less spikes will be rejected
 
     Returns:
         - new_sources (np.ndarray): Updated sources (n_mu x n_samples)
         - new_spikes (dict): Updated spiking instances of the motor neurons
         - new_sil (np.ndarray): Updated source quality metric
         - new_filters (np.ndarray): Updated motor unit filters
-    
+
     """
 
     bad_source_idx = np.array([])
@@ -279,9 +294,10 @@ def remove_bad_sources(sources, spikes, sil, mu_filters, threshold=0.9, min_num_
     new_sil = np.delete(sil, bad_source_idx.astype(int), axis=0)
     new_filters = np.delete(mu_filters, bad_source_idx.astype(int), axis=1)
 
-    return new_sources, new_spikes, new_sil, new_filters  
+    return new_sources, new_spikes, new_sil, new_filters
 
-def map_source_from_window_to_global_time_idx(sources, spikes, win, n_time_samples): 
+
+def map_source_from_window_to_global_time_idx(sources, spikes, win, n_time_samples):
     """
     TODO some description
 
@@ -294,7 +310,7 @@ def map_source_from_window_to_global_time_idx(sources, spikes, win, n_time_sampl
     Returns:
         new_sources (np.ndarray): Mapped sources
         spikes (float): (dict): Mapped spikes
-    
+
     """
 
     # Initalize variables
@@ -302,14 +318,13 @@ def map_source_from_window_to_global_time_idx(sources, spikes, win, n_time_sampl
     new_spikes = {i: [] for i in range(sources.shape[0])}
 
     for i in np.arange(new_sources.shape[0]):
-        new_sources[i,win[0]:win[1]] = sources[i,:]
+        new_sources[i, win[0] : win[1]] = sources[i, :]
         new_spikes[i] = spikes[i] + win[0]
-    
+
     return new_sources, new_spikes
 
 
-
-def spike_triggered_average(sig, spikes, win=0.02, fsamp = 2048):
+def spike_triggered_average(sig, spikes, win=0.02, fsamp=2048):
     """
     Calculate the spike triggered average given the spike times of a source
 
@@ -321,20 +336,21 @@ def spike_triggered_average(sig, spikes, win=0.02, fsamp = 2048):
 
     Returns:
         waveform (2D np.array): Estimated impulse response of a given source
-    
+
     """
 
-    width = int(win*fsamp)
-    waveform = np.zeros((sig.shape[0], 2*width+1))
+    width = int(win * fsamp)
+    waveform = np.zeros((sig.shape[0], 2 * width + 1))
 
     spikes = spikes[(spikes >= width + 1) & (spikes < sig.shape[1] - width - 1)]
 
     for i in np.arange(len(spikes)):
-        waveform = waveform + sig[:,(spikes[i]-width):(spikes[i]+width+1)]
+        waveform = waveform + sig[:, (spikes[i] - width) : (spikes[i] + width + 1)]
 
-    waveform = waveform / len(spikes)    
+    waveform = waveform / len(spikes)
 
     return waveform
+
 
 def peel_off(sig, spikes, win=0.02, fsamp=2048):
     """
@@ -351,9 +367,9 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
         comp_sig (2D np.array): Estimated contribution of the given source
     """
 
-    waveform = spike_triggered_average(sig,spikes,win,fsamp)
+    waveform = spike_triggered_average(sig, spikes, win, fsamp)
 
-    width = int(win*fsamp)
+    width = int(win * fsamp)
     spikes = spikes[(spikes >= width + 1) & (spikes < sig.shape[1] - width - 1)]
     firings = np.zeros(sig.shape[1])
     firings[spikes] = 1
@@ -361,7 +377,7 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
     # Zero-pad waveform to match signal shape
     L = sig.shape[1]
     pad_len = L - waveform.shape[1]
-    waveform_padded = np.pad(waveform, ((0, 0), (0, pad_len)), mode='constant')
+    waveform_padded = np.pad(waveform, ((0, 0), (0, pad_len)), mode="constant")
 
     # FFT of firings (same for all channels)
     fft_firings = fft(firings)
@@ -384,7 +400,6 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
     return residual_sig, comp_sig, waveform
 
 
-
 def spike_dict_to_long_df(spike_dict, sort=True, fsamp=2048):
     """
     Convert a dictionary of spike instances into a long-formatted DataFrame.
@@ -398,16 +413,16 @@ def spike_dict_to_long_df(spike_dict, sort=True, fsamp=2048):
         pd.DataFrame: Long-formatted DataFrame with columns ['source_id', 'spike_time']
     """
     import pandas as pd
-    
+
     rows = []
     for unit_id, spikes in spike_dict.items():
         for t in spikes:
-            rows.append({"source_id": unit_id, "spike_time": t/fsamp})
-    
+            rows.append({"source_id": unit_id, "spike_time": t / fsamp})
+
     # If no spikes were found, create an empty DataFrame with the correct columns
     if not rows:
         return pd.DataFrame(columns=["source_id", "spike_time"])
-        
+
     df = pd.DataFrame(rows)
     if sort and not df.empty:
         df = df.sort_values(by=["source_id", "spike_time"]).reset_index(drop=True)

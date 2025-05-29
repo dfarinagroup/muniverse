@@ -10,6 +10,6 @@ from muniverse import (
     data_preparation,
     datasets,
     evaluation,
+    registry,
     utils,
-    registry
-) 
+)
