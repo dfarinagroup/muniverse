@@ -38,18 +38,18 @@ dev = [
 ]
 
 [tool.setuptools]
-# map the "muniverse" top‐level package to your src/ directory
-package-dir = { "muniverse" = "src" }
+# map the "muniverse" top‐level package to your src/muniverse directory
+package-dir = { "muniverse" = "src/muniverse" }
 
-# rather than auto‐discover everything under "src", you must now
-# *explicitly* list which muniverse.* packages to install
+# explicitly list which muniverse.* packages to install
 packages = [
-  "muniverse",
-  "muniverse.algorithms",
-  "muniverse.data_generation",
-  "muniverse.data_preparation",
-  "muniverse.evaluation",
-  "muniverse.utils",
+    "muniverse",
+    "muniverse.algorithms",
+    "muniverse.data_generation",
+    "muniverse.data_preparation",
+    "muniverse.datasets",
+    "muniverse.evaluation",
+    "muniverse.utils",
 ]
 
 [tool.black]
@@ -69,4 +69,4 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=src" 
+addopts = "-v --cov=src/muniverse" 
