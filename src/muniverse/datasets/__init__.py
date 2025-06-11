@@ -7,8 +7,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Union
 
-import requests
-
 
 def load_dataset(
     dataset_id: str, output_dir: Union[str, Path] = None

@@ -287,7 +287,7 @@ def decompose_cbss(
         algo_cfg = load_config(algorithm_config)["Config"]
         logger.set_algorithm_config(algo_cfg)
     else:
-        config_dir = Path(__file__).parent.parent.parent / "configs"
+        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
         algorithm_config = config_dir / "cbss.json"
         if not algorithm_config.exists():
             raise FileNotFoundError(
