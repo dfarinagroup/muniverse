@@ -716,13 +716,14 @@ class bids_decomp_derivatives(bids_emg_recording):
         self,
         pipelinename="pipeline-name",
         format="standalone",
-        data_obj=None,
+        config=None,
         datasetname="dataset-name",
         datatype="emg",
         subject=1,
-        task="isometric",
+        task_label="isometric",
         run=1,
         session=-1,
+        desc_label="decomposed",
         root="./",
         overwrite=False,
         n_digits=2,
@@ -746,29 +747,32 @@ class bids_decomp_derivatives(bids_emg_recording):
         if session < 0:
             datapath = subject_name + "/" + datatype + "/"
         else:
-            ses_name = "ses" + "-" + str(session).zfill(n_digits)
-            datapath = subject_name + "/" + ses_name + "/" + datatype + "/"
+            session_name = "ses" + "-" + str(session).zfill(n_digits)
+            datapath = subject_name + "/" + session_name + "/" + datatype + "/"
 
         # Store essential information for BIDS compatible folder structure in a dictonary
         self.datapath = datapath
         self.subject_id = subject
         self.subject_name = subject_name
-        self.task = "task-" + task
+        self.task = "task-" + task_label
         self.session = session
+        self.desc = "desc-" + desc_label
         self.overwrite = overwrite
         self.n_digits = n_digits
         self.run = run
         self.datatype = datatype
 
-        if isinstance(data_obj, bids_emg_recording):
-            self.root = data_obj.root
-            self.datasetname = data_obj.datasetname
-            self.n_digits = data_obj.n_digits
-            self.subject_id = data_obj.subject_id
-            self.subject_name = data_obj.subject_name
-            self.task = data_obj.task
-            self.run = data_obj.task
-            self.datatype = data_obj.datatype
+        if isinstance(config, bids_emg_recording):
+            self.root = config.root
+            self.datasetname = config.datasetname
+            self.n_digits = config.n_digits
+            self.subject_id = config.subject_id
+            self.subject_name = config.subject_name
+            self.task = config.task
+            self.run = config.task
+            self.datatype = config.datatype
+            self.desc = config.desc
+            self.session = config.session
 
         # Store essential information for BIDS compatible folder structure in a dictonary
         if format == "standalone":
@@ -806,19 +810,20 @@ class bids_decomp_derivatives(bids_emg_recording):
         name = name + self.task + "_"
         if self.run > 0:
             name = name + "run-" + str(int(self.run)).zfill(self.n_digits) + "_"
+        name = f"{name}_{self.desc}_"    
 
         # write *_predictedspikes.tsv
         self.spikes.to_csv(
-            name + "predictedspikes.tsv", sep="\t", index=False, header=True
+            name + "events.tsv", sep="\t", index=False, header=True
         )
         # write *_pipeline.json
-        fname = name + "pipeline.json"
+        fname = name + self.datatype + ".json"
         with open(fname, "w") as f:
             json.dump(self.pipeline_sidecar, f)
         # write *_predictedsources.edf file
-        self.source.write(name + "predictedsources.edf")
+        self.source.write(name + self.datatype + ".edf")
         # write dataset.json
-        fname = self.root + "/" + "dataset.json"
+        fname = self.root + "/dataset.json"
         if self.overwrite or not os.path.isfile(fname):
             with open(fname, "w") as f:
                 json.dump(self.dataset_sidecar, f)
@@ -835,18 +840,19 @@ class bids_decomp_derivatives(bids_emg_recording):
         name = name + self.task + "_"
         if self.run > 0:
             name = name + "run-" + str(int(self.run)).zfill(self.n_digits) + "_"
+        name = f"{name}_{self.desc}_"       
 
         # read *_predictedspikes.tsv
-        fname = name + "predictedspikes.tsv"
+        fname = name + "events.tsv"
         if os.path.isfile(fname):
             self.spikes = pd.read_table(fname, on_bad_lines="warn")
         # read *_pipeline.json
-        fname = name + "pipeline.json"
+        fname = name + self.datatype + ".json"
         if os.path.isfile(fname):
             with open(fname, "r") as f:
                 self.pipeline_sidecar = json.load(f)
         # read *.edf file
-        fname = name + "predictedsources.edf"
+        fname = name + self.datatype + ".edf"
         if os.path.isfile(fname):
             self.source = read_edf(fname)
         # read dataset.json

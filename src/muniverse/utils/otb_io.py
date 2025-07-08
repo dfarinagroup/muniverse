@@ -16,7 +16,7 @@ def open_otb(inputname, n_adapters):
 
     Args:
         inputname (str): name and path of the inputfile, e.g. '/this/is/mypath/filename.otb+'
-        n_adapters (int): number of emg arrays used in the measurement
+        n_adapters (int): number of input adapters used in the measurement
 
     Returns:
         data (ndarray): array of recorded data (samples x channels)
@@ -35,9 +35,8 @@ def open_otb(inputname, n_adapters):
 
     # Extract file names from .tar directory
     sig_files = [f for f in os.listdir(temp_dir) if f.endswith(".sig")]
-    trial_label_sig = sig_files[
-        0
-    ]  # only one .sig so can be used to get the trial name (0 index list->string)
+    trial_label_sig = sig_files[0]  
+    # only one .sig so can be used to get the trial name (0 index list->string)
     trial_label_xml = trial_label_sig.split(".")[0] + ".xml"
     trial_label_sig = os.path.join(temp_dir, trial_label_sig)
     trial_label_xml = os.path.join(temp_dir, trial_label_xml)
@@ -65,7 +64,8 @@ def open_otb(inputname, n_adapters):
     emg_data = np.fromfile(open(trial_label_sig), dtype="int" + str(nADbit))
     emg_data = np.transpose(
         emg_data.reshape(int(len(emg_data) / nchans), nchans)
-    )  # need to reshape because it is read as a stream
+    )  
+    # need to reshape because it is read as a stream
     emg_data = emg_data.astype(float)
 
     # initalize vector of recorded units

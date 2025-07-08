@@ -3,8 +3,8 @@ import pandas as pd
 import json
 import os
 from edfio import *
-from src.data_preparation.data2bids import *
-from src.data_preparation.otb_io import open_otb, format_otb_channel_metadata
+from muniverse.utils.data2bids import *
+from muniverse.utils.otb_io import open_otb, format_otb_channel_metadata
 #from .sidecar_templates import emg_sidecar_template, dataset_sidecar_template
 from pathlib import Path
 
