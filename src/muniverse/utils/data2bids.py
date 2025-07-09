@@ -629,10 +629,11 @@ class bids_decomp_derivatives(bids_emg_recording):
         config=None,
         datasetname="dataset-name",
         datatype="emg",
-        subject=1,
+        subject_id=1,
+        subject_desc = "",
         task_label="isometric",
         run=1,
-        session=-1,
+        session=-None,
         desc_label="decomposed",
         root="./",
         overwrite=False,
@@ -640,30 +641,32 @@ class bids_decomp_derivatives(bids_emg_recording):
     ):
 
         # Check if the function arguments are valid
-        if type(subject) is not int or subject > 10**n_digits - 1:
+        if type(subject_id) is not int or subject_id > 10**n_digits - 1 or subject_id < 0:
             raise ValueError("invalid subject ID")
 
-        if type(session) is not int or session > 10**n_digits - 1:
-            raise ValueError("invalid session ID")
+        if session is not None:
+            if type(session) is not int or session > 10**n_digits - 1:
+                raise ValueError("invalid session ID")
 
-        if type(run) is not int or run > 10**n_digits - 1:
-            raise ValueError("invalid session ID")
+        if run is not None:
+            if type(run) is not int or run > 10**n_digits - 1:
+                raise ValueError("invalid session ID")
 
         if datatype not in ["emg"]:
             raise ValueError("datatype must be emg")
 
         # Process name and session input
-        subject_name = "sub" + "-" + str(subject).zfill(n_digits)
-        if session < 0:
-            datapath = subject_name + "/" + datatype + "/"
+        subject_name = f"sub-{subject_desc}{self._id_to_label(subject_id)}"
+        if session is None:
+            datapath = f"{subject_name}/{datatype}/"
         else:
-            session_name = "ses" + "-" + str(session).zfill(n_digits)
-            datapath = subject_name + "/" + session_name + "/" + datatype + "/"
+            session_name = f"ses-{self._id_to_label(session)}" 
+            datapath = f"{subject_name}/{session_name}/{datatype}/"
 
         # Store essential information for BIDS compatible folder structure in a dictonary
         self.datapath = datapath
-        self.subject_id = subject
-        self.subject_name = subject_name
+        #self.subject_id = subject_id
+        self.subject_label = f"{subject_desc}{self._id_to_label(subject_id)}"
         self.task = "task-" + task_label
         self.session = session
         self.desc = "desc-" + desc_label
@@ -676,22 +679,20 @@ class bids_decomp_derivatives(bids_emg_recording):
             self.root = config.root
             self.datasetname = config.datasetname
             self.n_digits = config.n_digits
-            self.subject_id = config.subject_id
-            self.subject_name = config.subject_name
-            self.task = config.task
-            self.run = config.task
+            self.subject_label = config.subject_label
+            self.task_label = config.task_label
+            self.run = config.run
             self.datatype = config.datatype
-            self.desc = config.desc
             self.session = config.session
 
         # Store essential information for BIDS compatible folder structure in a dictonary
         if format == "standalone":
-            self.datasetname = datasetname + "-" + pipelinename
-            self.root = root + self.datasetname + "/"
+            self.datasetname = f"{datasetname}-{pipelinename}"
+            self.root = f"{root}{self.datasetname}/"
 
         else:
             self.datasetname = datasetname
-            self.root = root + datasetname + "/derivatives/" + pipelinename + "/"
+            self.root = f"{root}{datasetname}/derivatives/{pipelinename}/"
 
         self.derivative_datapath = self.root + datapath
         self.pipelinename = pipelinename
@@ -715,10 +716,10 @@ class bids_decomp_derivatives(bids_emg_recording):
             os.makedirs(self.derivative_datapath)
 
         name = self.derivative_datapath + self.subject_name + "_"
-        if self.session > 0:
+        if self.session is not None:
             name = name + f"ses-{self._id_to_label(self.session)}_"
         name = name + self.task + "_"
-        if self.run > 0:
+        if self.run is not None:
             name = name + f"run-{self._id_to_label(self.run)}_"
         name = f"{name}_{self.desc}_"    
 
