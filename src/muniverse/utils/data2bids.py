@@ -359,59 +359,6 @@ class bids_emg_recording(bids_dataset):
         # Set inheritance flags
         self.inherited_metadata = {f: True for f in metadata_files}
 
-    def _get_session_path(self):
-        """Get the session-level path for inherited files"""
-        if self.session < 0:
-            return self.datapath
-        return os.path.dirname(os.path.dirname(self.datapath)) + "/"
-
-    def _get_session_prefix(self):
-        """Get the session-level prefix for inherited files"""
-        return (
-            self._get_session_path()
-            + f"sub-{self.subject_label}" 
-            + "_"
-            + f"ses-{str(self.session).zfill(self.n_digits)}"
-        )
-
-    def _get_metadata_filename(self, metadata_type):
-        """Get the appropriate filename for a metadata file based on inheritance"""
-        if self.inherited_metadata.get(metadata_type, False) and self.session > 0:
-            return self._get_session_prefix() + f"_{metadata_type}"
-        else:
-            name = self.datapath + self.subject_name + "_" + self.task + "_"
-            if self.session > 0:
-                name = name + "ses-" + str(int(self.session)).zfill(self.n_digits) + "_"
-            if self.run > 0:
-                name = name + "run-" + str(int(self.run)).zfill(self.n_digits) + "_"
-            return name + metadata_type
-
-    def _write_metadata_file(self, metadata_type, data, writer_func):
-        """
-        Write a metadata file, handling inheritance appropriately.
-
-        Parameters:
-        -----------
-        metadata_type : str
-            Type of metadata file (e.g., 'electrodes', 'coordsystem')
-        data : object
-            Data to write (DataFrame or dict)
-        writer_func : callable
-            Function to write the data
-        """
-        if self.inherited_metadata.get(metadata_type, False) and self.session > 0:
-            # For inherited files, only write if they don't exist or if overwrite is True
-            full_path = (
-                self._get_metadata_filename(metadata_type)
-                + "."
-                + metadata_type.split(".")[-1]
-            )
-            if self.overwrite or not os.path.exists(full_path):
-                writer_func(data)
-        else:
-            # For non-inherited files, always write
-            writer_func(data)
-
     def _get_bids_filename(self, datatype, extension):
         """
         Get a BIDS compatible filename
@@ -573,12 +520,13 @@ class bids_neuromotion_recording(bids_emg_recording):
 
     def __init__(
         self,
-        subject=1,
+        subject_id=1,
+        subject_desc="sim",
         task_label="isometric",
         datatype="emg",
-        session=-1,
+        session=None,
         run=1,
-        config=None,
+        dataset_config=None,
         root="./",
         datasetname="my-data",
         overwrite=False,
@@ -591,12 +539,13 @@ class bids_neuromotion_recording(bids_emg_recording):
             inherited_metadata = self.INHERITABLE_FILES
 
         super().__init__(
-            subject=subject,
+            subject_id=subject_id,
+            subject_desc=subject_desc,
             task_label=task_label,
             datatype=datatype,
             session=session,
             run=run,
-            config=config,
+            dataset_config=dataset_config,
             root=root,
             datasetname=datasetname,
             overwrite=overwrite,
@@ -604,19 +553,6 @@ class bids_neuromotion_recording(bids_emg_recording):
             inherited_metadata=inherited_metadata,
         )
 
-        # Process name and session input
-        subject_name = "sub" + "-" + "sim" + str(subject).zfill(n_digits)
-        if session < 0:
-            datapath = self.root + "/" + subject_name + "/" + datatype + "/"
-        else:
-            ses_name = "ses" + "-" + str(session).zfill(n_digits)
-            datapath = (
-                self.root + "/" + subject_name + "/" + ses_name + "/" + datatype + "/"
-            )
-
-        # Store essential information for BIDS compatible folder structure in a dictonary
-        self.datapath = datapath
-        self.subject_name = subject_name
 
         # Initialize additional simulation-specific attributes
         self.spikes = pd.DataFrame(columns=["source_id", "spike_time"])
@@ -643,55 +579,45 @@ class bids_neuromotion_recording(bids_emg_recording):
         # Call parent's write method to handle standard BIDS files
         super().write()
 
-        # Make BIDS compatible file names
-        name = self.datapath + self.subject_name + "_"
-        if self.session > 0:
-            name = name + "ses-" + str(int(self.session)).zfill(self.n_digits) + "_"
-        name = name + self.task + "_"
-        if self.run > 0:
-            name = name + "run-" + str(int(self.run)).zfill(self.n_digits) + "_"
-
         # Write simulation-specific files
-        self.spikes.to_csv(name + "spikes.tsv", sep="\t", index=False, header=True)
-        self.motor_units.to_csv(
-            name + "motorunits.tsv", sep="\t", index=False, header=True
-        )
-        self.internals_sidecar.to_csv(
-            name + "internals.tsv", sep="\t", index=False, header=True
-        )
-        with open(name + "simulation.json", "w") as f:
+        filename = self._get_bids_filename("spikes","tsv")
+        self.spikes.to_csv(filename, sep="\t", index=False, header=True)
+        filename = self._get_bids_filename("motorunits","tsv")
+        self.motor_units.to_csv(filename, sep="\t", index=False, header=True)
+        filename = self._get_bids_filename("internals","tsv")
+        self.internals_sidecar.to_csv(filename, sep="\t", index=False, header=True)
+        filename = self._get_bids_filename("simulation","json")
+        with open(filename, "w") as f:
             json.dump(self.simulation_sidecar, f)
-        self.internals.write(name + "internals.edf")
+        filename = self._get_bids_filename("internals","edf")    
+        self.internals.write(filename)
 
     def read(self):
         """Override read method to include simulated data"""
         # Call parent's read method first
         super().read()
 
-        # Make BIDS compatible file names
-        name = self.datapath + self.subject_name + "_"
-        if self.session > 0:
-            name = name + "ses-" + str(int(self.session)).zfill(self.n_digits) + "_"
-        name = name + self.task + "_"
-        if self.run > 0:
-            name = name + "run-" + str(int(self.run)).zfill(self.n_digits) + "_"
-
         # Read simulation-specific files
-        if os.path.isfile(name + "spikes.tsv"):
-            self.spikes = pd.read_table(name + "spikes.tsv", on_bad_lines="warn")
-        if os.path.isfile(name + "motorunits.tsv"):
+        filename = self._get_bids_filename("spikes","tsv")
+        if os.path.isfile(filename):
+            self.spikes = pd.read_table(filename, on_bad_lines="warn")
+        filename = self._get_bids_filename("motorunits","tsv")    
+        if os.path.isfile(filename):
             self.motor_units = pd.read_table(
-                name + "motorunits.tsv", on_bad_lines="warn"
+                filename, on_bad_lines="warn"
             )
-        if os.path.isfile(name + "internals.tsv"):
+        filename = self._get_bids_filename("internals","tsv")    
+        if os.path.isfile(filename):
             self.internals_sidecar = pd.read_table(
-                name + "internals.tsv", on_bad_lines="warn"
+                filename, on_bad_lines="warn"
             )
-        if os.path.isfile(name + "simulation.json"):
-            with open(name + "simulation.json", "r") as f:
+        filename = self._get_bids_filename("simulation","json")    
+        if os.path.isfile(filename):
+            with open(filename, "r") as f:
                 self.simulation_sidecar = json.load(f)
-        if os.path.isfile(name + "internals.edf"):
-            self.internals = read_edf(name + "internals.edf")
+        filename = self._get_bids_filename("internals","edf")         
+        if os.path.isfile(filename):
+            self.internals = read_edf(filename)
 
 
 class bids_decomp_derivatives(bids_emg_recording):
