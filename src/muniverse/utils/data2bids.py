@@ -641,7 +641,7 @@ class bids_decomp_derivatives(bids_emg_recording):
         subject_desc = "",
         task_label="isometric",
         run=1,
-        session=-None,
+        session=None,
         desc_label="decomposed",
         root="./",
         overwrite=False,
