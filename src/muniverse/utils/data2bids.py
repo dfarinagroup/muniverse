@@ -11,7 +11,7 @@ from edfio import Edf, EdfSignal, read_edf
 class bids_dataset:
 
     def __init__(
-        self, datasetname="dataset-name", root="./", n_digits=2, overwrite=False
+        self, datasetname="dataset_name", root="./", n_digits=2, overwrite=False
     ):
 
         self.root = root + datasetname
@@ -241,11 +241,11 @@ class bids_emg_recording(bids_dataset):
 
     Inheritance Rules:
     - By default, no metadata files are inherited (all are linked to _emg.edf)
-    - Only electrodes.tsv and coordsystem.json can be inherited at session level
+    - Only channels.tsv, electrodes.tsv and coordsystem.json can be inherited at session level
     - Inherited files are stored at session level with names like:
-      sub-01_ses-01_electrodes.tsv
+      root/dataset/sub-01/ses-01/sub-01_ses-01_electrodes.tsv
     - Non-inherited files are stored with recording files like:
-      sub-01_ses-01_task-rest_run-01_electrodes.tsv
+      root/dataset/sub-01/ses-01/emg/sub-01_ses-01_task-rest_run-01_electrodes.tsv
     """
 
     # Define valid metadata files that can be inherited
@@ -262,7 +262,7 @@ class bids_emg_recording(bids_dataset):
         session=None,
         run=1,
         root="./",
-        datasetname="my-data",
+        datasetname="dataset_name",
         overwrite=False,
         n_digits=2,
         inherited_metadata=None,
@@ -281,19 +281,7 @@ class bids_emg_recording(bids_dataset):
             self.subjects_data = dataset_config.subjects_data
 
         # Check if the function arguments are valid
-        if type(subject_id) is not int or subject_id > 10**n_digits - 1 or subject_id < 0:
-            raise ValueError("invalid subject ID")
-
-        if session is not None:
-            if type(session) is not int or session > 10**n_digits - 1 or session < 1:
-                raise ValueError("invalid session ID")
-
-        if run is not None:
-            if type(run) is not int or run > 10**n_digits - 1 or run < 1:
-                raise ValueError("invalid run ID")
-
-        if datatype not in ["emg"]:
-            raise ValueError("datatype must be emg")
+        self._validate_arguments(subject_id, session, run, datatype, n_digits)
 
         # Process name and session input
         subject_name = f"sub-{subject_desc}{self._id_to_label(subject_id)}"
@@ -382,6 +370,26 @@ class bids_emg_recording(bids_dataset):
         name = folder + fname   
 
         return name
+    
+    def _validate_arguments(subject_id, session, run, datatype, n_digits):
+        """
+        Return error if the selected arguments are invalid
+        
+        """
+
+        if type(subject_id) is not int or subject_id > 10**n_digits - 1 or subject_id < 0:
+            raise ValueError("invalid subject ID")
+
+        if session is not None:
+            if type(session) is not int or session > 10**n_digits - 1 or session < 1:
+                raise ValueError("invalid session ID")
+
+        if run is not None:
+            if type(run) is not int or run > 10**n_digits - 1 or run < 1:
+                raise ValueError("invalid run ID")
+
+        if datatype not in ["emg"]:
+            raise ValueError("datatype must be emg")
 
     def _init_emg_sidecar(self):
         """
@@ -528,7 +536,7 @@ class bids_neuromotion_recording(bids_emg_recording):
         run=1,
         dataset_config=None,
         root="./",
-        datasetname="my-data",
+        datasetname="dataset_name",
         overwrite=False,
         n_digits=2,
         inherited_metadata=None,
@@ -626,8 +634,8 @@ class bids_decomp_derivatives(bids_emg_recording):
         self,
         pipelinename="pipeline-name",
         format="standalone",
-        config=None,
-        datasetname="dataset-name",
+        rec_config=None,
+        datasetname="dataset_name",
         datatype="emg",
         subject_id=1,
         subject_desc = "",
@@ -641,19 +649,7 @@ class bids_decomp_derivatives(bids_emg_recording):
     ):
 
         # Check if the function arguments are valid
-        if type(subject_id) is not int or subject_id > 10**n_digits - 1 or subject_id < 0:
-            raise ValueError("invalid subject ID")
-
-        if session is not None:
-            if type(session) is not int or session > 10**n_digits - 1:
-                raise ValueError("invalid session ID")
-
-        if run is not None:
-            if type(run) is not int or run > 10**n_digits - 1:
-                raise ValueError("invalid session ID")
-
-        if datatype not in ["emg"]:
-            raise ValueError("datatype must be emg")
+        self._validate_arguments(subject_id, session, run, datatype, n_digits)
 
         # Process name and session input
         subject_name = f"sub-{subject_desc}{self._id_to_label(subject_id)}"
@@ -675,17 +671,18 @@ class bids_decomp_derivatives(bids_emg_recording):
         self.run = run
         self.datatype = datatype
 
-        if isinstance(config, bids_emg_recording):
-            self.root = config.root
-            self.datasetname = config.datasetname
-            self.n_digits = config.n_digits
-            self.subject_label = config.subject_label
-            self.task_label = config.task_label
-            self.run = config.run
-            self.datatype = config.datatype
-            self.session = config.session
+        # Adopt labels from an emg recording in BIDS format
+        if isinstance(rec_config, bids_emg_recording):
+            self.root = rec_config.root
+            self.datasetname = rec_config.datasetname
+            self.n_digits = rec_config.n_digits
+            self.subject_label = rec_config.subject_label
+            self.task_label = rec_config.task_label
+            self.run = rec_config.run
+            self.datatype = rec_config.datatype
+            self.session = rec_config.session
 
-        # Store essential information for BIDS compatible folder structure in a dictonary
+        # Make a BIDS compatible folder structure
         if format == "standalone":
             self.datasetname = f"{datasetname}-{pipelinename}"
             self.root = f"{root}{self.datasetname}/"
