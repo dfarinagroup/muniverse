@@ -7,7 +7,7 @@
         "end_time": -1,
         "sampling_frequency": 2048,
         "bandpass": [20, 500],
-        "ext_fact": 15,
+        "ext_fact": 12,
         "whitening_method": "ZCA",
         "whitening_reg": "auto",
         "cluster_method": "kmeans",

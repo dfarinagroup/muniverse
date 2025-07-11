@@ -67,7 +67,7 @@ def decompose_scd(
         algo_cfg = load_config(algorithm_config)
         logger.set_algorithm_config(algo_cfg)
     else:
-        config_dir = Path(__file__).parent.parent.parent / "configs"
+        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
         algorithm_config = config_dir / "scd.json"
         if not algorithm_config.exists():
             raise FileNotFoundError(
@@ -179,7 +179,7 @@ def decompose_upperbound(
         algo_cfg = load_config(algorithm_config)
     else:
         algo_cfg = {
-            "ext_fact": 8,
+            "ext_fact": 12,
             "whitening_method": "ZCA",
             "cluster_method": "kmeans",
             "whitening_reg": "auto",
@@ -287,7 +287,7 @@ def decompose_cbss(
         algo_cfg = load_config(algorithm_config)["Config"]
         logger.set_algorithm_config(algo_cfg)
     else:
-        config_dir = Path(__file__).parent.parent.parent / "configs"
+        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
         algorithm_config = config_dir / "cbss.json"
         if not algorithm_config.exists():
             raise FileNotFoundError(
