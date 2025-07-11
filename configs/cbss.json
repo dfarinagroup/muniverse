@@ -25,7 +25,7 @@
         "cluster_method": "kmeans",
         "random_seed": 1909,
         "refinement_loop": true,
-        "sil_th": 0.85,
+        "sil_th": 0.9,
         "cov_th": 0.35
     }
 }

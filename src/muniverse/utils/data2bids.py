@@ -371,7 +371,7 @@ class bids_emg_recording(bids_dataset):
 
         return name
     
-    def _validate_arguments(subject_id, session, run, datatype, n_digits):
+    def _validate_arguments(self, subject_id, session, run, datatype, n_digits):
         """
         Return error if the selected arguments are invalid
         
