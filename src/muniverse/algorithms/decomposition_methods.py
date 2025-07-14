@@ -167,15 +167,16 @@ class upper_bound:
 
         return muaps_reshaped, fsamp, constant_angle
 
-    def decompose(self, sig, muaps, fsamp):
+    def decompose(self, sig, muaps, fsamp, conf_idx=False):
         """
         Estimate the spike response of motor neurons given the
         motor unit action potentials (MUAPs)
 
         Args:
             sig (ndarray): Input (EMG) signal (n_channels x n_samples)
-            muaps (ndarray): MUAPs (mu_index x n_channels x duration)
+            muaps (ndarray): MUAPs (mu_index x (conf_idx) x n_channels x duration)
             fsamp (float): Sampling rate of the data (unit: Hz)
+            conf_idx (ndarray): Internal variable for capturing non-stationarities
 
         Returns:
             sources (np.ndarray): Estimated sources (n_mu x n_samples)
@@ -184,13 +185,32 @@ class upper_bound:
             mu_filters (np.ndarray): Motor unit filters
         """
 
+        # Initalize output variables
         n_mu = muaps.shape[0]
         sources = np.zeros((n_mu, sig.shape[1]))
         spikes = {i: [] for i in range(n_mu)}
         sil = np.zeros(n_mu)
+
         # Initialize mu_filters array
-        white_dim = sig.shape[0] * self.ext_fact  # Dimension after extension
-        mu_filters = np.zeros((white_dim, n_mu))
+        white_dim = sig.shape[0] * self.ext_fact  
+        if conf_idx is None:
+            if not muaps.ndim == 3:
+                raise ValueError(
+                    f"The dimension of muaps is {muaps.ndim} but should be 3 in the stationary case."
+                )
+            mu_filters = np.zeros((white_dim, n_mu))
+        else:
+            if not muaps.ndim == 4:
+                raise ValueError(
+                    f"The dimension of muaps is {muaps.ndim} but should be 4 in the non-stationary case."
+                )
+            if not sig.shape[1] == conf_idx.shape[0]:
+                raise ValueError(
+                    "Variables sig and conf_idx need to have the same length."
+                )
+            n_conf = muaps.shape[1]
+            mu_filters = np.zeros((white_dim, n_mu, n_conf))
+
 
         # Extend signals and subtract the mean
         ext_sig = extension(sig, self.ext_fact)
@@ -206,17 +226,27 @@ class upper_bound:
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
         # Loop over each MU
         for i in np.arange(n_mu):
-            # Get the optimal MU filter
-            w = self.muap_to_filter(muaps[i, :, :], ext_mean, Z)
-            # Estimate source
-            sources[i, :] = w.T @ white_sig
-            # Make sure the peaks are in positive direction
-            sources[i, :] = np.sign(skew(sources[i, :])) * sources[i, :]
+
+            if conf_idx is None:
+                # Get the optimal MU filter
+                w = self.muap_to_filter(muaps[i, :, :], Z)
+                # Estimate source
+                sources[i, :] = w.T @ white_sig
+                # Make sure the peaks are in positive direction
+                sources[i, :] = np.sign(skew(sources[i, :])) * sources[i, :]
+                # Store the filter
+                mu_filters[:, i] = w
+            else:
+                s_i, w_ij =  self.reconstruct_non_stationary_source(
+                    white_sig, Z, muaps[i,:,:,:], conf_idx
+                )
+                sources[i,:] = s_i
+                mu_filters[:, i, :] = w_ij
+
             spikes[i], sil[i] = est_spike_times(
                 sources[i, :], fsamp, cluster=self.cluster_method
             )
-            # Store the filter
-            mu_filters[:, i] = w
+            
 
         # Remove bad sources
         sources, spikes, sil, mu_filters = remove_bad_sources(
@@ -229,86 +259,51 @@ class upper_bound:
         )
         return sources, spikes, sil, mu_filters
     
-    def decompose_non_stationary(self, sig, muaps, fsamp, dynamics):
+    def reconstruct_non_stationary_source(self, white_sig, Z, muap, conf_idx):
         """
         Estimate the spike response of motor neurons given the
         motor unit action potentials (MUAPs) and a internal variable
         tracking the non-linearity
 
         Args:
-            sig (ndarray): Input (EMG) signal (n_channels x n_samples)
-            muaps (ndarray): MUAPs (mu_index x n_channels x duration)
-            fsamp (float): Sampling rate of the data (unit: Hz)
+            white_sig (ndarray): Whitened data matrix
+            Z (ndarray): Whitening matrix
+            muap (ndarray): MUAP (conf_idx x n_channels x duration)
+            conf_idx (ndarray): ...
 
         Returns:
-            sources (np.ndarray): Estimated sources (n_mu x n_samples)
-            spikes (dict): Spiking instances of the motor neurons
-            sil (np.ndarray): Source quality metric
-            mu_filters (np.ndarray): Motor unit filters
+            source (np.ndarray): Estimated source 
+            mu_filter (np.ndarray): Motor unit filters for each confihuration
         """
-         
-        n_mu = muaps.shape[0]
-        n_dynamics = muaps.shape[1]
-        sources = np.zeros((n_mu, sig.shape[1]))
-        spikes = {i: [] for i in range(n_mu)}
-        sil = np.zeros(n_mu)
-        # Initialize mu_filters array
-        white_dim = sig.shape[0] * self.ext_fact  # Dimension after extension
-        mu_filters = np.zeros((white_dim, n_mu, n_dynamics))
-
-        # Extend signals and subtract the mean
-        ext_sig = extension(sig, self.ext_fact)
-
-        ext_mean = np.mean(ext_sig, axis=1, keepdims=True)
-        ext_sig -= ext_mean
-
-        # Remove the edges from the exteneded signal
-        ext_sig[:, : self.ext_fact * 2] = 0
-        ext_sig[:, -self.ext_fact * 2 :] = 0
-
-        # Whiten the extended signals
-        white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
-
+        # Get the number of configurations
+        n_conf = muap.shape[0]
+        # Initalize output variables
+        source = np.zeros(white_sig.shape[1])
+        mu_filter = np.zeros((white_sig.shape[0], n_conf))
+        # Get the optimal delay of the mean MUAP
+        _, delay_idx = self.muap_to_filter(np.mean(muap, axis=0), Z) 
         # Get indicator function
-        indicators = self._indicator_function(n_dynamics, dynamics)
+        indicators = self._indicator_function(n_conf, conf_idx, delay_idx)
+        for j in np.arange(n_conf):
+            # Get the optimal MU filter
+            ext_muap = extension(muap[j,:,:], self.ext_fact)
+            white_muap = Z @ ext_muap
+            w = white_muap[:, delay_idx]
+            w = w / np.linalg.norm(w)
+            # Estimate source
+            s_ij = w.T @ white_sig
+            source += np.sign(skew(s_ij)) * s_ij * indicators[j] 
+            # Store the filter
+            mu_filter[:, j] = w
 
-        # Loop over each MU
-        for i in np.arange(n_mu):
-            muap = muaps[i, 0, :, :]
-            _, delay_idx = self.muap_to_filter(muap, ext_mean, Z) 
-            for j in np.arange(n_dynamics):
-                # Get the optimal MU filter
-                muap = muaps[i, j, :, :]
-                ext_muap = extension(muap, self.ext_fact)
-                white_muap = Z @ ext_muap
-                w = white_muap[:, np.argmax(delay_idx)]
-                w = w / np.linalg.norm(w)
-                # Estimate source
-                s_ij = w.T @ white_sig
-                sources[i, :] += np.sign(skew(s_ij)) * s_ij * indicators[j] 
-                # Store the filter
-                mu_filters[:, i, j] = w
-
-            # Get spike times
-            spikes[i], sil[i] = est_spike_times(
-                    sources[i, :], fsamp, cluster=self.cluster_method
-                )
-
-        # Remove bad sources
-        sources, spikes, sil, mu_filters = remove_bad_sources(
-            sources,
-            spikes,
-            sil,
-            mu_filters,
-            threshold=self.sil_th,
-            min_num_spikes=self.min_num_spikes,
-        )
-        return sources, spikes, sil, mu_filters
+        return source, mu_filter
     
-    def _indicator_function(self, n_dynamics, x):
+    def _indicator_function(self, n_dynamics, x, delay):
 
-        x = np.asarray(x)
-        bins = np.arange(n_dynamics)
+        x0 = x[0]
+        x = np.roll(x, delay)
+        x[:delay] = x0
+        bins = np.arange(n_dynamics+1)
         indicators = []
 
         for i in range(len(bins) - 1):
@@ -318,7 +313,7 @@ class upper_bound:
 
         return np.vstack(indicators)
 
-    def muap_to_filter(self, muap, ext_mean, Z):
+    def muap_to_filter(self, muap, Z):
         """
         Get the optimal motor unit filter from the ground truth MUAP.
         Therefore, the MUAP is extended and whitened. The optimal motor unit
@@ -335,7 +330,6 @@ class upper_bound:
 
         # Extend the MUAP
         ext_muap = extension(muap, self.ext_fact)
-        # ext_muap -= ext_mean
 
         # Whiten the MUAP
         white_muap = Z @ ext_muap
@@ -344,7 +338,7 @@ class upper_bound:
         col_norms = np.linalg.norm(white_muap, axis=0)
         col_norms[: self.ext_fact] = 0
         delay_idx = np.argmax(col_norms)
-        w = white_muap[:, np.argmax(col_norms)]
+        w = white_muap[:, delay_idx]
 
         # Normalize w
         w = w / np.linalg.norm(w)
