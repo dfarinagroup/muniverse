@@ -32,35 +32,38 @@ def extension(Y, R):
     return eY
 
 
-def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10):
+def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10, cov_option=False):
     """
     Adaptive whitening function using ZCA, PCA, or Cholesky.
 
     Parameters:
-        Y (ndarray): Input signal (n_channels x n_samples)
+        Y (ndarray): Input signal (n_channels x n_samples) 
+                     or signal covariance matrix (n_channels x n_channels)
         method (str): Whitening method: 'ZCA', 'PCA', 'Cholesky'
         backend (str): 'ed', or 'svd'
         regularization (str or float): 'auto', float value, or None
         eps (float): Small epsilon for numerical stability
+        cov_option (bool): If true, the input is the signal covariance matrix
 
     Returns:
         wY (ndarray): Whitened signal
         Z (ndarray): Whitening matrix
     """
-    n_channels, n_samples = Y.shape
-    use_svd = backend == "svd"
+
+    # Extract or calculate the signal covariance matrix
+    if cov_option:
+        covariance = Y
+    else:
+        covariance = Y @ Y.T / (Y.shape[1] - 1)
 
     if method == "Cholesky":
-        covariance = Y @ Y.T / (n_samples - 1)
         R = np.linalg.cholesky(covariance)
         Z = np.linalg.inv(R.T)
         wY = Z @ Y
         return wY, Z
 
     # Use SVD
-    if use_svd:
-        covariance = Y @ Y.T / (n_samples - 1)
-        # covariance = np.cov(Y)
+    if backend == "svd":
         U, S, _ = np.linalg.svd(covariance, full_matrices=False)
         if regularization == "auto":
             reg = np.mean(S[len(S) // 2 :] ** 2)
@@ -80,7 +83,6 @@ def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10):
 
     # Use EIG
     else:
-        covariance = Y @ Y.T / (n_samples - 1)
         S, V = np.linalg.eigh(covariance)
 
         if regularization == "auto":
