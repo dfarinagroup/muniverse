@@ -33,27 +33,28 @@ def extension(Y, R):
     return eY
 
 
-def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10, cov_option=False):
+def whitening(Y, method="ZCA", backend="ed", regularization="auto", eps=1e-10, C_YY=None):
     """
-    Adaptive whitening function using ZCA, PCA, or Cholesky.
+    Whitening transformation (ZCA, PCA, or Cholesky), using different eigenvalue 
+    calculation methods (eigenvalue decomposition or singular value decomposition) 
+    and regularization strategies (None, automatic or user-define value)
 
     Parameters:
         Y (ndarray): Input signal (n_channels x n_samples) 
-                     or signal covariance matrix (n_channels x n_channels)
         method (str): Whitening method: 'ZCA', 'PCA', 'Cholesky'
         backend (str): 'ed', or 'svd'
         regularization (str or float): 'auto', float value, or None
         eps (float): Small epsilon for numerical stability
-        cov_option (bool): If true, the input is the signal covariance matrix
-
+        C_YY (None or ndarray): If None (default), the covariacne matrix is computed from Y
+            otherwise it it is signal covariance matrix (n_channels x n_channels)
     Returns:
         wY (ndarray): Whitened signal
         Z (ndarray): Whitening matrix
     """
 
     # Extract or calculate the signal covariance matrix
-    if cov_option:
-        covariance = Y
+    if C_YY is not None:
+        covariance = C_YY
     else:
         covariance = Y @ Y.T / (Y.shape[1] - 1)
 
@@ -474,6 +475,7 @@ def running_covariance_estimate(Y, cov_init, memmory=0.05, shrinkage=True):
         cov_init (ndarray): Initial covariance estimate (n_channels x n_channels)
         memmory (float): Weighting factor of initial covariance and batch covariance estimate 
         shrinkage (bool): If True, use Ledoit-Wolf shrinkage to stabelize the batch covariacne estimate
+            otherwise the empirical batch covariance matrix is calculated
 
     Returns:
         cov_new (ndarray): Running average covariacne estimate
@@ -483,8 +485,8 @@ def running_covariance_estimate(Y, cov_init, memmory=0.05, shrinkage=True):
     
     if shrinkage is True:
         lw = LedoitWolf()
-        lw.fit(Y)
-        cov_new = lw.covariance_ 
+        lw.fit(Y.T)
+        cov_new = lw.covariance_.T 
     else:
         cov_new = Y @ Y.T / (Y.shape[1] - 1)
            
