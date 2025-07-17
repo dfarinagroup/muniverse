@@ -224,10 +224,11 @@ class upper_bound:
 
         # Whiten the extended signals
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
-        # Loop over each MU
-        for i in np.arange(n_mu):
 
-            if conf_idx is None:
+        # The static case
+        if conf_idx is None:
+        # Loop over each MU
+            for i in np.arange(n_mu):
                 # Get the optimal MU filter
                 w = self.muap_to_filter(muaps[i, :, :], Z)
                 # Estimate source
@@ -236,18 +237,58 @@ class upper_bound:
                 sources[i, :] = np.sign(skew(sources[i, :])) * sources[i, :]
                 # Store the filter
                 mu_filters[:, i] = w
-            else:
-                s_i, w_ij =  self.reconstruct_non_stationary_source(
-                    white_sig, Z, muaps[i,:,:,:], conf_idx
+                # Estimate spike times and source quality
+                spikes[i], sil[i] = est_spike_times(
+                    sources[i, :], fsamp, cluster=self.cluster_method
                 )
-                sources[i,:] = s_i
-                mu_filters[:, i, :] = w_ij
 
-            spikes[i], sil[i] = est_spike_times(
-                sources[i, :], fsamp, cluster=self.cluster_method
-            )
-            
+        # The dynamic case
+        else:
+            # Estimate the covariance matrix of the full signal
+            cov_global = ext_sig @ ext_sig.T / (ext_sig.shape[1] - 1)
 
+            # Get the optimal delay for each MU
+            delay = np.zeros(n_mu)
+            for i in np.arange(n_mu):
+                _, delay[i] = self.muap_to_filter(
+                    np.mean(muaps[i, :, :, :], axis=0), Z
+                )
+
+            # Loop over each configuration
+            for j in np.arange(n_conf):
+                # Time indices of current batch
+                mask = conf_idx == j
+                if mask.size == 0:
+                    continue
+                # Covariance estimate in the current batch    
+                cov_j = running_covariance_estimate(
+                    ext_sig[:,mask], cov_global, memmory=0.5, shrinkage=True
+                )
+                # Whiten the batch data
+                white_sig_j, Z_j = whitening(
+                    Y=ext_sig[:, mask], 
+                    method=self.whitening_method,
+                    C_YY=cov_j
+                )
+                # Loop over all MUs
+                for i in np.arange(n_mu):
+                    # Get the MU filter
+                    ext_muap = extension(muaps[i,j,:,:], self.ext_fact)
+                    white_muap = Z_j @ ext_muap
+                    w = white_muap[:, int(delay[i])]
+                    w = w / np.linalg.norm(w)
+                    # Estimate source within the current batch
+                    sources[i, mask] = w.T @ white_sig_j
+                    # Store the filter
+                    mu_filters[:, i, j] = w
+
+            # Estimate spike times and source quality
+            for i in np.arange(n_mu):
+                spikes[i], sil[i] = est_spike_times(
+                    sources[i, :], fsamp, cluster=self.cluster_method
+                )        
+
+                  
         # Remove bad sources
         sources, spikes, sil, mu_filters = remove_bad_sources(
             sources,
@@ -259,60 +300,6 @@ class upper_bound:
         )
         return sources, spikes, sil, mu_filters
     
-    def reconstruct_non_stationary_source(self, white_sig, Z, muap, conf_idx):
-        """
-        Estimate the spike response of motor neurons given the
-        motor unit action potentials (MUAPs) and a internal variable
-        tracking the non-linearity
-
-        Args:
-            white_sig (ndarray): Whitened data matrix
-            Z (ndarray): Whitening matrix
-            muap (ndarray): MUAP (conf_idx x n_channels x duration)
-            conf_idx (ndarray): ...
-
-        Returns:
-            source (np.ndarray): Estimated source 
-            mu_filter (np.ndarray): Motor unit filters for each confihuration
-        """
-        # Get the number of configurations
-        n_conf = muap.shape[0]
-        # Initalize output variables
-        source = np.zeros(white_sig.shape[1])
-        mu_filter = np.zeros((white_sig.shape[0], n_conf))
-        # Get the optimal delay of the mean MUAP
-        _, delay_idx = self.muap_to_filter(np.mean(muap, axis=0), Z) 
-        # Get indicator function
-        indicators = self._indicator_function(n_conf, conf_idx, delay_idx)
-        for j in np.arange(n_conf):
-            # Get the optimal MU filter
-            ext_muap = extension(muap[j,:,:], self.ext_fact)
-            white_muap = Z @ ext_muap
-            w = white_muap[:, delay_idx]
-            w = w / np.linalg.norm(w)
-            # Estimate source
-            s_ij = w.T @ white_sig
-            source += np.sign(skew(s_ij)) * s_ij * indicators[j] 
-            # Store the filter
-            mu_filter[:, j] = w
-
-        return source, mu_filter
-    
-    def _indicator_function(self, n_dynamics, x, delay):
-
-        x0 = x[0]
-        x = np.roll(x, delay)
-        x[:delay] = x0
-        bins = np.arange(n_dynamics+1)
-        indicators = []
-
-        for i in range(len(bins) - 1):
-            lower = bins[i]
-            upper = bins[i + 1]
-            indicators.append(((x >= lower) & (x < upper)).astype(int))
-
-        return np.vstack(indicators)
-
     def muap_to_filter(self, muap, Z):
         """
         Get the optimal motor unit filter from the ground truth MUAP.
