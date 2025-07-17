@@ -4,6 +4,7 @@ from scipy.fft import fft, ifft
 from scipy.linalg import toeplitz
 from scipy.signal import find_peaks
 from sklearn.cluster import KMeans
+from sklearn.covariance import LedoitWolf 
 
 from ..evaluation.evaluate import *
 
@@ -429,3 +430,65 @@ def spike_dict_to_long_df(spike_dict, sort=True, fsamp=2048):
     if sort and not df.empty:
         df = df.sort_values(by=["source_id", "spike_time"]).reset_index(drop=True)
     return df
+
+def analytical_covariance(muaps, p_firing, noise_variance, R):
+    """
+    Analytical calculation of the signal covariance matrix assuming 
+    independent motor unit spike trains and white noise, i.e.,
+        C_xx = H * cov_spikes * H^T + cov_noise 
+
+    Args:
+        muaps (ndarray): Motor unit impulse responses (n_mu x n_channels x n_samples)
+        p_firing (ndarray): Probability of motor unit firings (i.e., n_firings / fsamp)
+        noise_variance (float): Variance of the additive white noise
+        R (int): Extension factor
+
+    Returns:
+        covariance (ndarray): Analytical signal covariance estimate          
+    
+    """
+
+    n_mu, n_channel, n_smaples = muaps.shape
+    H = np.zeros((n_channel*R, n_mu*n_smaples))
+    idx = np.arange(n_smaples)
+
+    cov_spike = np.zeros((n_mu*n_smaples, n_mu+n_smaples))
+
+    for i in np.arange(n_mu):
+        H[:, idx + i*n_smaples] = extension(muaps[i,:,:], R)
+        cov_spike[idx+i*n_smaples, idx+i*n_smaples] = p_firing[i]
+    
+    cov_noise = noise_variance * np.identity(n_channel*R)    
+
+    covariance = H @ cov_spike @ H.T + cov_noise
+
+    return covariance
+
+
+def running_covariance_estimate(Y, cov_init, memmory=0.05, shrinkage=True):
+    """
+    Calculate a running average of the signal covariance matrix
+
+    Args:
+        Y (ndarray): Data matrix (n_channels x n_samples)
+        cov_init (ndarray): Initial covariance estimate (n_channels x n_channels)
+        memmory (float): Weighting factor of initial covariance and batch covariance estimate 
+        shrinkage (bool): If True, use Ledoit-Wolf shrinkage to stabelize the batch covariacne estimate
+
+    Returns:
+        cov_new (ndarray): Running average covariacne estimate
+    
+    """
+
+    
+    if shrinkage is True:
+        lw = LedoitWolf()
+        lw.fit(Y)
+        cov_new = lw.covariance_ 
+    else:
+        cov_new = Y @ Y.T / (Y.shape[1] - 1)
+           
+    if 0 < memmory <=1:        
+        cov_new = memmory * cov_init + (1-memmory) * cov_new    
+
+    return cov_new
