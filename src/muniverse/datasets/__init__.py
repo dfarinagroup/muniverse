@@ -1,58 +1,81 @@
 """
-Dataset loading and management utilities.
+Data generation utilities for neuromotion.
 """
 
 import json
 import os
-from pathlib import Path
-from typing import Any, Dict, Union
 
-#import requests
+from ..utils.containers import pull_container, verify_container_engine
+from .simulate import (
+    generate_hybrid_recording,
+    generate_neuromotion_recording,
+)
 
 
-def load_dataset(
-    dataset_id: str, output_dir: Union[str, Path] = None
-) -> Dict[str, Any]:
+def init():
     """
-    Load a dataset from Harvard Dataverse.
-
-    Args:
-        dataset_id: The dataset identifier (DOI or persistent ID)
-        output_dir: Directory to store downloaded files (defaults to ./data)
+    Initialize the datasets module.
+    This includes verifying container engines and pulling container images if needed.
+    If both Docker and Singularity are available, Singularity will be used by default.
 
     Returns:
-        Dict containing the dataset metadata and paths to downloaded files
+        str: The selected container engine ("docker" or "singularity")
     """
-    if output_dir is None:
-        output_dir = Path("./data")
+    # Check availability of both engines
+    docker_available = verify_container_engine("docker")
+    singularity_available = verify_container_engine("singularity")
+
+    # Select engine based on availability
+    if singularity_available:
+        engine = "singularity"
+    elif docker_available:
+        engine = "docker"
     else:
-        output_dir = Path(output_dir)
+        raise RuntimeError(
+            "No container engine (Docker or Singularity) is available. Please install one first."
+        )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Get container name (using default)
+    container_name = "pranavm19/muniverse:neuromotion"
 
-    # TODO: Implement Harvard Dataverse API integration
-    # This is a placeholder for the actual implementation
-    dataset_info = {"id": dataset_id, "files": [], "metadata": {}}
-
-    return dataset_info
+    # Pull container if needed
+    pull_container(container_name, engine)
+    print(f"[INFO] Datasets module initialized using {engine}.")
 
 
-def load_recording(recording_path: Union[str, Path]) -> Dict[str, Any]:
+def generate_recording(config):
     """
-    Load a specific recording from a dataset.
+    Generate a neuromotion recording using the provided configuration.
 
     Args:
-        recording_path: Path to the recording file
+        config (dict): Configuration dictionary that should include:
+            - input_config: Path to the JSON configuration file containing movement and recording parameters
+            - output_dir: Path to the output directory where the generated data will be saved
+            - engine: Container engine to use ("docker" or "singularity")
+            - container:
+                For Docker: Name of the container image (e.g., "muniverse:neuromotion")
+                For Singularity: Full path to the container file (e.g., "environment/muniverse_neuromotion.sif")
+            - cache_dir: Path to cache directory. For hybrid tibialis, should contain hybrid_TA_muaps.npz.
 
     Returns:
-        Dict containing the recording data and metadata
+        str: The path to the generated dataset.
     """
-    recording_path = Path(recording_path)
-    if not recording_path.exists():
-        raise FileNotFoundError(f"Recording not found at {recording_path}")
+    # Extract required parameters
+    input_config = config.get("input_config")
+    output_dir = config.get("output_dir")
+    engine = config.get("engine")
+    container = config.get("container")
+    cache_dir = config.get("cache_dir")
 
-    # TODO: Implement recording loading based on file type
-    # This should handle different formats (BIDS, raw, etc.)
-    recording_data = {"path": str(recording_path), "data": None, "metadata": {}}
+    # Validate required parameters
+    if not input_config or not output_dir:
+        raise ValueError("Both 'input_config' and 'output_dir' are required parameters")
 
-    return recording_data
+    if not engine or not container:
+        raise ValueError("'engine' and 'container' are required parameters")
+
+    if not cache_dir:
+        raise ValueError("'cache_dir' is a required parameter")
+
+    # TODO: Handle neuromotion vs hybrid 
+    generate_neuromotion_recording(input_config, output_dir, engine, container, cache_dir)
