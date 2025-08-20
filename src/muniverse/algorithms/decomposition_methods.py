@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import skew
+from scipy.signal import find_peaks
 
 from .decomposition_routines import *
 from .pre_processing import *
@@ -167,7 +168,7 @@ class upper_bound:
 
         return muaps_reshaped, fsamp, constant_angle
 
-    def decompose(self, sig, muaps, fsamp, conf_idx=False):
+    def decompose(self, sig, muaps, fsamp, conf_idx=False, memmory=1):
         """
         Estimate the spike response of motor neurons given the
         motor unit action potentials (MUAPs)
@@ -193,7 +194,7 @@ class upper_bound:
 
         # Initialize mu_filters array
         white_dim = sig.shape[0] * self.ext_fact  
-        if conf_idx is None:
+        if conf_idx is False:
             if not muaps.ndim == 3:
                 raise ValueError(
                     f"The dimension of muaps is {muaps.ndim} but should be 3 in the stationary case."
@@ -226,11 +227,11 @@ class upper_bound:
         white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
 
         # The static case
-        if conf_idx is None:
+        if conf_idx is False:
         # Loop over each MU
             for i in np.arange(n_mu):
                 # Get the optimal MU filter
-                w = self.muap_to_filter(muaps[i, :, :], Z)
+                w, _ = self.muap_to_filter(muaps[i, :, :], Z)
                 # Estimate source
                 sources[i, :] = w.T @ white_sig
                 # Make sure the peaks are in positive direction
@@ -262,7 +263,7 @@ class upper_bound:
                     continue
                 # Covariance estimate in the current batch    
                 cov_j = running_covariance_estimate(
-                    ext_sig[:,mask], cov_global, memmory=0.5, shrinkage=True
+                    ext_sig[:,mask], cov_global, memmory=memmory, shrinkage=True
                 )
                 # Whiten the batch data
                 white_sig_j, Z_j = whitening(
@@ -621,3 +622,208 @@ class basic_cBSS:
         """
         # ToDo
         pass
+
+class adaptive_cBSS:
+
+    def __init__(self, config=None, **kwargs):
+
+        # Default parameters
+        self.bandpass = [20, 500]
+        self.bandpass_order = 2
+        self.notch_frequency = 50
+        self.notch_n_harmonics = 3
+        self.notch_order = 2
+        self.notch_width = 1
+        self.ext_fact = 12
+        self.whitening_method = "ZCA"
+        self.whitening_reg = "auto"
+        self.opt_function_exp = 3
+        self.peel_off = True
+        self.cluster_method = "kmeans"
+        self.random_seed = 1909
+        self.refinement_loop = True
+        self.sil_th = 0.9
+        self.cov_th = 0.35
+        self.min_num_spikes = 10
+        self.match_th = 0.3
+        self.match_max_shift = 0.1
+        self.match_tol = 0.001
+        self.l_window = 2048
+        self.learning_rate = 0.1
+
+        # Convert config object (if provided) to a dictionary
+        config_dict = vars(config) if config is not None else {}
+
+        # Merge with directly passed keyword arguments (overwrites config)
+        params = {**config_dict, **kwargs}
+
+        valid_keys = self.__dict__.keys()
+
+        # Assign all parameters as attributes
+        for key, value in params.items():
+            if key in valid_keys:
+                setattr(self, key, value)
+            else:
+                print(f"Warning: ignoring invalid parameter: {key}")    
+
+    def set_param(self, **kwargs):
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                raise AttributeError(f"Invalid parameter: {key}")
+
+    def decompose(self, sig, fsamp, w_0, C_yy, centroids):
+        """
+        Run simple decomposition
+
+        Args:
+            sig (ndarray): Input (EMG) signal (n_channels x n_samples)
+            fsamp (float): Sampling frequency in Hz
+
+        Returns:
+            sources (ndarray): Estimated spike responses (n_mu x n_samples)
+            spikes (dict): Sample indices of motor neuron discharges
+            sil (ndarray): Pseudo-silhouette scores of the estimated sources
+            mu_filters (ndarray): Optimized motor unit filters
+        """
+
+        # Initalize random number generator
+        rng = np.random.seed(self.random_seed)
+
+        # Bandpass filter signals
+        if self.bandpass is not None:
+            sig = bandpass_signals(
+                sig,
+                fsamp,
+                high_pass=self.bandpass[0],
+                low_pass=self.bandpass[1],
+                order=self.bandpass_order,
+            )
+
+        # Notch filter signals
+        if self.notch_frequency is not None:
+            sig = notch_signals(
+                sig,
+                fsamp,
+                nfreq=self.notch_frequency,
+                dfreq=self.notch_width,
+                order=self.notch_order,
+                n_harmonics=self.notch_n_harmonics,
+            )
+
+        # Extend signals and subtract the mean and cut the edges
+        ext_sig = extension(sig, self.ext_fact)
+        ext_sig -= np.mean(ext_sig, axis=1, keepdims=True)
+
+        # Remove the edges from the exteneded signal
+        ext_sig[:, : self.ext_fact * 2] = 0
+        ext_sig[:, -self.ext_fact * 2 :] = 0
+
+        # Get the number of time windows 
+        n_windows = ext_sig.shape[1] // self.l_window
+
+        # Get the number of sources
+        n_sources = w_0.shape[1]
+
+        # Initalize the output variables
+        sources = np.zeros((n_sources, sig.shape[1]))
+        spikes = {i: [] for i in range(n_sources)}
+
+        # Init (non-stationary) unmixing matrix 
+        mu_filters = np.zeros((n_windows + 1, ext_sig.shape[0], n_sources))
+        mu_filters[1,:,:] = w_0
+
+        # Init gradient
+        grad_init = np.zeros(ext_sig.shape[0])
+
+
+        for j in np.arange(n_windows):
+            mask = 0
+            # Covariance estimate in the current batch    
+            C_yy = running_covariance_estimate(
+                ext_sig[:,mask], C_yy, memmory=0.5, shrinkage=True
+            )
+            # Whiten the batch data
+            white_sig_j, Z_j = whitening(
+                Y=ext_sig[:, mask], 
+                method=self.whitening_method,
+                C_YY=C_yy
+            )
+            for i in np.arange(n_sources):
+                w = mu_filters[j,:,i]    
+                w, grad = self.gradient_step(w, white_sig_j)
+                mu_filters[j+1,:,i] = w
+
+                sources[i, mask] = w.T @ white_sig_j
+
+                # Detect peaks with minimum distance of 10 ms
+                sig = sources[i, mask] * np.abs(sources[i, mask])
+                min_delay = 0.01
+                min_peak_dist = int(round(fsamp * min_delay))
+                peaks, _ = find_peaks(sig, distance=min_peak_dist)
+
+                # Classify the peaks     
+                dist1 = (sig[peaks] - centroids[0])**2
+                dist2 = (sig[peaks] - centroids[1])**2
+                labels = np.where(dist1 < dist2, 0, 1)
+                new_spikes = peaks[labels == 0]
+                spikes[i].append(new_spikes)
+
+                # Update centroids using an exponentially weighted moving average
+                centroids[0] = 0.5*centroids[0] + (1-0.5)*np.mean(sig[peaks[labels == 0]])
+                centroids[1] = 0.5*centroids[1] + (1-0.5)*np.mean(sig[peaks[labels == 1]])
+                
+
+
+
+
+                continue
+
+
+
+        return sources, spikes, sil, mu_filters   
+
+    def gradient_step(self, w, X):
+        """
+        Update rule for tracking non-stationarities within an ICA model
+        given the constraint optimization goal:
+            maximize J(w) = E[G(w^T @ X)]
+            subject to ||w||^2 = 1
+        This yields a Lagrangian: 
+            L(w,u) = E[G(w^T @ X)] - u/2(w^T @ w - 1)
+        The gradient of the Lagrangian is:
+            grad L(w,u) = E[X @ g(w^T @ X)] - E[gp(w^T @ X)] 
+        With g = G' and gp = G''          
+
+        Args:
+            w (np.ndarray): Initial weight vector (n_channels,)
+            X (np.ndarray): Whitened signal matrix (n_channels x n_samples)
+
+        Returns:
+            w (np.ndarray): Optimized weight vector
+        """
+
+        # Define contrast function and its derivative
+        # Use g(x)=x*(x**2+epsilon)**((a-1)/2) as smooth approximation of g(x) = sign(x) * abs(x)**a
+        epsilon = 1e-3
+        a = self.opt_function_exp
+        g = lambda x: (epsilon + x**2) ** ((a - 3) / 2) * (a * x**2 + epsilon)
+        gp = (
+            lambda x: (a - 1)
+            * x
+            * (epsilon + x**2) ** ((a - 5) / 2)
+            * (a * x**2 + 3 * epsilon)
+        )
+
+        # Calculate the gradient 
+        wTX = w.T @ X 
+        A = np.mean(gp(wTX))
+        gradient = np.mean(X * g(wTX), axis=1) - A * w
+        # Update the separation vector 
+        w = w + self.learning_rate * gradient  
+
+        # Normalize
+        w = w / np.linalg.norm(w)
+
+        return w, gradient       
