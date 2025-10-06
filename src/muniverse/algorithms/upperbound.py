@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import skew
-from .core import *
+from .core import extension, whitening, est_spike_times, remove_bad_sources
 
 
 class UpperBound:

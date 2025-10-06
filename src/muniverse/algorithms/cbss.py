@@ -1,12 +1,11 @@
 import numpy as np
 from scipy.stats import skew
-from .core import * # TODO: import only necessary functions
+from .core import bandpass_signals, notch_signals, extension, whitening, est_spike_times, remove_duplicates, remove_bad_sources, gram_schmidt, peel_off
 
 class CBSS:
     """
     Class for performing convolutive blind source separation to identify the
     spiking activity of motor neurons using the fastICA algorithm.
-
 
     """
 
