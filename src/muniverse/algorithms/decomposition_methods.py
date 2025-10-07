@@ -210,7 +210,7 @@ class upper_bound:
                     "Variables sig and conf_idx need to have the same length."
                 )
             n_conf = muaps.shape[1]
-            mu_filters = np.zeros((white_dim, n_mu, n_conf))
+            #mu_filters = np.zeros((white_dim, n_mu, n_conf))
 
 
         # Extend signals and subtract the mean
@@ -255,12 +255,21 @@ class upper_bound:
                     np.mean(muaps[i, :, :, :], axis=0), Z
                 )
 
-            # Loop over each configuration
-            for j in np.arange(n_conf):
+            batch_samples = int(fsamp*0.5)
+            n_batch = np.ceil(ext_sig.shape[1] / batch_samples).astype(int)  
+            mu_filters = np.zeros((white_dim, n_mu, n_batch))  
+
+            # Loop over batch
+            for j in np.arange(n_batch):
                 # Time indices of current batch
-                mask = conf_idx == j
+                #mask = conf_idx == j
+                
+                mask = np.arange(j*batch_samples,j*batch_samples+batch_samples).astype(int)
                 if mask.size == 0:
                     continue
+                if mask[-1] > ext_sig.shape[1]:
+                    mask = np.arange(mask[0],ext_sig.shape[1])
+
                 # Covariance estimate in the current batch    
                 cov_j = running_covariance_estimate(
                     ext_sig[:,mask], cov_global, memmory=memmory, shrinkage=True
@@ -271,10 +280,13 @@ class upper_bound:
                     method=self.whitening_method,
                     C_YY=cov_j
                 )
+                # Get the current configuration
+                p = int(np.round(np.mean(conf_idx[mask])))
+
                 # Loop over all MUs
                 for i in np.arange(n_mu):
                     # Get the MU filter
-                    ext_muap = extension(muaps[i,j,:,:], self.ext_fact)
+                    ext_muap = extension(muaps[i,p,:,:], self.ext_fact)
                     white_muap = Z_j @ ext_muap
                     w = white_muap[:, int(delay[i])]
                     w = w / np.linalg.norm(w)
@@ -817,9 +829,9 @@ class adaptive_cBSS:
         )
 
         # Calculate the gradient 
-        wTX = w.T @ X 
-        A = np.mean(gp(wTX))
-        gradient = np.mean(X * g(wTX), axis=1) - A * w
+        #wTX = w.T @ X 
+        #A = np.mean(gp(wTX))
+        gradient = (np.identity(X.shape[0]) - w @ w.T)  @ np.mean(X * g(w.T @ X), axis=1)
         # Update the separation vector 
         w = w + self.learning_rate * gradient  
 
