@@ -278,6 +278,8 @@ def compute_reconstruction_error(
         ].values.astype(int)
         sil_vals[i], _ = pseudo_sil_score(sources[i], spike_indices, fsamp)
 
+    sorted_idx = np.argsort(-sil_vals)    
+
     if timeframe is not None:
         sig = sig[:, timeframe[0] : timeframe[1]]
         residual_sig = residual_sig[:, timeframe[0] : timeframe[1]]
@@ -286,19 +288,25 @@ def compute_reconstruction_error(
 
     sig_rms = np.sqrt(np.mean(sig**2))
     waveform_rms = np.zeros(len(unique_labels))
+    explained_var = np.zeros(len(unique_labels))
 
     for i in np.arange(len(unique_labels)):
-        if sil_vals[i] > sil_th:
-            spike_indices = df[df["unit_id"] == unique_labels[i]][
+        idx = sorted_idx[i]
+        if sil_vals[idx] > sil_th:
+            spike_indices = df[df["unit_id"] == unique_labels[idx]][
                 "timestamp"
             ].values.astype(int)
             residual_sig, comp_sig, waveform = peel_off(
-                residual_sig, spike_indices, win=win, fsamp=fsamp
+                sig, spike_indices, win=win, fsamp=fsamp
             )
             reconstructed_sig += comp_sig
+            residual_sig = sig - reconstructed_sig
             waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
-
-    explained_var = 1 - np.var(residual_sig) / np.var(sig)
+            explained_var[i] = 1 - np.var(residual_sig) / np.var(sig)
+        elif sil_vals[idx] < sil_th and i > 0:
+            explained_var[i] = explained_var[i-1]
+    
+    #explained_var = 1 - np.var(residual_sig) / np.var(sig)
 
     return explained_var, waveform_rms
 
