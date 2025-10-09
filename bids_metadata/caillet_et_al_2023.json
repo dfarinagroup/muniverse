@@ -20,6 +20,7 @@
             "Non-Invasive Single Neuron Electrical Monitoring (NISNEM Technology) Grant EP/T020970", 
             "Biotechnology and Biological Sciences Research Council (BBSRC) 'Neural Commands for Fast Movements in the Primate Motor System' Grant NU-003743"
             ], 
+        "DatasetDOI": "https://doi.org/10.7910/DVN/F9GWIW",
         "ReferencesAndLinks": [
             "Caillet, A. H., Avrillon, S., Kundu, A., Yu, T., Phillips, A. T. M., Modenese, L., & Farina, D. (2023). Larger and Denser: An Optimal Design for Surface Grids of EMG Electrodes to Identify Greater and More Representative Samples of Motor Units. eNeuro, 10(9), ENEURO.0064-23.2023.", 
             "https://doi.org/10.1523/ENEURO.0064-23.2023"

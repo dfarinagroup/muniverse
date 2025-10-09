@@ -22,6 +22,7 @@
             "NextGenerationEU/PRTR",
             "Non-Invasive Single Neuron Electrical Monitoring (NISNEM Technology) Grant EP/T020970/1)"
         ],
+        "DatasetDOI": "https://doi.org/10.7910/DVN/ID1WNQ",
         "ReferencesAndLinks": [
             "Grison, A., Mendez Guerra, I., Clarke, A. K., Muceli, S., Ibanez Pereda, J., & Farina, D. (2025). Unlocking the full potential of high-density surface EMG: novel non-invasive high-yield motor unit decomposition Journal of Physiology, 603.8 (2025)",
             "https://doi.org/10.1113/JP287913"
