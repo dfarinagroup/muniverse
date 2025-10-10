@@ -50,7 +50,7 @@
         "ElectrodeManufacturer": "OTBioelettronica",
         "ElectrodeManufaturerModelName": "GR04MM1305",
         "ElectrodeMaterial": "gold coated",
-        "InterelectrodeDistance": "4 mm", 
+        "InterelectrodeDistance": 4, 
         "EMGElectrodeCount": 258, 
         "EMGChannelCount": 256, 
         "MISCChannelCount": 3, 

@@ -32,11 +32,11 @@
     "EMGSidecar": {
         "SkinPreparation": "The skin was shaved, abrased and cleansed with 70 percent ethyl alcohol.",
         "EMGPlacementScheme": "Other",
-        "EMGPlacementSchemeDescription": "Two grids were carefully positioned side-to-side with a 4-mm distance between the electrodes at the edges of adjacent grids. The 128 electrodes were centered to the muscle belly (right tibialis anterior) and laid  within the muscle perimeter identified through palpation. Two bands damped with water were placed around the ankle as ground (R2) and reference (R1) electrodes.",
+        "EMGPlacementSchemeDescription": "Two grids were carefully positioned side-to-side with a 4-mm distance between the electrodes at the edges of adjacent grids. The 128 electrodes were centered to the muscle belly (right tibialis anterior) and laid within the muscle perimeter identified through palpation. Two bands damped with water were placed around the ankle as ground (R2) and reference (R1) electrodes.",
         "ElectrodeManufacturer": "OTBioelettronica",
         "ElectrodeManufaturerModelName": "GR04MM1305",
         "ElectrodeMaterial": "gold coated",
-        "InterelectrodeDistance": "4 mm",
+        "InterelectrodeDistance": 4,
         "EMGReference": "R1",
         "EMGGround": "R2",
         "EMGElectrodeCount": 130, 
