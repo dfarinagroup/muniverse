@@ -70,7 +70,8 @@ def signal_based_metrics(
         "filename": [filename],
         "target_muscle": [target_muscle],
         "runtime": [runtime],
-        "explained_var": [explained_var],
+        "explained_var": [explained_var[-1]],
+        "explained_var_best": [np.max(explained_var)],
     }
 
     global_report = pd.DataFrame(global_report)
@@ -238,7 +239,7 @@ def evaluate_spike_matches(
 
 
 def compute_reconstruction_error(
-    sig, sources, spikes_df, timeframe=None, win=0.05, fsamp=2048, sil_th=0.85
+    sig, sources, spikes_df, timeframe=None, win=0.05, fsamp=2048, sil_th=0.85, min_num_of_spikes=10
 ):
     """
     Compute the fraction of the variance of an EMG signal that
@@ -254,7 +255,7 @@ def compute_reconstruction_error(
         - sil_th (float): Only consider sources with a sufficiently high silhouette score
 
     Returns:
-        - explained_var (float): Fraction of variance explained by the decomposition
+        - explained_var (ndarray): Fraction of variance explained by the decomposition
         - waveform_rms (ndarray): Relative RMS-amplitude of each source
 
     """
@@ -265,14 +266,14 @@ def compute_reconstruction_error(
     residual_sig = sig
     reconstructed_sig = np.zeros_like(sig)
 
-    unique_labels = spikes_df["unit_id"].unique()
+    #unique_labels = spikes_df["unit_id"].unique()
 
     df = spikes_df.copy()
 
-    sil_vals = np.zeros(len(unique_labels))
+    sil_vals = np.zeros(sources.shape[0])
 
-    for i in np.arange(len(unique_labels)):
-        spike_indices = df[df["unit_id"] == unique_labels[i]][
+    for i in np.arange(sources.shape[0]):
+        spike_indices = df[df["unit_id"] == i][
             "timestamp"
         ].values.astype(int)
         sil_vals[i], _ = pseudo_sil_score(sources[i], spike_indices, fsamp)
@@ -284,21 +285,36 @@ def compute_reconstruction_error(
         df["timestamp"] = df["timestamp"] - timeframe[0]
 
     sig_rms = np.sqrt(np.mean(sig**2))
-    waveform_rms = np.zeros(len(unique_labels))
+    waveform_rms = np.zeros(sources.shape[0])
+    explained_var = np.zeros(sources.shape[0])
 
-    for i in np.arange(len(unique_labels)):
-        if sil_vals[i] > sil_th:
-            spike_indices = df[df["unit_id"] == unique_labels[i]][
-                "timestamp"
-            ].values.astype(int)
-            residual_sig, comp_sig, waveform = peel_off(
-                residual_sig, spike_indices, win=win, fsamp=fsamp
-            )
+    for i in np.arange(sources.shape[0]):
+
+        # Get spike indices
+        spike_indices = df[df["unit_id"] == i][
+            "timestamp"
+        ].values.astype(int)
+
+        # Reconstruct the signal from the current source
+        _, comp_sig, waveform = peel_off(
+            sig, spike_indices, win=win, fsamp=fsamp
+        )
+
+        # Compute the relative rms of the source waveform 
+        waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
+
+        if sil_vals[i] > sil_th and len(spike_indices) > min_num_of_spikes:
+            # Add the extracted component to the reconstructed signal
             reconstructed_sig += comp_sig
-            waveform_rms[i] = np.sqrt(np.mean(waveform**2)) / sig_rms
+            # Calculate the residaul signal
+            residual_sig = sig - reconstructed_sig
+            # Calculate the explanied variance
+            explained_var[i] = 1 - np.var(residual_sig) / np.var(sig)
 
-    explained_var = 1 - np.var(residual_sig) / np.var(sig)
-
+        elif sil_vals[i] < sil_th and i > 0:  
+            # If the source is considered bad don't update the explained variance
+            explained_var[i] = explained_var[i-1]    
+            
     return explained_var, waveform_rms
 
 
