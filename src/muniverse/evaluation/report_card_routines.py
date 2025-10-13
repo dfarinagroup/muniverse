@@ -4,8 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
-from ..algorithms.decomposition_routines import peel_off
-from ..algorithms.pre_processing import bandpass_signals, notch_signals
+from ..algorithms.core import peel_off, bandpass_signals, notch_signals
 from .evaluate import *
 
 
