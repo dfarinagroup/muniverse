@@ -10,7 +10,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 
 from ..utils.logging import AlgorithmLogger
-from .algorithms import CBSS, UpperBound
+from .cbss import CBSS
+from .upperbound import UpperBound
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
