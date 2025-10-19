@@ -11,7 +11,7 @@
         "whitening_method": "ZCA",
         "whitening_reg": "auto",
         "cluster_method": "kmeans",
-        "sil_th": 0.0,
-        "min_num_spikes": 1
+        "sil_th": 0.85,
+        "min_num_spikes": 20
     }
 }

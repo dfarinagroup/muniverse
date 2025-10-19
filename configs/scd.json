@@ -4,8 +4,8 @@
     "Seed": 42,
     
     "Config": {
-        "start_time": 6,
-        "end_time": 26,
+        "start_time": 0,
+        "end_time": -1,
         "sampling_frequency": 2048,
         "time_differentiate": null,
         "notch_params": null,
