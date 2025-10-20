@@ -41,7 +41,7 @@ class UpperBound:
             else:
                 raise AttributeError(f"Invalid parameter: {key}")
 
-    def decompose(self, sig, muaps, fsamp):
+    def decompose(self, sig, muaps, fsamp, return_all_sources=False):
         """
         Estimate the spike response of motor neurons given the
         motor unit action potentials (MUAPs)
@@ -93,14 +93,15 @@ class UpperBound:
             mu_filters[:, i] = w
 
         # Remove bad sources
-        sources, spikes, sil, mu_filters = remove_bad_sources(
-            sources,
-            spikes,
-            sil,
-            mu_filters,
-            threshold=self.sil_th,
-            min_num_spikes=self.min_num_spikes,
-        )
+        if not return_all_sources:
+            sources, spikes, sil, mu_filters = remove_bad_sources(
+                sources,
+                spikes,
+                sil,
+                mu_filters,
+                threshold=self.sil_th,
+                min_num_spikes=self.min_num_spikes,
+            )
         return sources, spikes, sil, mu_filters
 
     def muap_to_filter(self, muap, ext_mean, Z):
@@ -142,3 +143,72 @@ class UpperBound:
         """
         # ToDo
         pass
+
+
+def process_neuromotion_muaps(muap_cache, simulation_config):
+    """
+    Load and prepare MUAPs for decomposition for a given simulated recording.
+    I.e., pick MUAPs for target angle --> select subset of electrodes used during simulation
+
+    Args:
+        muap_cache: path to MUAP cache file
+        simulation_config: simulation config dict
+
+    Returns:
+        processed_muaps: Processed MUAPs ready for decomposition
+    """    
+    # Extract configuration from the simulation config
+    config = simulation_config.get('InputData', {}).get('Configuration', {})
+    movement_config = config.get('MovementConfiguration', {})
+    movement_dof = movement_config.get('MovementDOF')
+    
+    # Generate angle labels
+    if movement_dof == "Flexion-Extension":
+        min_angle, max_angle = -65, 65
+    elif movement_dof == "Radial-Ulnar-deviation":
+        min_angle, max_angle = -10, 25
+
+    constant_angle = movement_config.get("MovementProfileParameters", {}).get('TargetAngle')
+    muap_dof_samples = muap_cache.shape[1]
+    angle_labels = np.linspace(min_angle, max_angle, muap_dof_samples).astype(int)
+
+    # Find the index of the angle in the MUAP cache
+    angle_idx = np.argmin(np.abs(angle_labels - constant_angle))
+    muaps = muap_cache[:, angle_idx, :, :, :]
+
+    # Reshape MUAPs from (n_mu, n_rows, n_cols, n_samples) to (n_mu, n_channels, n_samples)
+    n_mu, n_rows, n_cols, n_samples = muaps.shape
+    
+    # Check if we need to use subset of electrodes based on simulation config
+    selected_indices = None
+    electrode_config = config.get('RecordingConfiguration', {}).get('ElectrodeConfiguration', {})
+    desired_n_cols = electrode_config.get('DesiredNCols')
+    
+    if desired_n_cols < n_cols:
+        # Biomime grid wraps around -- use modulo to handle wrapping
+        # Calculate how many columns to take on each side of the center column
+        # TODO: Move the center column from OutputData.Metadata to ElectrodeConfiguration
+        center_column = simulation_config['OutputData']['Metadata'].get('CenterColumn')
+        half_width = desired_n_cols // 2
+        selected_columns = [(center_column - half_width + i) % n_cols for i in range(desired_n_cols)]
+        selected_indices = []
+        for col in selected_columns:
+            selected_indices.extend([col * n_rows + row for row in range(n_rows)])
+    
+    # Reshape the MUAPs
+    processed_muaps = muaps.reshape(n_mu, n_rows * n_cols, n_samples)
+    if selected_indices is not None:
+        processed_muaps = processed_muaps[:, selected_indices, :]
+        print(f"Extracted MUAPs for angle {constant_angle}, and subset of {len(selected_indices)} electrodes")
+    else:
+        print(f"Extracted MUAPs for angle {constant_angle}, using all {n_rows * n_cols} electrodes")
+    
+    return processed_muaps
+
+
+def process_hybrid_tibialis_muaps(muap_cache, simulation_config):
+    """
+    Load and prepare MUAPs for decomposition for a given hybrid tibialis recording.
+    """
+    # Pick the right MUAPs for the given subject
+    pass

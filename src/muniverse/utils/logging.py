@@ -16,14 +16,8 @@ from typing import Any, Dict, List, Optional
 class BaseMetadataLogger:
     """Base class for logging metadata with BIDS-compatible structure."""
 
-    def __init__(self, run_id: Optional[str] = None):
-        """
-        Initialize the base metadata logger.
-
-        Args:
-            run_id: Optional run ID. If not provided, one will be generated.
-        """
-        self.run_id = run_id or self._generate_run_id()
+    def __init__(self):
+        """Initialize the base metadata logger."""
         self.start_time = datetime.now()
         self.log_data = {
             "BIDSVersion": "1.8.0",
@@ -63,12 +57,6 @@ class BaseMetadataLogger:
 
         # Add host information
         self.log_data["RuntimeEnvironment"]["Host"] = self._get_host_info()
-
-    def _generate_run_id(self) -> str:
-        """Generate a unique run ID based on timestamp and random string."""
-        timestamp = datetime.now().strftime("%Y%m%dT%H%M%SZ")
-        random_str = os.urandom(4).hex()
-        return f"{timestamp}_{random_str}"
 
     def _get_host_info(self) -> Dict[str, Any]:
         """Get host system information."""
@@ -183,19 +171,14 @@ class BaseMetadataLogger:
 
     def finalize(
         self,
-        output_dir: str,
         engine: Optional[str] = None,
         container: Optional[str] = None,
-    ) -> str:
-        """Finalize the log and save it to a file.
+    ) -> None:
+        """Finalize the log by adding the end time and container information.
 
         Args:
-            output_dir: Directory to save the log file
             engine: Optional container engine name
             container: Optional container name/path
-
-        Returns:
-            Path to the saved log file
         """
         end_time = datetime.now()
         self.log_data["Execution"]["Timing"]["End"] = end_time.isoformat()
@@ -211,12 +194,6 @@ class BaseMetadataLogger:
                 "Image": image_info["name"],
                 "Image_id": image_info["id"],
             }
-
-        log_path = os.path.join(output_dir, f"{self.run_id}_log.json")
-        with open(log_path, "w") as f:
-            json.dump(self.log_data, f, indent=2)
-
-        return log_path
 
     def _get_package_root(self) -> Path:
         """Get the root directory of the package, handling both local and pip installations."""
@@ -374,8 +351,8 @@ class SimulationLogger(BaseMetadataLogger):
 class AlgorithmLogger(BaseMetadataLogger):
     """Logger for algorithm runs."""
 
-    def __init__(self, run_id: Optional[str] = None):
-        super().__init__(run_id)
+    def __init__(self):
+        super().__init__()
 
         # Update fields for algorithm runs
         self.log_data["PipelineDescription"]["Name"] += " Decomposition"
@@ -423,7 +400,7 @@ class AlgorithmLogger(BaseMetadataLogger):
         self.log_data["ProcessingSteps"].append({"Step": step_name, "Details": details})
 
     def add_output(self, path: str, size_bytes: int, checksum: Optional[str] = None):
-        """Add an output file to the log with automatic type detection.
+        """Add an output file to the log.
 
         Args:
             path: Path to the output file
@@ -439,24 +416,5 @@ class AlgorithmLogger(BaseMetadataLogger):
             "SizeBytes": size_bytes,
             "Checksum": checksum,
         }
-
-        # Add file-specific metadata based on extension
-        if file_path.suffix == ".tsv":
-            file_info.update(
-                {
-                    "Description": "Predicted spike times for identified motor units",
-                    "Format": "TSV",
-                    "Columns": ["Unit_ID", "Spike_Time (s)"],
-                    "Units": "s",
-                }
-            )
-        elif file_path.suffix == ".npz" or file_path.suffix == ".npy":
-            file_info.update(
-                {
-                    "Description": "Predicted source signals for identified motor units",
-                    "Format": "NP Array",
-                    "Content": "numpy array of source signals",
-                }
-            )
-
+        
         self.log_data["OutputData"]["Files"].append(file_info)

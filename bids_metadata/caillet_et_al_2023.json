@@ -20,6 +20,7 @@
             "Non-Invasive Single Neuron Electrical Monitoring (NISNEM Technology) Grant EP/T020970", 
             "Biotechnology and Biological Sciences Research Council (BBSRC) 'Neural Commands for Fast Movements in the Primate Motor System' Grant NU-003743"
             ], 
+        "DatasetDOI": "https://doi.org/10.7910/DVN/F9GWIW",
         "ReferencesAndLinks": [
             "Caillet, A. H., Avrillon, S., Kundu, A., Yu, T., Phillips, A. T. M., Modenese, L., & Farina, D. (2023). Larger and Denser: An Optimal Design for Surface Grids of EMG Electrodes to Identify Greater and More Representative Samples of Motor Units. eNeuro, 10(9), ENEURO.0064-23.2023.", 
             "https://doi.org/10.1523/ENEURO.0064-23.2023"
@@ -38,65 +39,27 @@
     },    
 
     "EMGSidecar":{
-        "EMGPlacementScheme": "Four grids were carefully positioned side-to-side with a 4-mm distancebetween the electrodes at the edges of adjacent grids. The 256 electrodes were centered to the muscle belly (right tibialis anterior) and laid  within the muscle perimeter identified through palpation.", 
-        "EMGReference": "Wet reference band placed above the medial malleolus of the same leg.", 
+        "SkinPreparation": "The skin was shaved, abrased and cleansed with 70 percent ethyl alcohol.", 
+        "EMGPlacementScheme": "Other",
+        "EMGPlacementSchemeDescription": "Four grids were carefully positioned side-to-side with a 4-mm distancebetween the electrodes at the edges of adjacent grids. The 256 electrodes were centered to the muscle belly (right tibialis anterior) and laid  within the muscle perimeter identified through palpation. Two bands damped with water were placed around the ankle as ground (R2) and reference (R1) electrodes.", 
+        "EMGReference": "R1",
+        "EMGGround": "R2", 
         "SamplingFrequency": 2048, 
         "PowerLineFrequency": 50, 
-        "SoftwareFilters": {
-            "bandpass filter": {
-                "highpass": 10, 
-                "lowpass": 500
-            }
-        }, 
         "TaskName": "Isometric-ankle-dorsiflexion", 
-        "EMGElectrodeGroups": {
-            "Grid1": {
-                "ElectrodeManufacturer": "OTBioelettronica", 
-                "ElectrodeManufaturerModelName": "GR04MM1305", 
-                "InterelectrodeDistance": "4 mm", 
-                "GridShape": [13, 5], 
-                "Material": "gold coated"
-            }, 
-            "Grid2": {
-                "ElectrodeManufacturer": "OTBioelettronica", 
-                "ElectrodeManufaturerModelName": "GR04MM1305", 
-                "InterelectrodeDistance": "4 mm", 
-                "GridShape": [13, 5], 
-                "Material": "gold coated"
-            }, 
-            "Grid3": {
-                "ElectrodeManufacturer": "OTBioelettronica", 
-                "ElectrodeManufaturerModelName": "GR04MM1305", 
-                "InterelectrodeDistance": "4 mm", 
-                "GridShape": [13, 5], 
-                "Material": "gold coated"
-            }, 
-            "Grid4": {
-                "ElectrodeManufacturer": "OTBioelettronica", 
-                "ElectrodeManufaturerModelName": "GR04MM1305", 
-                "InterelectrodeDistance": "4 mm", 
-                "GridShape": [13, 5], 
-                "Material": "gold coated"
-            }
-        }, 
-        "EMGChannelCount": 256, 
+        "ElectrodeManufacturer": "OTBioelettronica",
+        "ElectrodeManufaturerModelName": "GR04MM1305",
+        "ElectrodeMaterial": "gold coated",
+        "InterelectrodeDistance": 4, 
         "EMGElectrodeCount": 258, 
-        "SkinPreparation": "The skin was shaved, abrased and cleansed with 70 percent ethyl alcohol", 
+        "EMGChannelCount": 256, 
+        "MISCChannelCount": 3, 
         "Manufacturer": "OTBioelettronica", 
-        "ManufacturerModelName": "QUATTROCENTO; ID=Unknown", 
+        "ManufacturerModelName": "Quattrocento", 
         "SoftwareVersions": "OTBioLab+ v.1.5.6.0", 
         "SetUpDescription": "The participant sat on a massage table with the hipsflexed at 30 degree, 0 degree being the hip neutral position, and their knees fully extended. We fixed the foot of the dominant leg (right in all participants) onto the pedal of a commercial dynamometer (OT Bioelettronica) positioned at 30 degree in the plantarflexion direction, 0 degree being the foot perpendicular to the shank. The thigh was fixed to the massage tablewith an inextensible 3-cm-wide Velcro strap. The foot was fixed to the pedal with inextensiblestraps positioned around the proximal phalanx, metatarsal and cuneiform. Force signals wererecorded with a load cell (CCT Transducer s.a.s.) connected in-series to the pedal using the sameacquisition system as for the HD-EMG recordings (EMG-Quattrocento; OT Bioelettronica). The dynamometer was positioned accordingly to the participant's lower limb length andsecured to the massage table to avoid any motion during the contractions.", 
         "TaskDescription": "Each participant performed two trapezoidal contractions at 30 percentand 50 percent MVC with 120 s of rest in between, consisting of linear ramps up and down performed at 5 percent per second and aplateau maintained for 20 and 15 s at 30 percent and 50 percent MVC, respectively. The order of the contractions was randomized.", 
-        "Instructions": "Follow path provided via visual feedback.", 
-        "SubjectPosition": "seated", 
-        "HipFlexion": "30 degree", 
-        "AnkleFlexion": "30 degree", 
-        "MISCChannelCount": 3, 
-        "MISCChannelDescription": {
-            "1": "Voltage output of the dynamometer load cell", 
-            "2": "Requested ankle torque trajectory", 
-            "3": "Performed ankle torque trajectory"
-        }, 
+        "Instructions": "Follow path provided via visual feedback.",        
         "InstitutionName": "Imperial Collage London", 
         "InstitutionAddress": "London SW7 2AZ, United Kingdom", 
         "InstitutionalDepartmentName": "Department of Bioengineering"

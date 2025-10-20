@@ -183,8 +183,8 @@ def format_otb_channel_metadata(data, metadata, n_adapters):
         for j in np.arange(n_channels):
             electrode_idx += 1
             ch_type.append("EMG")
-            low_cutoff.append(int(metadata["adapter_info"][i].attrib["LowPassFilter"]))
-            high_cutoff.append(
+            high_cutoff.append(int(metadata["adapter_info"][i].attrib["LowPassFilter"]))
+            low_cutoff.append(
                 int(metadata["adapter_info"][i].attrib["HighPassFilter"])
             )
             sampling_frequency.append(int(metadata["device_info"]["SampleFrequency"]))
