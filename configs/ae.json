@@ -15,7 +15,7 @@
     "notch_order": 2,
     "notch_width": 1,
 
-    "extension_factor": 2,
+    "extension_factor": 10,
     "whitening_method": "ZCA",
     "whitening_reg": "auto",
 

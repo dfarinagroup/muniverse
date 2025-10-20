@@ -27,7 +27,7 @@ from typing import Optional, Dict
 import re
 import traceback
 
-from muniverse.algorithms.decomposition import decompose_scd, decompose_cbss, decompose_upperbound
+from muniverse.algorithms.decomposition import decompose_scd, decompose_cbss, decompose_upperbound, decompose_ae
 from muniverse.algorithms.upperbound import process_neuromotion_muaps, process_hybrid_tibialis_muaps
 from muniverse.algorithms.core import spike_dict_to_long_df
 from bookkeeping import update_inventory_status
@@ -142,9 +142,12 @@ def generate_algorithm_config(base_config_path: str, recording_config: Dict, alg
         algo_config['Config']['extension_factor'] = 10
         algo_config['Config']['low_pass_cutoff'] = recording_config['low_pass_cutoff']
         algo_config['Config']['use_coeff_var_fitness'] = recording_config['cov']
-    elif algorithm.lower() == 'cbss' or algorithm.lower() == 'upperbound':
+    elif algorithm.lower() == 'cbss':
         algo_config['Config']['ext_fact'] = 10
         algo_config['Config']['bandpass'] = [20, recording_config['low_pass_cutoff']]
+        algo_config['Config']['peel_off'] = True
+    elif algorithm.lower() == 'upperbound':
+        algo_config['Config']['ext_fact'] = 10
     
     return algo_config
 
@@ -338,7 +341,7 @@ def process_upperbound_recording(edf_path: Path, output_dir: Path, algorithm_con
         dataset (str): Name of the dataset to process
     """
     # Set default MUAP cache directory
-    MUAP_CACHE_DIR = '/rds/general/user/pm1222/home/data/muapcache/'
+    MUAP_CACHE_DIR = f'/rds/general/user/pm1222/home/data/muapcache/{dataset}'
     muap_cache_dir = Path(MUAP_CACHE_DIR)
     
     # Create output directory for this recording
@@ -361,23 +364,68 @@ def process_upperbound_recording(edf_path: Path, output_dir: Path, algorithm_con
     movement_config = simulation_config['InputData']['Configuration']['MovementConfiguration']
     movement_dof = movement_config['MovementDOF']
     muscle = movement_config['TargetMuscle']
+    if muscle == 'FCU_u':
+        muscle = 'FCU'
     
     if dataset == 'Neuromotion-test':
         muap_cache_file = muap_cache_dir / f'subject_{subject_id}_{muscle}_{movement_dof}_muaps.npy'
         muaps = np.load(muap_cache_file)
         processed_muaps = process_neuromotion_muaps(muaps, simulation_config)
     elif dataset == 'Hybrid-Tibialis':
-        muap_cache_file = muap_cache_dir / f'hybrid_TA_muaps.npz'
+        muap_cache_file = muap_cache_dir / f'hybrid_TA_muaps.npy'
         muaps = np.load(muap_cache_file)
-        processed_muaps = process_hybrid_tibialis_muaps(muaps, simulation_config)
+        subject_config = json.load(open(muap_cache_dir / f'subject_{subject_id}_metadata.json'))
+        processed_muaps = process_hybrid_tibialis_muaps(muaps, subject_config)
         
     # Extract metadata for logging purposes
     metadata = {'filename': edf_path.name, 'format': 'edf', 'data_type': data_type}
-    
+
     # Run upperbound decomposition (function slices data internally based on config)
     results, metadata = decompose_upperbound(
         data=data,
         muaps=processed_muaps,
+        algorithm_config=algorithm_config,
+        metadata=metadata
+    )
+    
+    # Save results with time offset adjustment
+    save_decomposition_results(
+        recording_output_dir, 
+        results, 
+        metadata, 
+        fsamp=sf,
+        time_offset_samples=time_offset_samples
+    )
+
+
+def process_ae_recording(edf_path: Path, output_dir: Path, algorithm_config: str, data_type: str) -> None:
+    """
+    Process a single recording using AE algorithm and save the results.
+    
+    Args:
+        edf_path (Path): Path to the EDF file
+        output_dir (Path): Base output directory for decomposition results
+        algorithm_config (str): Path to the algorithm configuration file
+        data_type (str): Type of data ('simulated' or 'experimental')
+    """
+    # Create output directory for this recording
+    recording_output_dir = output_dir / edf_path.stem[:-4]
+    recording_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Load EMG data
+    data = load_emg_data(edf_path, data_type)
+    
+    # Extract parameters from config to compute time offset
+    start_time = algorithm_config['Config']['start_time']
+    sf = algorithm_config['Config']['sampling_frequency']
+    time_offset_samples = int(start_time * sf)
+    
+    # Extract metadata for logging purposes
+    metadata = {'filename': edf_path.name, 'format': 'edf'}
+
+    # Run AE decomposition (function slices data internally based on config)
+    results, metadata = decompose_ae(
+        data=data,
         algorithm_config=algorithm_config,
         metadata=metadata
     )
@@ -425,6 +473,8 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
             process_cbss_recording(edf_path, output_dir, algo_config, data_type)
         elif algorithm.lower() == 'upperbound':
             process_upperbound_recording(edf_path, output_dir, algo_config, data_type, dataset)
+        elif algorithm.lower() == 'ae':
+            process_ae_recording(edf_path, output_dir, algo_config, data_type)
             
         print(f"Successfully decomposed recording using {algorithm.upper()}")
             
@@ -437,7 +487,7 @@ def process_recording(edf_path: Path, output_dir: Path, algorithm_config: str,
 def main():
     parser = argparse.ArgumentParser(description='Decompose EMG recordings using SCD, CBSS, or Upperbound algorithm')
     parser.add_argument('-d', '--dataset', required=True, help='Name of the dataset to process')
-    parser.add_argument('-a', '--algorithm', required=True, choices=['scd', 'cbss', 'upperbound'], 
+    parser.add_argument('-a', '--algorithm', required=True, choices=['scd', 'cbss', 'upperbound', 'ae'], 
                        help='Algorithm to use for decomposition')
     parser.add_argument('--min_id', type=int, default=None,
                        help='Minimum recording index to process (inclusive). If not provided, only max_id is used.')

@@ -21,6 +21,7 @@ import pandas as pd
 from ..utils.logging import AlgorithmLogger
 from .cbss import CBSS
 from .upperbound import UpperBound
+from .ae_decomposer import AEDecoder, AEDecoderConfig
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -336,14 +337,17 @@ def decompose_cbss(
         logger.set_return_code("cbss", 1)
         results = {"sources": None, "spikes": {}, "silhouette": None}
     
-    return results, log_data
-
+    finally:
+        # Always finalize logger to ensure metadata is captured
+        logger.finalize()
+        
+    return results, logger.log_data
 
 def decompose_ae(
     data: np.ndarray,
     algorithm_config: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
-) -> Tuple[Dict, Dict]]:
+) -> Tuple[Dict, Dict]:
     """
     Run Autoencoder-based decomposition.
 

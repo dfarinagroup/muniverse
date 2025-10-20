@@ -271,7 +271,7 @@ def check_decomposition_complete(output_path: Path) -> bool:
     return all((output_path / f).exists() for f in required_files)
 
 
-def print_status_summary(inventory_path: Path):
+def print_status_summary(inventory_path: Path, verbose: bool = False):
     """
     Print a summary of the inventory status.
     
@@ -286,9 +286,10 @@ def print_status_summary(inventory_path: Path):
     print(df['status'].value_counts().to_string())
     
     if (df['status'] == 'failed').any():
-        print(f"\nFailed recordings:")
-        failed = df[df['status'] == 'failed'][['recording_id', 'subject', 'task', 'error_message']]
-        print(failed.to_string(index=False))
+        if verbose:
+            print(f"\nFailed recordings:")
+            failed = df[df['status'] == 'failed'][['recording_id', 'subject', 'task', 'error_message']]
+            print(failed.to_string(index=False))
 
 
 def main():
@@ -296,12 +297,13 @@ def main():
     parser = argparse.ArgumentParser(description='Manage decomposition inventory for dataset-algorithm combinations')
     
     parser.add_argument('-d', '--dataset', required=True, help='Dataset name')
-    parser.add_argument('-a', '--algorithm',required=True, choices=['scd', 'cbss', 'upperbound'], help='Algorithm name')
+    parser.add_argument('-a', '--algorithm',required=True, choices=['scd', 'cbss', 'upperbound', 'ae'], help='Algorithm name')
     parser.add_argument('--create', action='store_true', help='Create new inventory')
     parser.add_argument('--update', action='store_true', help='Update inventory status by checking output files')
     parser.add_argument('--status', action='store_true', help='Print status summary')
     parser.add_argument('--bids-root', type=Path, help='Override default BIDS root directory')
     parser.add_argument('--output-dir', type=Path, help='Override default output directory')
+    parser.add_argument('--verbose', action='store_true', default=False, help='Print verbose output')
     
     args = parser.parse_args()
     
@@ -332,7 +334,7 @@ def main():
     
     if args.status or args.update:
         if inventory_path.exists():
-            print_status_summary(inventory_path)
+            print_status_summary(inventory_path, verbose=args.verbose)
         else:
             print(f"Error: Inventory not found at {inventory_path}")
 

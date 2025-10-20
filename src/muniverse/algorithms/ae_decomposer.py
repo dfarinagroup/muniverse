@@ -59,6 +59,8 @@ class EMGAutoencoder(nn.Module):
     """
     def __init__(self, din: int, dlat: int, device="cpu", dtype=torch.float32):
         super().__init__()
+        if isinstance(dtype, str):
+            dtype = getattr(torch, dtype)
         self.encoder = OrthogonalEncoderSO(din, dlat, device=device, dtype=dtype)
         self.relu = nn.ReLU(inplace=False)
         self.decoder = nn.Linear(dlat, din, bias=True, device=device, dtype=dtype)
@@ -170,7 +172,13 @@ class AEDecoder:
         np.random.seed(self.cfg.random_seed)
 
     def _to_torch(self, x: np.ndarray) -> torch.Tensor:
-        return torch.from_numpy(x).to(device=self.cfg.device, dtype=self.cfg.dtype)
+        # Convert device and dtype to proper PyTorch objects
+        device = torch.device(self.cfg.device) if isinstance(self.cfg.device, str) else self.cfg.device
+        if isinstance(self.cfg.dtype, str):
+            dtype = getattr(torch, self.cfg.dtype)
+        else:
+            dtype = self.cfg.dtype
+        return torch.from_numpy(x).to(device=device, dtype=dtype)
 
     def _prep_signal(self, sig: np.ndarray, fsamp: float):
         """
@@ -238,8 +246,10 @@ class AEDecoder:
             dlat=dlat,
             device=self.cfg.device,
             dtype=self.cfg.dtype
-        ).to(self.cfg.device)
-        return model
+        )
+        # Convert device to proper PyTorch object
+        device = torch.device(self.cfg.device) if isinstance(self.cfg.device, str) else self.cfg.device
+        return model.to(device)
 
     def _train(self, model: EMGAutoencoder, Xw: np.ndarray):
         optim = torch.optim.Adam(

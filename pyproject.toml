@@ -19,9 +19,10 @@ authors = [
 dependencies = [
     "numpy",
     "scipy",
+    "torch",
     "pandas",
     "scikit-learn",
-    "pyDataverse",
+    "easyDataverse",
     "edfio",
     "python-dateutil",
 ]
@@ -36,6 +37,7 @@ dev = [
     "jupyter",
     "ipykernel",
     "matplotlib",
+    "seaborn",
 ]
 
 [tool.setuptools]
