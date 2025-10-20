@@ -1,0 +1,48 @@
+{
+  "Name": "AE Decomposer Configuration",
+  "Description": "Configuration parameters for the Autoencoder-based EMG decomposition algorithm",
+  "Seed": 1909,
+  "Config": {
+    "start_time": 0.0,
+    "end_time": 20.0,
+    "sampling_frequency": 2048,
+
+    "high_pass_cutoff": 20,
+    "low_pass_cutoff": 500,
+    "bandpass_order": 2,
+    "notch_frequency": 50,
+    "notch_n_harmonics": 3,
+    "notch_order": 2,
+    "notch_width": 1,
+
+    "extension_factor": 2,
+    "whitening_method": "ZCA",
+    "whitening_reg": "auto",
+
+    "latent_dim": null,
+
+    "epochs": 10,
+    "batch_size": 5000,
+    "learning_rate": 0.008,
+    "sparsity_p": 0.9,
+    "sparsity_q": 1.8,
+    "lambda_sparsity": 1.0,
+    "weight_decay": 0.0,
+    "device": "cuda",
+    "dtype": "float32",
+    "random_seed": 1909,
+    "shuffle_windows": true,
+
+    "cluster_method": "kmeans",
+    "sil_th": 0.9,
+    "cov_th": 0.3,
+    "min_num_spikes": 10,
+
+    "match_th": 0.3,
+    "match_max_shift": 0.1,
+    "match_tol": 0.001,
+
+    "enable_peel_off": false,
+    "peel_off_window_size_s": 0.025
+  }
+}
