@@ -46,6 +46,17 @@ def get_input_data(file_identifier, DSET):
     return emg_data, true_spikes_df, simulation_sidecar
 
 
+def get_experimental_inputs(file_identifier, DSET):
+    emg_file = glob.glob(os.path.join(DATA_DIR, f'{DSET}/**/{file_identifier}*_emg.edf'), recursive=True)[0]
+    emg_sidecar = glob.glob(os.path.join(DATA_DIR, f'{DSET}/**/{file_identifier}*_emg.json'), recursive=True)[0]
+    with open(emg_sidecar, 'r') as f:
+        sampling_frequency = json.load(f)['SamplingFrequency']
+    emg_data = read_edf(emg_file)
+    emg_data = edf_to_numpy(emg_data, np.arange(emg_data.num_signals))
+    
+    return emg_data, sampling_frequency
+
+
 def get_result_data(RESULT_DIR):
     sources = glob.glob(os.path.join(RESULT_DIR, '*_sources.npz'))[0]
     sources = np.load(sources, allow_pickle=True)['sources']
@@ -90,8 +101,8 @@ def main():
     parser = argparse.ArgumentParser(description='Generate report card for a decomposition pipeline applied to a dataset')
     parser.add_argument('-d', '--dataset_name', help='Name of the dataset to process')
     parser.add_argument('-a', '--algorithm', choices=['scd', 'cbss', 'upperbound'], help='Algorithm to use for decomposition')
-    parser.add_argument('-min_id', type=int, default=0, help='Minimum ID to process')
-    parser.add_argument('-max_id', type=int, default=None, help='Maximum ID to process')
+    parser.add_argument('--min_id', type=int, default=0, help='Minimum ID to process')
+    parser.add_argument('--max_id', type=int, default=None, help='Maximum ID to process')
 
     # Parse function arguments
     args = parser.parse_args()
@@ -109,47 +120,55 @@ def main():
     source_report = pd.DataFrame()
 
     for idx in range(min_id, max_id + 1):
-        file_identifier = RESULTS_DIRS[idx].split('/')[-2]
-        print(f'Processing {file_identifier}')
-        
-        # Load input data
-        emg_data, true_spikes_df, simulation_sidecar = get_input_data(file_identifier, datasetname)
-        fsamp = simulation_sidecar['InputData']['Configuration']['RecordingConfiguration']['SamplingFrequency']
-        true_spikes_df = handle_neuromotion_spikes(true_spikes_df, fsamp)
+        try:
+            file_identifier = RESULTS_DIRS[idx].split('/')[-2]
+            print(f'Processing {file_identifier}')
+            
+            # Load input data
+            if datasetname in ['Neuromotion-test', 'Hybrid-Tibialis']:
+                emg_data, true_spikes_df, simulation_sidecar = get_input_data(file_identifier, datasetname)
+                fsamp = simulation_sidecar['InputData']['Configuration']['RecordingConfiguration']['SamplingFrequency']
+                true_spikes_df = handle_neuromotion_spikes(true_spikes_df, fsamp)
+            else:
+                emg_data, fsamp = get_experimental_inputs(file_identifier, datasetname)
 
-        # Load results
-        # Spikes are already time-shifted; need to shift sources
-        predicted_sources, predicted_spikes_df, pipeline_sidecar = get_result_data(os.path.join(RESULTS_BASE, file_identifier))
-        t_start, t_end = get_time_window(pipeline_sidecar, algorithm)
-        if t_end < 0:
-            dur = int(emg_data.shape[0] / fsamp)
-            t_end += dur
+            # Load results
+            # Spikes are already time-shifted; need to shift sources
+            predicted_sources, predicted_spikes_df, pipeline_sidecar = get_result_data(os.path.join(RESULTS_BASE, file_identifier))
+            t_start, t_end = get_time_window(pipeline_sidecar, algorithm)
+            if t_end < 0:
+                dur = int(emg_data.shape[0] / fsamp)
+                t_end += dur
 
-        predicted_spikes_df = handle_predicted_spikes(predicted_spikes_df, fsamp)
-        if algorithm == 'scd':
-            predicted_sources = predicted_sources.T
+            predicted_spikes_df = handle_predicted_spikes(predicted_spikes_df, fsamp)
+            if algorithm == 'scd':
+                predicted_sources = predicted_sources.T
 
-        n_sources = predicted_spikes_df['unit_id'].nunique()
-        if n_sources == 0:
-            print(f'No sources found for {file_identifier}, skipping...')
+            n_sources = predicted_spikes_df['unit_id'].nunique()
+            if n_sources == 0:
+                print(f'No sources found for {file_identifier}, skipping...')
+                continue
+            
+            n_timestamps = emg_data.shape[0]
+            shifted_sources = np.zeros((n_sources, n_timestamps))
+            shifted_sources[:, int(t_start * fsamp):int(t_end * fsamp)] = predicted_sources
+            pipeline_sidecar['PipelineName'] = algorithm
+
+            my_global_report, my_source_report = signal_based_metrics(
+                emg_data.T, shifted_sources, predicted_spikes_df, pipeline_sidecar, 
+                fsamp=fsamp, datasetname=datasetname, filename=file_identifier,)
+
+            # Compare the decomposition to reference spikes
+            if datasetname in ['Neuromotion-test', 'Hybrid-Tibialis']:
+                df = evaluate_spike_matches(predicted_spikes_df, true_spikes_df, t_start=t_start, t_end=t_end, fsamp=fsamp)
+                my_source_report = pd.merge(my_source_report, df, on='unit_id')
+
+            global_report = pd.concat([global_report, my_global_report], ignore_index=True)
+            source_report = pd.concat([source_report, my_source_report], ignore_index=True)
+            print(f'Finished analyzing {idx+1} out of {len(RESULTS_DIRS)} files')
+        except Exception as e:
+            print(f'Error processing {file_identifier}: {str(e)}')
             continue
-        
-        n_timestamps = emg_data.shape[0]
-        shifted_sources = np.zeros((n_sources, n_timestamps))
-        shifted_sources[:, int(t_start * fsamp):int(t_end * fsamp)] = predicted_sources
-        pipeline_sidecar['PipelineName'] = algorithm
-
-        my_global_report, my_source_report = signal_based_metrics(
-            emg_data.T, shifted_sources, predicted_spikes_df, pipeline_sidecar, 
-            fsamp=fsamp, datasetname=datasetname, filename=file_identifier,)
-
-        # Compare the decomposition to reference spikes
-        df = evaluate_spike_matches(predicted_spikes_df, true_spikes_df, t_start=t_start, t_end=t_end, fsamp=fsamp)
-        my_source_report = pd.merge(my_source_report, df, on='unit_id')
-
-        global_report = pd.concat([global_report, my_global_report], ignore_index=True)
-        source_report = pd.concat([source_report, my_source_report], ignore_index=True)
-        print(f'Finished analyzing {idx+1} out of {len(RESULTS_DIRS)} files')
 
     global_report.to_csv(os.path.join(RESULTS_BASE, f'report_card_globals_{min_id}_{max_id}.tsv'), sep='\t', index=False, header=True)
     source_report.to_csv(os.path.join(RESULTS_BASE, f'report_card_sources_{min_id}_{max_id}.tsv'), sep='\t', index=False, header=True)

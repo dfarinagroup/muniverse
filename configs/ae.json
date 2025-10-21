@@ -21,7 +21,7 @@
 
     "latent_dim": null,
 
-    "epochs": 120,
+    "epochs": 150,
     "batch_size": 5000,
     "learning_rate": 0.008,
     "sparsity_p": 0.9,
@@ -34,8 +34,8 @@
     "shuffle_windows": true,
 
     "cluster_method": "kmeans",
-    "sil_th": 0.9,
-    "cov_th": 0.3,
+    "sil_th": 0.85,
+    "cov_th": 0.35,
     "min_num_spikes": 10,
 
     "match_th": 0.3,
