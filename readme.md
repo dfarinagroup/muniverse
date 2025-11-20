@@ -48,6 +48,7 @@ muniverse/
 
 ### Citation
 
+```
 @inproceedings{
   muniverse-2025,
   title={{MU}niverse: A Simulation and Benchmarking Suite for Motor Unit Decomposition},
@@ -56,3 +57,4 @@ muniverse/
   year={2025},
   url={https://openreview.net/forum?id=Slrp3l7aYo}
 }
+```
