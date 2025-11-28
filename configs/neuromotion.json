@@ -12,21 +12,23 @@
   },
 
   "MovementConfiguration": {
-    "_description": "Describes the prescribed movement scenario and force profile for the synthetic trial.",
+    "_description": "Describes the prescribed movement scenario for the synthetic trial. Effort and angle profiles are generated based on the parameters provided, and can be used to generate Trapezoid, Triangular, Sinusoid, or Ballistic contractions.",
     "TargetMuscle": "EDI",
     "MovementType": "Isometric",
     "MovementDOF": "Radial-Ulnar-Deviation",
     "MovementProfileParameters": {
-      "EffortLevel": 10,
       "EffortProfile": "Triangular",
+      "InitialEffort": 0,
+      "TargetEffort": 10,
+      "TargetEffortUnits": "% MVC",
       "AngleProfile": "Constant",
+      "InitialAngle": 0,
       "TargetAngle": 0,
       "NRepetitions": 1,
       "RestDuration": 1,
       "RampDuration": 4,
       "HoldDuration": 0,
       "SinFrequency": 0,
-      "SinAmplitude": 0,
       "MovementDuration": 10
     }
   },

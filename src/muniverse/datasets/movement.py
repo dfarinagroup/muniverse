@@ -12,8 +12,8 @@ def generate_effort_profile(config: Dict) -> np.ndarray:
     Returns:
         Effort profile array
     """
-    fs = config.get("RecordingConfiguration", {}).get("SamplingFrequency")
-    params = config.get("MovementConfiguration", {}).get("MovementProfileParameters")
+    fs = config.get("RecordingConfiguration").get("SamplingFrequency")
+    params = config.get("MovementConfiguration").get("MovementProfileParameters")
     duration = params.get("MovementDuration")
     
     return _create_effort_profile(params, int(duration * fs), fs)
@@ -29,10 +29,10 @@ def generate_angle_profile(config: Dict) -> np.ndarray:
     Returns:
         Angle profile array
     """
-    fs = config.get("RecordingConfiguration", {}).get("SamplingFrequency")
-    params = config.get("MovementConfiguration", {}).get("MovementProfileParameters")
+    fs = config.get("RecordingConfiguration").get("SamplingFrequency")
+    params = config.get("MovementConfiguration").get("MovementProfileParameters")
     duration = params.get("MovementDuration")
-    movement_dof = config.get("MovementConfiguration", {}).get("MovementDOF")
+    movement_dof = config.get("MovementConfiguration").get("MovementDOF")
     
     angle_profile = _create_angle_profile(params, int(duration * fs), fs, movement_dof)
     
@@ -41,71 +41,80 @@ def generate_angle_profile(config: Dict) -> np.ndarray:
 
 def _create_effort_profile(params: Dict, samples: int, fs: float) -> np.ndarray:
     """Create effort profile based on parameters."""
-    effort_level = params.get("EffortLevel", 50) / 100.0
+    target_effort = params.get("TargetEffort") / 100.0
     profile_type = params.get("EffortProfile", "Trapezoid")
+
+    # Read parameters from config
+    rest_duration = params.get("RestDuration")
     
     if profile_type == "Trapezoid":
-        return _trapezoid_profile(params, samples, fs, effort_level)
+        ramp_duration = params.get("RampDuration")
+        hold_duration = params.get("HoldDuration")
+        return _trapezoid_profile(rest_duration, ramp_duration, hold_duration, target_effort, samples, fs)
     elif profile_type == "Triangular":
-        return _triangular_profile(params, samples, fs, effort_level)
+        ramp_duration = params.get("RampDuration")
+        n_reps = params.get("NRepetitions", 1)
+        return _triangular_profile(rest_duration, ramp_duration, n_reps, target_effort, samples, fs)
     elif profile_type == "Sinusoid":
-        return _sinusoid_profile(params, samples, fs, effort_level)
+        sin_frequency = params.get("SinFrequency")
+        initial_effort = params.get("InitialEffort") / 100.0
+        return _sinusoid_profile(rest_duration, sin_frequency, initial_effort, target_effort, samples, fs)
     elif profile_type == "Ballistic":
-        return _ballistic_profile(params, samples, fs, effort_level)
+        ramp_duration = params.get("RampDuration")
+        return _ballistic_profile(rest_duration, ramp_duration, target_effort, samples, fs)
     else:
         # Default to constant effort
-        return np.full(samples, effort_level)
+        return np.full(samples, target_effort)
 
 
 def _create_angle_profile(params: Dict, samples: int, fs: float, movement_dof: str) -> np.ndarray:
     """Create angle profile based on parameters."""
     profile_type = params.get("AngleProfile", "Constant")
-    target_angle = params.get("TargetAngle", 0)
+
+    # Read parameters from config
+    rest_duration = params.get("RestDuration")
+    initial_angle = params.get("InitialAngle")
+    target_angle = params.get("TargetAngle")
     
     if profile_type == "Constant":
         return np.full(samples, target_angle)
     elif profile_type == "Triangular":
-        return _triangular_profile(params, samples, fs, target_angle)
+        ramp_duration = params.get("RampDuration")
+        n_reps = params.get("NRepetitions")
+        return _triangular_angle_profile(rest_duration, ramp_duration, n_reps, initial_angle, target_angle, samples, fs, movement_dof)
     elif profile_type == "Sinusoid":
-        return _sinusoid_angle_profile(params, samples, fs, target_angle, movement_dof)
+        sin_frequency = params.get("SinFrequency")
+        return _sinusoid_angle_profile(sin_frequency, initial_angle, target_angle, samples, fs, movement_dof)
     else:
-        return np.full(samples, target_angle)
+        raise ValueError(f"Unsupported angle profile type: '{profile_type}'. Only 'Constant', 'Triangular', and 'Sinusoid' are supported.")
 
 
-def _trapezoid_profile(params: Dict, samples: int, fs: float, target: float) -> np.ndarray:
+def _trapezoid_profile(rest_duration: float, ramp_duration: float, hold_duration: float, target_effort: float, samples: int, fs: float) -> np.ndarray:
     """Create trapezoidal effort profile."""
-    rest_duration = params.get("RestDuration", 1)
-    ramp_duration = params.get("RampDuration", 5)
-    hold_duration = params.get("HoldDuration", 10)
-    
     rest_samples = int(fs * rest_duration)
     ramp_samples = int(fs * ramp_duration)
     hold_samples = int(fs * hold_duration)
     
     profile = np.concatenate([
         np.zeros(rest_samples),
-        np.linspace(0, target, ramp_samples),
-        np.full(hold_samples, target),
-        np.linspace(target, 0, ramp_samples),
+        np.linspace(0, target_effort, ramp_samples),
+        np.full(hold_samples, target_effort),
+        np.linspace(target_effort, 0, ramp_samples),
         np.zeros(rest_samples)
     ])
     
     return _adjust_length(profile, samples, fs)
 
 
-def _triangular_profile(params: Dict, samples: int, fs: float, target: float) -> np.ndarray:
+def _triangular_profile(rest_duration: float, ramp_duration: float, n_reps: int, target_effort: float, samples: int, fs: float) -> np.ndarray:
     """Create triangular effort profile."""
-    rest_duration = params.get("RestDuration", 1)
-    ramp_duration = params.get("RampDuration", 5)
-    n_reps = params.get("NRepetitions", 1)
-    
     rest_samples = int(fs * rest_duration)
     ramp_samples = int(fs * ramp_duration)
     
     one_cycle = np.concatenate([
         np.zeros(rest_samples),
-        np.linspace(0, target, ramp_samples),
-        np.linspace(target, 0, ramp_samples),
+        np.linspace(0, target_effort, ramp_samples),
+        np.linspace(target_effort, 0, ramp_samples),
         np.zeros(rest_samples)
     ])
     
@@ -113,34 +122,30 @@ def _triangular_profile(params: Dict, samples: int, fs: float, target: float) ->
     return _adjust_length(profile, samples, fs)
 
 
-def _sinusoid_profile(params: Dict, samples: int, fs: float, target: float) -> np.ndarray:
+def _sinusoid_profile(rest_duration: float, sin_frequency: float, initial_effort: float, target_effort: float, samples: int, fs: float) -> np.ndarray:
     """Create sinusoidal effort profile."""
-    sin_frequency = params.get("SinFrequency", 0.2)
-    sin_amplitude = params.get("SinAmplitude", 25) / 100.0
-    rest_duration = params.get("RestDuration", 0)
-    
     t = np.arange(samples) / fs
-    profile = target + sin_amplitude * np.sin(2 * np.pi * sin_frequency * t)
+    rest_samples = int(fs * rest_duration)
+    offset = (target_effort + initial_effort)/2
+    amplitude = (target_effort - initial_effort)/2
+
+    profile = np.concatenate([
+        np.zeros(rest_samples),
+        offset + amplitude * np.sin(2 * np.pi * sin_frequency * t[:samples-2*rest_samples] - np.pi/2)
+    ])
     
-    if rest_duration > 0:
-        rest_samples = int(fs * rest_duration)
-        profile[:rest_samples] = 0
-    
+    profile = _adjust_length(profile, samples, fs)
     return np.clip(profile, 0, 1)
 
 
-def _ballistic_profile(params: Dict, samples: int, fs: float, target: float) -> np.ndarray:
+def _ballistic_profile(rest_duration: float, ramp_duration: float, target_effort: float, samples: int, fs: float) -> np.ndarray:
     """Create ballistic effort profile."""
-    rest_duration = params.get("RestDuration", 1.0)
-    n_reps = params.get("NRepetitions", 1)
-    ramp_duration = params.get("RampDuration", 0.05)
-    
     rest_samples = int(fs * rest_duration)
     ramp_samples = int(fs * ramp_duration)
     
     one_cycle = np.concatenate([
         np.zeros(rest_samples),
-        np.linspace(0, target, ramp_samples),
+        np.linspace(0, target_effort, ramp_samples),
         np.zeros(rest_samples)
     ])
     
@@ -148,14 +153,31 @@ def _ballistic_profile(params: Dict, samples: int, fs: float, target: float) -> 
     return _adjust_length(profile, samples, fs)
 
 
-def _sinusoid_angle_profile(params: Dict, samples: int, fs: float, target: float, movement_dof: str) -> np.ndarray:
+def _triangular_angle_profile(rest_duration: float, ramp_duration: float, n_reps: int, initial_angle: float, target_angle: float, samples: int, fs: float, movement_dof: str) -> np.ndarray:
+    """Create triangular angle profile."""
+    rest_samples = int(fs * rest_duration)
+    ramp_samples = int(fs * ramp_duration)
+    
+    one_cycle = np.concatenate([
+        np.zeros(rest_samples),
+        np.linspace(initial_angle, target_angle, ramp_samples),
+        np.linspace(target_angle, initial_angle, ramp_samples),
+        np.zeros(rest_samples)
+    ])
+    
+    profile = np.tile(one_cycle, n_reps)
+    profile = _adjust_length(profile, samples, fs)
+    min_angle, max_angle = _get_angle_range(movement_dof)
+    return np.clip(profile, min_angle, max_angle)
+
+
+def _sinusoid_angle_profile(sin_frequency: float, initial_angle: float, target_angle: float, samples: int, fs: float, movement_dof: str) -> np.ndarray:
     """Create sinusoidal angle profile."""
-    sin_amplitude = params.get("SinAmplitude", 0.3)
-    sin_frequency = params.get("SinFrequency", 0.2)
-    
     t = np.arange(samples) / fs
-    profile = target + sin_amplitude * np.sin(2 * np.pi * sin_frequency * t)
-    
+    offset = (target_angle + initial_angle)/2
+    amplitude = (target_angle - initial_angle)/2
+    profile = offset + amplitude * np.sin(2 * np.pi * sin_frequency * t - np.pi/2)
+    profile = _adjust_length(profile, samples, fs)
     min_angle, max_angle = _get_angle_range(movement_dof)
     return np.clip(profile, min_angle, max_angle)
 
