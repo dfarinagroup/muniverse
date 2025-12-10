@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A modular framework for simulated and experimental EMG dataset generation, motor unit decomposition algorithm benchmarking, and performance evaluation"
 readme = "readme.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "GPL-3.0" }
 authors = [
     { name = "Pranav Mamidanna", email = "p.mamidanna22@imperial.ac.uk" },
     { name = "Thomas Klotz", email = "thomas.klotz@imsb.uni-stuttgart.de" },
@@ -19,9 +19,10 @@ authors = [
 dependencies = [
     "numpy",
     "scipy",
+    "torch",
     "pandas",
     "scikit-learn",
-    "pyDataverse",
+    "easyDataverse",
     "edfio",
     "python-dateutil",
 ]
@@ -36,6 +37,7 @@ dev = [
     "jupyter",
     "ipykernel",
     "matplotlib",
+    "seaborn",
 ]
 
 [tool.setuptools]

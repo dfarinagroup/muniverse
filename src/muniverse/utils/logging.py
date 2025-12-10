@@ -400,7 +400,7 @@ class AlgorithmLogger(BaseMetadataLogger):
         self.log_data["ProcessingSteps"].append({"Step": step_name, "Details": details})
 
     def add_output(self, path: str, size_bytes: int, checksum: Optional[str] = None):
-        """Add an output file to the log with automatic type detection.
+        """Add an output file to the log.
 
         Args:
             path: Path to the output file
@@ -416,24 +416,5 @@ class AlgorithmLogger(BaseMetadataLogger):
             "SizeBytes": size_bytes,
             "Checksum": checksum,
         }
-
-        # Add file-specific metadata based on extension
-        if file_path.suffix == ".tsv":
-            file_info.update(
-                {
-                    "Description": "Predicted spike times for identified motor units",
-                    "Format": "TSV",
-                    "Columns": ["Unit_ID", "Spike_Time (s)"],
-                    "Units": "s",
-                }
-            )
-        elif file_path.suffix == ".npz" or file_path.suffix == ".npy":
-            file_info.update(
-                {
-                    "Description": "Predicted source signals for identified motor units",
-                    "Format": "NP Array",
-                    "Content": "numpy array of source signals",
-                }
-            )
-
+        
         self.log_data["OutputData"]["Files"].append(file_info)

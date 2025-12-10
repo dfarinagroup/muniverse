@@ -7,7 +7,8 @@ from scipy.optimize import linear_sum_assignment
 from ..algorithms.core import peel_off, bandpass_signals, notch_signals
 from .evaluate import *
 
-
+# TODO: Change call signature
+# Something like: generate_global_report(input_emg_data, predicted_sources, predicted_spikes, pipeline_sidecar)
 def signal_based_metrics(
     emg_data,
     sources,
@@ -79,7 +80,7 @@ def signal_based_metrics(
     # Get a list of the extracted sources
     unique_labels = spikes_df["unit_id"].unique()
 
-    if sources.shape[0] == 1:
+    if sources.shape[0] < 1:
         # Output an empty dataframe if no source was detected
         source_report = pd.DataFrame()
     else:
@@ -97,7 +98,7 @@ def signal_based_metrics(
             cov_isi, mean_dr = get_basic_spike_statistics(spike_times)
             # Compute a set of source-based quality metrics
             quality_metrics = signal_based_quality_metrics(
-                sources[i, :], spike_indices, fsamp
+                sources[unique_labels[i], :], spike_indices, fsamp
             )
             source_report.append(
                 {

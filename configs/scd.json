@@ -4,12 +4,12 @@
     "Seed": 42,
     
     "Config": {
-        "start_time": 6,
-        "end_time": 26,
-        "sampling_frequency": 10240,
+        "start_time": 0,
+        "end_time": -1,
+        "sampling_frequency": 2048,
         "time_differentiate": null,
         "notch_params": null,
-        "low_pass_cutoff": 4400,
+        "low_pass_cutoff": 500,
         "high_pass_cutoff": 10,
         "extension_factor": 10,
         "whitening_method": "zca",

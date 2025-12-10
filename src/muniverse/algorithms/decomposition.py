@@ -21,6 +21,7 @@ import pandas as pd
 from ..utils.logging import AlgorithmLogger
 from .cbss import CBSS
 from .upperbound import UpperBound
+from .ae_decomposer import AEDecoder, AEDecoderConfig
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -151,6 +152,8 @@ def decompose_scd(
             # Log output files for tracking
             for root, _, files in os.walk(run_dir):
                 for file in files:
+                    if "input_data.npy" in file:
+                        continue
                     file_path = os.path.join(root, file)
                     logger.add_output(file_path, os.path.getsize(file_path))
 
@@ -161,7 +164,7 @@ def decompose_scd(
 
         finally:
             # Always finalize logger to ensure metadata is captured
-            logger.finalize()
+            logger.finalize(engine, container)
         
         return results, logger.log_data
 
@@ -334,6 +337,85 @@ def decompose_cbss(
         logger.set_return_code("cbss", 1)
         results = {"sources": None, "spikes": {}, "silhouette": None}
     
+    finally:
+        # Always finalize logger to ensure metadata is captured
+        logger.finalize()
+        
+    return results, logger.log_data
+
+def decompose_ae(
+    data: np.ndarray,
+    algorithm_config: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> Tuple[Dict, Dict]:
+    """
+    Run Autoencoder-based decomposition.
+
+    Args:
+        data: EMG data (channels x samples)
+        algorithm_config: Optional dict with "Config" key or the raw config dict
+        metadata: Optional dict for logging (e.g., {"filename": "...", "format": "..."})
+
+    Returns:
+        results dict with:
+            - sources: (n_units x n_samples)
+            - spikes:  {unit_id: np.ndarray of sample indices}
+            - silhouette: np.ndarray
+            - mu_filters: (n_units x (m*R))
+        and the logger data dict
+    """
+    logger = AlgorithmLogger()
+
+    # Input data metadata
+    if metadata:
+        logger.set_input_data(
+            file_name=metadata.get("filename", "numpy_array"),
+            file_format=metadata.get("format", "npy"),
+        )
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
+    # Load config
+    if algorithm_config:
+        algo_cfg = algorithm_config.get("Config", algorithm_config)
+        logger.set_algorithm_config(algo_cfg)
+    else:
+        config_dir = Path(__file__).parent.parent.parent / "configs"
+        config_path = config_dir / "ae_decomposer.json"
+        if not config_path.exists():
+            raise FileNotFoundError(f"Default AE config not found at {config_path}")
+        algo_cfg = load_config(str(config_path))["Config"]
+        logger.set_algorithm_config(algo_cfg)
+
+    try:
+        # Build strongly-typed config directly (no key remapping)
+        ae_cfg = AEDecoderConfig(**algo_cfg)
+
+        # Slice time window using config (seconds)
+        fsamp = float(ae_cfg.sampling_frequency)
+        start_idx = int(round(ae_cfg.start_time * fsamp))
+        end_idx = int(round(ae_cfg.end_time * fsamp))
+        data = data[:, start_idx:end_idx].copy()
+
+        # Run AE
+        ae = AEDecoder(ae_cfg)
+        sources, spikes, sil, mu_filters = ae.decompose(data, fsamp=fsamp)
+
+        results = {
+            "sources": sources,
+            "spikes": spikes,
+            "silhouette": sil,
+            "mu_filters": mu_filters,
+        }
+
+        logger.set_return_code("ae_decomposer", 0)
+        print("[INFO] AE decomposition completed successfully")
+
+    except Exception as e:
+        print(f"[ERROR] AE decomposition failed: {e}")
+        logger.set_return_code("ae_decomposer", 1)
+        results = {"sources": None, "spikes": {}, "silhouette": None, "mu_filters": None}
+
     finally:
         # Always finalize logger to ensure metadata is captured
         logger.finalize()

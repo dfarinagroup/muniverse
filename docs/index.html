@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="MUniverse: A modular framework for simulated and experimental EMG dataset generation, motor unit decomposition algorithm benchmarking, and performance evaluation.">
+  <meta name="keywords" content="MUniverse, EMG, Motor Unit, Decomposition, Benchmarking, NeuroMotion, BIDS">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MUniverse: Benchmarking Motor Unit Decomposition Algorithms</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.4/dist/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma-slider@2.0.2/dist/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.4/dist/js/bulma-carousel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bulma-slider@2.0.2/dist/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+      <a class="navbar-item" href="https://github.com/dfarinagroup">
+      <span class="icon">
+          <i class="fas fa-home"></i>
+      </span>
+      </a>
+
+      <div class="navbar-item has-dropdown is-hoverable">
+        <a class="navbar-link">
+          Resources
+        </a>
+        <div class="navbar-dropdown">
+          <a class="navbar-item" href="https://github.com/dfarinagroup/muniverse">
+            GitHub Repository
+          </a>
+          <a class="navbar-item" href="https://dataverse.harvard.edu/dataverse/muniverse-datasets">
+            Harvard Dataverse
+          </a>
+          <a class="navbar-item" href="https://github.com/dfarinagroup/muniverse/tree/main/notebooks">
+            Tutorial Notebooks
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">MUniverse: Benchmarking Motor Unit Decomposition Algorithms</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="mailto:p.mamidanna22@imperial.ac.uk">Pranav Mamidanna</a><sup>1</sup>,</span>
+            <span class="author-block">
+              <a href="mailto:thomas.klotz@imsb.uni-stuttgart.de">Thomas Klotz</a><sup>2</sup>,</span>
+            <span class="author-block">
+              <a>Dimitrios Halatsis</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a>Irene Mendez Guerra</a><sup>1</sup>
+            </span>
+          </div>
+
+          <div class="is-size-5 publication-authors">
+            <span class="author-block"><sup>1</sup>Imperial College London,</span>
+            <span class="author-block"><sup>2</sup>University of Stuttgart</span>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="https://github.com/dfarinagroup/muniverse"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+              <!-- Dataset Link. -->
+              <span class="link-block">
+                <a href="https://dataverse.harvard.edu/dataverse/muniverse-datasets"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-database"></i>
+                  </span>
+                  <span>Datasets</span>
+                  </a>
+              </span>
+              <!-- Documentation Link. -->
+              <span class="link-block">
+                <a href="https://github.com/dfarinagroup/muniverse/tree/main/notebooks"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-book"></i>
+                  </span>
+                  <span>Notebooks</span>
+                  </a>
+              </span>
+              <!-- License Link. -->
+              <span class="link-block">
+                <a href="https://github.com/dfarinagroup/muniverse/blob/main/LICENSE"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-balance-scale"></i>
+                  </span>
+                  <span>License</span>
+                  </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body">
+      <div class="content has-text-centered">
+        <h2 class="subtitle">
+          <span class="dnerf">MUniverse</span> is a modular framework for <strong>simulated and experimental EMG dataset generation</strong>, 
+          <strong>motor unit decomposition algorithm benchmarking</strong>, and <strong>performance evaluation</strong>.
+        </h2>
+        <p class="is-size-5">
+          It integrates biomechanical simulation (via <em>NeuroMotion</em>), generative models (<em>BioMime</em>), 
+          standardized formats (e.g. BIDS/Croissant), and FAIR data hosting (Harvard Dataverse).
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Features</h2>
+    <div class="columns">
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-microscope"></i></span>
+            Algorithm Benchmarking
+          </h3>
+          <p>
+            Compare multiple motor unit decomposition algorithms including CBSS, SCD, Upperbound, and AE methods 
+            with standardized evaluation metrics and report card generation.
+          </p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-chart-line"></i></span>
+            Dataset Generation
+          </h3>
+          <p>
+            Generate simulated EMG datasets using NeuroMotion biomechanical simulation and experimental datasets 
+            in standardized BIDS and Croissant formats.
+          </p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-server"></i></span>
+            FAIR Data Access
+          </h3>
+          <p>
+            Access datasets through Harvard Dataverse with persistent DOIs, following FAIR principles for 
+            Findable, Accessible, Interoperable, and Reusable data.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="columns">
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-box"></i></span>
+            Containerized Workflows
+          </h3>
+          <p>
+            Docker and Singularity support for reproducible algorithm execution, ensuring consistent results 
+            across different computing environments.
+          </p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-chart-bar"></i></span>
+            Performance Evaluation
+          </h3>
+          <p>
+            Comprehensive evaluation metrics including silhouette scores, spike train comparisons, and automated 
+            report card generation for algorithm comparison.
+          </p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-4">
+            <span class="icon"><i class="fas fa-book-open"></i></span>
+            Tutorial Notebooks
+          </h3>
+          <p>
+            Interactive Jupyter notebooks providing step-by-step guides for dataset loading, algorithm usage, 
+            and result evaluation.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Available Datasets</h2>
+    <p class="content">
+      All datasets are hosted on <a href="https://dataverse.harvard.edu/dataverse/muniverse-datasets">Harvard Dataverse</a> 
+      and follow FAIR principles with persistent DOIs:
+    </p>
+    <div class="content">
+      <ul>
+        <li><strong>Caillet et al. 2023</strong> - <a href="https://doi.org/10.7910/DVN/F9GWIW">DOI: 10.7910/DVN/F9GWIW</a></li>
+        <li><strong>Avrillon et al. 2024</strong> - <a href="https://doi.org/10.7910/DVN/L9OQY7">DOI: 10.7910/DVN/L9OQY7</a></li>
+        <li><strong>Grison et al. 2025</strong> - <a href="https://doi.org/10.7910/DVN/ID1WNQ">DOI: 10.7910/DVN/ID1WNQ</a></li>
+        <li><strong>Neuromotion-Train</strong> - <a href="https://doi.org/10.7910/DVN/2UQHTP">DOI: 10.7910/DVN/2UQHTP</a></li>
+        <li><strong>Neuromotion-Test</strong> - <a href="https://doi.org/10.7910/DVN/QYI336">DOI: 10.7910/DVN/QYI336</a></li>
+        <li><strong>Hybrid-Tibialis</strong> - <a href="https://doi.org/10.7910/DVN/YHTGGA">DOI: 10.7910/DVN/YHTGGA</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Supported Algorithms</h2>
+    <div class="columns">
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-5">CBSS</h3>
+          <p>Convolutional Blind Source Separation for motor unit decomposition.</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-5">SCD</h3>
+          <p>Swarm Contrastive Decomposition - <a href="https://github.com/AgneGris/swarm-contrastive-decomposition">GitHub</a></p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-5">Upperbound</h3>
+          <p>Upper bound performance estimation for algorithm comparison.</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="content">
+          <h3 class="title is-5">AE</h3>
+          <p>Autoencoder-based decomposition methods.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Quick Start</h2>
+    <div class="content">
+      <h3 class="title is-5">Installation</h3>
+      <pre><code># Clone the repository
+git clone https://github.com/dfarinagroup/muniverse.git
+cd muniverse
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install package
+pip install -e .
+
+# Install development dependencies (optional)
+pip install -e ".[dev]"</code></pre>
+
+      <h3 class="title is-5">Basic Usage</h3>
+      <pre><code>from muniverse.datasets import load_dataset
+from muniverse.algorithms import decompose_recording
+
+# Load a dataset
+dataset = load_dataset("neuromotion-test", output_dir="./data")
+
+# Run decomposition
+results, metadata = decompose_recording(
+    data="path/to/emg_data.edf",
+    method="cbss"
+)</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Citation</h2>
+    <div class="content">
+      <p>If you use MUniverse in your research, please cite:</p>
+      <pre><code>@software{muniverse2024,
+  title = {MUniverse: Benchmarking Motor Unit Decomposition Algorithms},
+  author = {Mamidanna, Pranav and Klotz, Thomas and Halatsis, Dimitrios and Mendez Guerra, Irene},
+  year = {2024},
+  url = {https://github.com/dfarinagroup/muniverse},
+  license = {GPL-3.0}
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">License</h2>
+    <div class="content">
+      <p>
+        MUniverse is licensed under the <strong>GNU General Public License v3.0</strong> (GPL-3.0).
+      </p>
+      <p>
+        <strong>Important Licensing Notes:</strong>
+      </p>
+      <ul>
+        <li>This project uses <strong>NeuroMotion</strong>, which is licensed under GNU GPL v3.0. 
+            As a result, MUniverse is also licensed under GNU GPL v3.0 to comply with the copyleft requirements.</li>
+        <li>This project also integrates with <strong>Swarm-Contrastive-Decomposition</strong>, which is licensed 
+            under Creative Commons Attribution-NonCommercial 4.0 International Public License.</li>
+      </ul>
+      <p>
+        See the <a href="https://github.com/dfarinagroup/muniverse/blob/main/LICENSE">LICENSE</a> file for full details.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3">Acknowledgments</h2>
+    <div class="content">
+      <ul>
+        <li><strong>NeuroMotion</strong> - Biomechanical simulation framework 
+            (<a href="https://github.com/shihan-ma/NeuroMotion">GitHub</a>)</li>
+        <li><strong>Swarm-Contrastive-Decomposition</strong> - Decomposition algorithm 
+            (<a href="https://github.com/AgneGris/swarm-contrastive-decomposition">GitHub</a>)</li>
+        <li><strong>Harvard Dataverse</strong> - FAIR data hosting platform</li>
+        <li><strong>BIDS</strong> - Brain Imaging Data Structure standard</li>
+        <li><strong>Croissant</strong> - ML dataset metadata format</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="content has-text-centered">
+      <p>
+        <strong>MUniverse</strong> by the <a href="https://github.com/dfarinagroup">DFarina Group</a>.
+        The source code is licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL v3.0</a>.
+      </p>
+      <p>
+        <a href="https://github.com/dfarinagroup/muniverse" class="icon-link">
+          <i class="fab fa-github"></i>
+        </a>
+        <a href="https://dataverse.harvard.edu/dataverse/muniverse-datasets" class="icon-link">
+          <i class="fas fa-database"></i>
+        </a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
+
