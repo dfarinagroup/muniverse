@@ -25,7 +25,7 @@ class BaseMetadataLogger:
             "PipelineDescription": {
                 "Name": "MUniverse",
                 "Version": "0.0.1",
-                "License": "MIT",
+                "License": "GNU-GPL3",
             },
             "GeneratedBy": [],
             "InputData": {},
@@ -256,7 +256,7 @@ class BaseMetadataLogger:
         except subprocess.CalledProcessError:
             return {
                 "Name": "Muniverse",
-                "URL": "https://github.com/pranavm19/muniverse.git",  # TODO: Replace with final URL
+                "URL": "https://github.com/dfarinagroup/muniverse.git",  # TODO: Replace with final URL
                 "Branch": "main",
                 "Commit": "unknown",
             }

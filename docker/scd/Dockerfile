@@ -26,8 +26,14 @@ RUN mamba env create -f decomposition.yml && \
     rm -rf ~/.cache ~/.conda
 
 # Install the package in development mode
-RUN source /opt/mambaforge/etc/profile.d/conda.sh && \
-    conda activate decomposition && \
-    pip install -e .
+#RUN bash -c "source /opt/mambaforge/etc/profile.d/conda.sh \
+#    && conda activate decomposition \
+#    && pip install -e ."
+
+# Install the package using the conda env
+RUN conda run -n decomposition pip install -e .
+
+# Make the environment available for interactive shells
+ENV PATH="/opt/mambaforge/envs/decomposition/bin:${PATH}"
 
 CMD ["/bin/bash"]
