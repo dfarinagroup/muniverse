@@ -36,6 +36,8 @@ def decompose_scd(
     engine: str = "singularity",
     container: str = "environment/muniverse_scd.sif",
     metadata: Optional[Dict] = None,
+    repo_path: Optional[str] = None,
+    conda_env: Optional[str] = None,
 ) -> Tuple[Dict, Dict]:
     """
     Run SCD decomposition using container.
@@ -43,9 +45,11 @@ def decompose_scd(
     Args:
         data: numpy array of EMG data (channels x samples)
         algorithm_config: Optional dictionary containing algorithm configuration
-        engine: Container engine to use ("docker" or "singularity")
+        engine: Container engine to use ("docker", "singularity" or "host")
         container: Path to container image
         metadata: Optional dictionary containing input data metadata for logging
+        repo_path: If SCD runs on your native OS provide the path to the folder hosting the code
+        conda_env: If SCD runs on your native OS specify which conda environment to be used
 
     Returns:
         Tuple containing:
@@ -57,12 +61,31 @@ def decompose_scd(
     """
     # Initialize logger
     logger = AlgorithmLogger()
-    logger.add_generated_by(
-        name="Swarm Contrastive Decomposition",
-        url="https://github.com/AgneGris/swarm-contrastive-decomposition.git",
-        commit="632a9ad041cf957584926d6b5cc64b7fe741e9eb",
-        license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
-    )
+        
+    if engine == "host":
+        if not os.path.isdir(repo_path):
+            raise ValueError(f"Invalid local repository path: {repo_path}")
+        try:
+            scd_git_info = logger._get_git_info(repo_path)
+            logger.add_generated_by(
+                name="Swarm Contrastive Decomposition",
+                url=scd_git_info["URL"],
+                commit=scd_git_info["Commit"],
+                branch=scd_git_info["Branch"],
+                license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
+            )
+        except:
+            raise ValueError(f"Failed to extract the local repository metadata")
+            
+    elif engine in ["docker", "singularity"]:
+        logger.add_generated_by(
+            name="Swarm Contrastive Decomposition",
+            url="https://github.com/AgneGris/swarm-contrastive-decomposition.git",
+            commit="632a9ad041cf957584926d6b5cc64b7fe741e9eb",
+            license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
+        )
+    else:
+        raise ValueError(f"Invalid engine {engine}")
 
     # Set input data information
     if metadata:
@@ -114,6 +137,8 @@ def decompose_scd(
                 container,
                 str(script_path),
                 str(run_dir),
+                repo_path,
+                conda_env,
             ]
 
             # Run container
@@ -164,7 +189,10 @@ def decompose_scd(
 
         finally:
             # Always finalize logger to ensure metadata is captured
-            logger.finalize(engine, container)
+            if engine == "host":
+                logger.finalize()
+            else:
+                logger.finalize(engine, container)
         
         return results, logger.log_data
 

@@ -25,7 +25,7 @@ class BaseMetadataLogger:
             "PipelineDescription": {
                 "Name": "MUniverse",
                 "Version": "0.0.1",
-                "License": "GNU-GPL3",
+                "License": "GNU-GPLv3",
             },
             "GeneratedBy": [],
             "InputData": {},
