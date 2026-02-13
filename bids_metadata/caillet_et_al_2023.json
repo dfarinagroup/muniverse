@@ -1,7 +1,7 @@
 {
     "DatasetDescription":{
         "Name": "MUniverse Caillet et al 2023", 
-        "BIDSversion": "extension proposal for electromyography - BEP042", 
+        "BIDSversion": "1.10.2", 
         "DatasetType": "raw", 
         "License": "CC0 BY 4.0", 
         "Authors": [
@@ -28,7 +28,7 @@
         "GeneratedBy": {
             "Name": "muniverse", 
             "Version": "0.1.0", 
-            "CodeURL": "https://github.com/pranavm19/muniverse/scripts/",
+            "CodeURL": "https://github.com/dfarinagroup/muniverse/scripts/",
             "ScriptName": "caillet2023_to_bids.py",
             "Description": "Semi-automated conversion of the original data into BIDS format"    
         },

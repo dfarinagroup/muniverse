@@ -1,7 +1,7 @@
 {
   "DatasetDescription": {
     "Name": "MUniverse Neuromotion Test Dataset",
-    "BIDSversion": "extension proposal for electromyography - BEP042",
+    "BIDSversion": "1.10.2",
     "DatasetType": "raw",
     "License": "CC0 BY 4.0",
     "Authors": [
@@ -22,7 +22,8 @@
   },
   
   "EMGSidecar": {
-    "EMGPlacementScheme": "Bracelet",
+    "EMGPlacementScheme": "Other",
+    "EMGPlacementSchemeDescription": "TODO",
     "EMGReference": "n/a",
     "SamplingFrequency": 2048,
     "PowerLineFrequency": "n/a",

@@ -1,6 +1,7 @@
 {   
     "DatasetDescription": {
         "Name": "MUniverse Griston et al 2025",
+        "BIDSversion": "1.10.2", 
         "DatasetType": "raw",
         "License": "CC0 BY 4.0",
         "Authors": [
