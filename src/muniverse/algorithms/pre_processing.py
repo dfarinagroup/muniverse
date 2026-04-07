@@ -1,56 +1,84 @@
+import warnings
 import numpy as np
 from scipy.stats import zscore
-from .core import bandpass_signals, notch_signals
+from scipy.signal import welch
+from .core import bandpass_signals, notch_signals, find_outliers
 
 class pre_processing:
     """
-    Class for performing convolutive blind source separation to identify the
-    spiking activity of motor neurons using the fastICA algorithm.
+    Class to preproces HD-EMG data
 
     """
 
-    def __init__(self, cfg=None, **kwargs):
+    def __init__(self, 
+                 fsamp: float = 2048, 
+                 pre_process_steps: list | None = [
+                    {
+                        "step": "bad_channel_detection",
+                        "metric": "std",
+                        "method": "zscore",
+                        "value": 3,
+                        "tail": 0,
+                    },
+                    {
+                        "step": "bad_channel_detection",
+                        "metric": "rms",
+                        "method": "threshold",
+                        "value": 1e-6, 
+                        "tail": -1,
+                    },
+                    {  
+                        "step": "bandpass",
+                        "high_pass": 20,
+                        "low_pass": 500,
+                        "method": "butter",
+                        "order": 2,
+                    },
+                    {
+                        "step": "notch",
+                        "freqs": [50, 100, 150],
+                        "method": "butter",
+                        "order": 2
+                    }    
+                 ]          
+                 ):
 
-        # Default parameters
-        self.fsamp = 2048
-        self.bandpass = [20, 500]
-        self.bandpass_type = "butter"
-        self.bandpass_order = 2
-        self.bandpass_numtabs = 101
-        self.notch_frequency = [50]
-        self.notch_n_harmonics = 3
-        self.notch_type = "butter"
-        self.notch_order = 2
-        self.notch_width = 1
-        self.downsample_factor = None
-        self.bad_channel_list = []
-        self.bad_channel_metrics = ["RMS", "med_freq"]
-        self.bad_channel_thresholds = [3, 3] 
-        self.selected_channels = None
 
-        # Convert config object (if provided) to a dictionary
-        config_dict = vars(cfg) if cfg is not None else {}
+        self.fsamp = fsamp
+        self.pre_process_steps = pre_process_steps
 
-        # Merge with directly passed keyword arguments (overwrites config)
-        params = {**config_dict, **kwargs}
 
-        valid_keys = self.__dict__.keys()
+    def add_step(self, step):
+        
+        self.pre_process_steps.append(step)
 
-        # Assign all parameters as attributes
-        for key, value in params.items():
-            if key in valid_keys:
-                setattr(self, key, value)
-            else:
-                print(f"Warning: ignoring invalid parameter: {key}")
+    def _get_scores(self, data, metric, bw=[20, 500]):
 
-    def set_param(self, **kwargs):
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                raise AttributeError(f"Invalid parameter: {key}")
-
-    def _find_outliers(x, threshold=3, max_iter=3, tail=0):
+        METRICS = ["rms", "std", "medfreq", "medpower"]
+                    
+        if metric == "rms":
+            score = np.mean(data**2, axis=1)**0.5
+        elif metric == "std":
+            score = np.std(data, axis=1)
+        elif metric == "medfreq":
+            freqs, psd = welch(data, fs=self.fsamp, nperseg=self.fsamp/2)
+            cumulative = np.cumsum(psd)
+            total = cumulative[-1]
+            idx = np.where(cumulative >= total / 2)[0][0]
+            score = freqs[idx]
+        elif metric == "medpower":
+            freqs, psd = welch(data, fs=self.fsamp, nperseg=self.fsamp/2)
+            total = cumulative[-1]
+            score = np.median(psd, axis=1)
+        else:
+            raise ValueError(
+                f"Invalid metric {metric}"
+                f"Must be one of {METRICS}"
+            )
+        
+        return score
+    
+    def _find_outliers(self, x, threshold=3, max_iter=3, tail=0):
         """
         Detect ouliers by comparing the z-score of variable x against
         some threshold. This is repeaded until there are no outliers or
@@ -63,7 +91,10 @@ class pre_processing:
             tail {-1,0,1}: Specify weather to serach for outliers   
                 on both ends (0), just on the positive (1) or just 
                 the negative side (-1).
-        
+
+        Return:
+            bad_idx (np.array): List of bad channels (integer index) 
+            
         """
 
         mask = np.zeros(len(x), dtype=bool)
@@ -77,75 +108,98 @@ class pre_processing:
                 idx = -zscore(xm) > threshold
             else:
                 idx = np.abs(zscore(xm)) > threshold 
-            mask = mask + idx
+            mask += idx
             if not np.any(idx):
                 break
             else:
-                iter = iter + 1
+                iter = iter + 1  
 
-        bad_idx = np.where(mask)[0]    
+        return mask 
 
-        return bad_idx        
-            
-    def bandpass_signals(self, data):
+    def _get_bad_channels(self, score, mask, method, threshold, max_iter=3, tail=0):
 
-        if self.bandpass is not None:
-            data = bandpass_signals(
-                data,
-                self.fsamp,
-                high_pass=self.bandpass[0],
-                low_pass=self.bandpass[1],
-                ftype=self.bandpass_type,
-                order=self.bandpass_order,
-                numtabs=self.bandpass_numtabs,
+        if method == "zscore":
+            mask = self._find_outliers(score, threshold, max_iter=max_iter, tail=tail)
+        elif method == "threshold":
+            if tail == 1:
+                mask = score > threshold
+            elif tail == -1:
+                mask = score < threshold
+            else:
+                raise ValueError(
+                    f"For method *{method}* tail must be -1 or 1."
+                )
+        else:
+            raise ValueError(
+                "Invalid bad channel detection method"
+                "Must be one of *zscore* or *threshold*"
             )
 
-        return data
+        return mask             
 
-    def notch_signals(self, data):  
+    def pre_process(self, data: np.ndarray):
 
-        # Notch filter signals
-        if self.notch_frequency is not None:
-            sig = notch_signals(
-                sig,
-                self.fsamp,
-                nfreq=self.notch_frequency,
-                dfreq=self.notch_width,
-                n_harmonics=self.notch_n_harmonics,
-                ftype=self.notch_type,
-                order=self.notch_order,
-            )    
 
-    def downsample(self, data):
+        meta = {}
 
-        if self.downsample_factor is not None:
-            data = data[:, ::self.downsample_factor]
-            fsamp_new = self.fsamp / self.downsample_factor
-        else:
-            fsamp_new = self.fsamp
+        # Mask bad channels
+        mask = np.zeros(data.shape[0], dtype=bool)
 
-        return data, fsamp_new  
+        if self.pre_process_steps is not None:
+            for cfg in self.pre_process_steps:
+                
+                if cfg["step"] == "bandpass":
+                    data = bandpass_signals(
+                        data,
+                        self.fsamp,
+                        high_pass=cfg.get("high_pass", 20),
+                        low_pass=cfg.get("low_pass", 500),
+                        ftype=cfg.get("method", "butter"),
+                        order=cfg.get("order", 2),
+                        numtabs=cfg.get("numtabs", 101),
+                    )
+                elif cfg["step"] == "notch":
+                    data = notch_signals(
+                        data,
+                        self.fsamp,
+                        nfreq=cfg.get("freqs", [50, 100, 150]),
+                        ftype=cfg.get("method", "butter"),
+                        order=cfg.get("order", 2),
+                        dfreq=cfg.get("dfreq", 1),
+                        n_harmonics=1
+                    )  
+                elif cfg["step"] == "highpass":
+                    pass
+                elif cfg["step"] == "lowpass":
+                    pass
+                elif cfg["step"] == "mask_channels":
+                    local_mask = np.zeros(data.shape[0], dtype=bool)
+                    local_mask[cfg["channel_list"]] = True
+                    mask += local_mask
+                elif cfg["step"] == "bad_channel_detection":
+                    scores = self._get_scores(data, cfg["metric"])
+                    local_mask = self._get_bad_channels(
+                        scores,
+                        mask,
+                        method=cfg.get("method"),
+                        threshold=cfg.get("value"),
+                        max_iter=cfg.get("max_iter", 3),
+                        tail=cfg.get("tail", 0)
+                    )
+                    mask += local_mask
+                elif cfg["step"] == "downsample":
+                    data = data[:, ::cfg]
+                    meta["fsamp_out"] = self.fsamp / cfg
+                else:
+                    raise ValueError(
+                        "Invalid step type"
+                    )
+        
+        selected_idx = np.where(mask == False)[0]    
+            
+        data = data[selected_idx, :]
+        meta["mask"] = mask
 
-    def detect_bad_channels(self, data):
-
-        pass 
-
-    def select_channels(self, data):
-
-        if self.select_channels is not None:
-            data = data[self.select_channels, :]
-            channel_idx = self.select_channels
-        else:
-            channel_idx = np.arange(data.shape[0])
-
-        return data, channel_idx     
-
-    def pre_process(self, data):
-
-        data = self.bandpass_signals(data)
-        data = self.notch_signals(data)
-        data, channel_idx = self.select_channels(data)
-        data, fsamp_new = self.downsample(data)  
-
-        return data, fsamp_new, channel_idx
+ 
+        return data, meta
 
