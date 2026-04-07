@@ -9,28 +9,28 @@ from sklearn.cluster import KMeans
 from ..evaluation.evaluate import *
 
 
-def bandpass_signals(emg_data, 
-                     fsamp, 
-                     high_pass=20, 
-                     low_pass=500, 
-                     method="butter",
-                     order=2, 
-                     numtabs=101,
-):
+def bandpass_signals(emg_data: np.ndarray, 
+                     fsamp: float, 
+                     high_pass: float = 20, 
+                     low_pass: float = 500, 
+                     method: str = "butter",
+                     order: int = 2, 
+                     numtabs: int = 101,
+) -> np.ndarray:
     """
     Bandpass filter emg data
 
     Args:
-        emg_data (ndarray): emg data (n_channels x n_samples)
+        emg_data (np.ndarray): emg data (n_channels x n_samples)
         fsamp (float): Sampling frequency
         low_pass (float): Cut-off frequency for the low-pass filter
         high_pass (float): Cut-off frequency for the high-pass filter
-        ftype (string): Filter type (butter or firwin2)
+        ftype (str): Filter type (butter or firwin2)
         order (int): Order of the filter (butter) 
         numtabs (int): Number of filter tabs (firwin2)
 
     Returns:
-        ndarray : filtered emg data (n_channels x n_samples)
+        np.ndarray : filtered emg data (n_channels x n_samples)
     """
 
     if method == "butter":
@@ -45,32 +45,34 @@ def bandpass_signals(emg_data,
         fir_coeff = firwin2(numtabs, f, m, fs=fsamp)
         emg_data = filtfilt(fir_coeff, [1.0], emg_data, axis=1)
     else:
-        raise ValueError(f"The specified filter type option {ftype} is invalid")
+        raise ValueError(
+            f"The specified filter type option *{method}* is invalid"
+            "Must be one of *butter* or *firwin2*"
+        )
 
     return emg_data
 
 
-def notch_signals(emg_data, 
-                  fsamp, 
-                  freqs=[50, 100, 150], 
-                  method="butter", 
-                  order = 2, 
-                  dfreq=1,
-    ):
+def notch_signals(emg_data: np.ndarray, 
+                  fsamp: float, 
+                  freqs: list[float] = [50, 100, 150], 
+                  method: str = "butter", 
+                  order: int = 2, 
+                  dfreq: float = 1,
+    ) -> np.ndarray:
     """
     Notch filter emg data
 
     Args:
-        emg_data (ndarray): emg data (n_channels x n_samples)
+        emg_data (np.ndarray): emg data (n_channels x n_samples)
         fsamp (float): Sampling frequency
-        nfreq (list): List of frequencies to be filtered
-        ftype (string): Filter type (butter, iirnotch, fft_nulling, fft_interpolation)
+        freqs (list[float]): List of frequencies to be filtered
+        method (str): Filter type (butter, iirnotch, fft_nulling, fft_interpolation)
         order (int): Order of the filter (if type = butter)
         dfreq (float): width of the notch filter (plus/minus dfreq) (if iirnotch, fft_nulling, fft_interpolation)
-        n_harmonics (int): Number of harmonics to be filtered
 
     Returns:
-        ndarray : filtered emg data (n_channels x n_samples)
+        np.ndarray : filtered emg data (n_channels x n_samples)
     """
 
     if isinstance(freqs, float) or isinstance(freqs, int):
