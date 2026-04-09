@@ -10,39 +10,66 @@ class CBSS:
 
     Parameters
     ----------
-        random_seed (int): Seed of the random number generator.
-        ext_fact (int): Extension factor
-        whitening_method ("ZCA", "PCA" or "Cholesky"): Method used for whitening
-        whitening_regularization ("auto", float or None): Method used to regularize 
-            small eigenvalues. If "auto" the mean of the second half of the eigenvalues is used.
-        ica_n_iter (int): Number of fastICA runs, i.e., maximum number of extracted sources.
-        opt_initalization ("random" or "activity_idx"): Initalization method of the fastICA fixed-point
-            algorithm. Either drawn from a Gaussian distribution ("random") or using the 
+        random_seed (int): 
+            Seed of the random number generator.
+        ext_fact (int): 
+            Extension factor
+        whitening_method ("ZCA", "PCA" or "Cholesky"): 
+            Method used for whitening
+        whitening_regularization ("auto", float or None): 
+            Method used to regularize small eigenvalues. If "auto" the mean of 
+            the second half of the eigenvalues is used.
+        cluster_method ("kmeans"): 
+            Method used to seperate motor unit spikes and background spikes 
+            (currently only "kmeans" is implemented).    
+        ica_n_iter (int): 
+            Number of fastICA runs, i.e., maximum number of extracted sources.
+        opt_initalization ("random" or "activity_idx"): 
+            Initalization method of the fastICA fixed-point algorithm. 
+            Either drawn from a Gaussian distribution ("random") or using the 
             time instances with maximum column norms ("activity_idx").
-        opt_function_exp (float): Exponent a of the loss function g(x)=x*(x**2+epsilon)**((a-1)/2) 
+        opt_function_exp (float): 
+            Exponent a of the loss function g(x)=x * (x^2 + epsilon)^((a-1)/2) 
             representing a smooth approximation of g(x) = sign(x) * abs(x)**a. 
-        opt_max_iter (int): Maximum number of iterations for the fastICA fixed-point algorithm.  
-        opt_tol (float): Convergence criterion for the fixed-point algorithm. Stops if the dot product between
-            the current and previous unmixing weights minus 1 is less than the tolerance value.
-        source_deflation ("gram-schmidt", "projection_deflation" or None): Method used to avoid 
-            repeaded convergence to the same source.  
-        peel_off (bool): If True, the contribution of identified sources is subtraced from the whitened signal.
-        cluster_method ("kmeans"): Method used to seperate motor unit spikes and background spikes 
-            (currently only "kmeans" is implemented).      
-        refinement_loop (bool): If True, the unmixing weights w are updated through self-supervised learning.
-            The updated unmixing weights are the mean of the whitened signal at the detected spikes.
-        sil_th (float): Classify sources into good (score above sil_th) or bad based 
+        opt_max_iter (int): 
+            Maximum number of iterations for the fastICA fixed-point algorithm.  
+        opt_tol (float): 
+            Convergence criterion for the fixed-point algorithm. Stops if 
+            the dot product between the current and previous unmixing weights 
+            minus 1 is less than the tolerance value.
+        source_deflation ("gram-schmidt", "projection_deflation" or None): 
+            Method used to avoid repeaded convergence to the same source in 
+            the fixed point algorithm.  
+        refinement_loop (bool): 
+            If True, the unmixing weights w are updated through self-supervised 
+            learning. The updated unmixing weights are the mean of the 
+            whitened signal at the detected spikes.
+        refinement_loss ("cov_isi" or "sil"):
+            Metric used as optimization loss in the refinement loop. Can be either
+            minimizing the coefficient of variation (Cov) of the interspike 
+            interalls ("cov_isi") or maximizing the silhouette score ("sil"). 
+        refinement_max_iter (int):
+            Maximum number of iterations of the refinement loop
+        refinement_min_spikes (int): 
+            Only enter the refinement loop if the number of detected spikes is 
+            above the given threshold.        
+        peel_off (bool): 
+            If True, the contribution of identified sources is subtraced 
+            from the whitened signal. 
+        peel_off_window (float):
+            Duration of the window used to peel off contributions from 
+            detected sources (in seconds).    
+        sil_th (float): 
+            Classify sources into good (score above sil_th) or bad based 
             on a pseudo silhouette score.
-        cov_th (float): Classify sources into good (scores below cov_th) or bad based on the coefficient 
-            of variation of the interspike intevalls. 
-        verbose (bool): If True, print progress                
+        cov_th (float): 
+            Classify sources into good (scores below cov_th) or bad based 
+            on the coefficient of variation of the interspike intevalls.    
+        verbose (bool): 
+            If True, print progress.                
 
-    Methods
-    -------        
-    decompose(sig, fsamp): Decompose HD-EMG data using CBSS and the specified parameters.  
-
-    Examples
-    --------
+    Example
+    -------
     Init CBSS class using the default parameters and run decomposition.
     >>> model = CBSS() 
     >>> sources, spikes, sil, mu_filters = model.decompose(sig=emg_data, fsamp=2048)
