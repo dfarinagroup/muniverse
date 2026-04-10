@@ -19,7 +19,9 @@ def bandpass_signals(data: np.ndarray, # (n_channels x n_samples)
                      numtabs: int | None = 101,
 ) -> np.ndarray:
     """
-    Bandpass filter timeseries data
+    Bandpass filter timeseries data using a digital infinite 
+    impulse  response filter ("butter") or finite impulse 
+    response filter ("firwin2").
 
     Args
     ----
@@ -87,7 +89,9 @@ def highpass_signals(
     numtabs: int | None = 101,
 ) -> np.ndarray:
     """
-    High-pass filter timeseries data.
+    High-pass filter timeseries data using a digital infinite 
+    impulse  response filter ("butter") or finite impulse 
+    response filter ("firwin2").
 
     Args
     ----
@@ -147,7 +151,9 @@ def lowpass_signals(
     numtabs: int | None = 101,
 ) -> np.ndarray:
     """
-    Low-pass filter timeseries data.
+    Low-pass filter timeseries data using a digital infinite 
+    impulse  response filter ("butter") or finite impulse 
+    response filter ("firwin2").
 
     Args
     ----
@@ -208,7 +214,12 @@ def notch_signals(data: np.ndarray,
                   dfreq: int | None = 1,
     ) -> np.ndarray:
     """
-    Notch filter time series data
+    Notch filter (stop band) time series data using either a infinite impulse 
+    response filter ("butter"), a finite impulse response filter ("iirnotch") or 
+    performing filtering in the frequency domain ("fft_nulling" and "fft_interpolation"). 
+    For "fft_nulling" the spectrum in the specified frequency band is set to zero, 
+    for "fft_interpolation" the spectral amplitude is interpolated through by the 
+    neighbourhood. Time series data is then recovered through an inverse fft.
 
     Args
     ----
@@ -339,26 +350,42 @@ def notch_signals(data: np.ndarray,
 
     return data
 
-def find_outliers(x, threshold=3, max_iter=3, tail=0):
+def find_outliers(x: np.ndarray, # (n_features, )
+                  threshold: float = 3, 
+                  max_iter: int = 3, 
+                  tail: Literal[-1,0,1] = 0,
+                  mask: np.ndarray | None = None
+):
     """
     Detect ouliers by comparing the z-score of variable x against
     some threshold. This is repeaded until there are no outliers or
     the maximum number of iterations is reached. 
 
-    Args:
-        x (np.array): Variable to test for outliers
-        threshold (float): Threshold for outlier detection
-        max_iter (int): Maximum number of iterations
-        tail {-1,0,1}: Specify weather to serach for outliers   
+    Args
+    ----
+        x : np.ndarray (n_features, )
+            Variable to test for outliers
+        threshold : float, default 3 
+            Threshold for outlier detection
+        max_iter: int , default 3
+             Maximum number of iterations
+        tail : {-1,0,1} , default 0 
+            Specify weather to serach for outliers   
             on both ends (0), just on the positive (1) or just 
             the negative side (-1).
+        mask : np.ndarray | None , default None
+            Boolean mask to exclude channels from outlier detection
+            (True: bad_channel, False: good_channel)    
 
-    Return:
-        bad_idx (np.array): List of bad channels (integer index) 
+    Returns
+    -------
+        mask : np.ndarray (n_features, )
+            Boolean mask (True: outlier, False: no outlier)
         
     """
 
-    mask = np.zeros(len(x), dtype=bool)
+    if mask is None:
+        mask = np.zeros(len(x), dtype=bool)
 
     iter = 0
     while iter < max_iter:
@@ -373,32 +400,9 @@ def find_outliers(x, threshold=3, max_iter=3, tail=0):
         if not np.any(idx):
             break
         else:
-            iter = iter + 1
+            iter = iter + 1 
 
-    bad_idx = np.where(mask)[0]    
-
-    return bad_idx  
-
-
-def reject_bad_channels(data, bad_channels):
-    """
-    Reject a list of bad channels from the data matrix
-
-    Args:
-        data (ndarray): Data matrix (channels x samples)
-        bad_channels (ndarray): List of bad channel indices
-
-    Returns:
-        data (ndarray): Updated data matrix 
-        mask (ndarray): Array showing if channels are used (True) or rejected (False)
-    """
-
-    mask = np.ones(data.shape[1], dtype=bool)
-    mask[bad_channels] = False
-    data = data[mask,:]
-
-    return data, mask
-
+    return mask  
 
 def extension(Y: np.ndarray, # (n_channels x n_samples)
               R: int
@@ -517,7 +521,12 @@ def whitening(Y: np.ndarray, # (n_channels x n_samples)
     return wY, Z
 
 
-def est_spike_times(sig, fsamp, cluster="kmeans", a=2, min_delay=0.01):
+def est_spike_times(sig: np.ndarray, # (n_samples, ) 
+                    fsamp: float, 
+                    cluster: Literal["kmeans"] = "kmeans", 
+                    a: float = 2, 
+                    min_delay: float = 0.01
+):
     """
     Estimate spike indices given a spiky source signal and compute
     a silhouette-like metric for source quality quantification.
@@ -527,7 +536,7 @@ def est_spike_times(sig, fsamp, cluster="kmeans", a=2, min_delay=0.01):
 
     Args
     ----
-        sig : np.ndarray 
+        sig : np.ndarray (n_samples, )
             Spike-like input signal (predicted sources)
         fsamp : float 
             Sampling rate in Hz
@@ -587,20 +596,22 @@ def est_spike_times(sig, fsamp, cluster="kmeans", a=2, min_delay=0.01):
     return est_spikes, sil
 
 
-def gram_schmidt(w, B):
+def gram_schmidt(w: np.ndarray, # (n, )
+                 B: np.ndarray  # (n, k)
+):
     """
     Stabilized Gram-Schmidt orthogonalization.
 
     Args
     ----
-        w : np.ndarray 
-            Vector to be orthogonalized (shape: [n,])
-        B : np.ndarray 
-            Matrix of basis vectors in columns (shape: [n, k])
+        w : np.ndarray (n, )
+            Vector to be orthogonalized 
+        B : np.ndarray (n, k)
+            Matrix of basis vectors in columns 
 
     Returns
     -------
-        u : np.ndarray 
+        u : np.ndarray (n, )
             Orthogonalized vector
 
     """
@@ -730,18 +741,24 @@ def remove_bad_sources(
 
     return new_sources, new_spikes, new_sil, new_filters
 
-def spike_triggered_average(sig, spikes, win=0.02, fsamp=2048):
+def spike_triggered_average(sig: np.ndarray, # (n_channels, n_samples) 
+                            spikes: np.ndarray, # (n_spikes, ) 
+                            win: float = 0.02, 
+                            fsamp: float = 2048
+):
     """
-    Calculate the spike triggered average given the spike times of a source
+    Estimate the impulse response of a finite impulse response filters 
+    given the time samples of the events.
 
     Args
     ----
-        sig : np.ndarray 
-            Input signal [channels x time]
-        spikes : np.ndarray 
-            Array [n_spikes, ] of spike indices
+        sig : np.ndarray (n_channels, n_samples)
+            Input signal 
+        spikes : np.ndarray (n_spikes, )
+            Array of spike indices
         win : float , default 0.02
-            Window size in seconds for MUAP template     
+            Window size (in both directions) in seconds used for 
+            impulse response extraction     
         fsamp : float , default 2048
             Sampling frequency in Hz
 
@@ -765,16 +782,23 @@ def spike_triggered_average(sig, spikes, win=0.02, fsamp=2048):
     return waveform
 
 
-def peel_off(sig, spikes, win=0.02, fsamp=2048):
+def peel_off(sig: np.ndarray, # (n_channels, n_samples) 
+                            spikes: np.ndarray, # (n_spikes, ) 
+                            win: float = 0.02, 
+                            fsamp: float = 2048
+):
     """
-    Peel off signal component based on spike triggered average.
+    Peel off the signal contribution of a source with finite impulse
+    response filter given the time stamps of the impulses (spikes) 
+    using spike triggered averaging. The reconstruction of the 
+    component signal is achieved in the frequency domain (fft/ifft). 
 
     Args
     ----
-        sig : np.ndarray 
-            signal [channels x time]
-        spikes : np.ndarray 
-            Array [n_spikes, ] of spike indices
+        sig : np.ndarray (n_channels, n_samples)
+            signal 
+        spikes : np.ndarray (n_spikes, ) 
+            Array of spike indices
         win : float , default 0.02
             Window size in seconds for MUAP template     
         fsamp : float , default 2048
@@ -821,7 +845,9 @@ def peel_off(sig, spikes, win=0.02, fsamp=2048):
     return residual_sig, comp_sig, waveform
 
 
-def spike_dict_to_long_df(spike_dict, fsamp=2048):
+def spike_dict_to_long_df(spike_dict: dict, 
+                          fsamp: float = 2048
+):
     """
     Convert a dictionary of spike instances into a long-formatted DataFrame.
 
