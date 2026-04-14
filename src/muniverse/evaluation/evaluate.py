@@ -175,7 +175,7 @@ def best_time_shift(
     spikes1, spikes2, tolerance=0.001, max_shift=0.01, shift_step=0.0005
 ):
     """ Try multiple time shifts and return the one with maximum TP """
-    
+
     best_tp = 0
     best_shift = 0.0
     best_fp, best_fn = 0, 0
@@ -275,13 +275,18 @@ def label_sources(
 
     for i in np.arange(n_source):
         spikes_1 = df[df["unit_id"] == units[i]]["onset"].values
+        spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
         st1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
 
         for j in np.arange(i + 1, n_source):
             spikes_2 = df[df["unit_id"] == units[j]]["onset"].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             st2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _, shift = max_xcorr(st1, st2, max_shift=int(max_shift * fsamp))
-            tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift / fsamp, tol=tol)
+            #tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift / fsamp, tol=tol)
+            tp, _, _ = match_spike_trains(
+                    st1, st2, shift=shift, tol=tol, fsamp=fsamp
+                )
             denom = max(len(spikes_1), len(spikes_2))
             match_score = tp / denom if denom > 0 else 0
 
