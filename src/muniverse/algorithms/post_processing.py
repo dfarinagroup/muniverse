@@ -5,6 +5,7 @@ from scipy.stats import zscore
 from scipy.signal import welch
 from pydantic import BaseModel, TypeAdapter, Field
 from typing import Literal, List, Union, Annotated
+from .core import extension, whitening, est_spike_times
 from ..evaluation.evaluate import (
     get_bin_spikes, 
     max_xcorr,
@@ -28,7 +29,7 @@ class post_processing:
 
         max_shift=0.1, tol=0.001, threshold=0.3
 
-        **Remove Duplicates**: TODO::
+        **Remove Duplicates**: Automatically detect duplicates in your sources::
 
             {
                 "step": "remove_duplicates",
@@ -55,11 +56,12 @@ class post_processing:
                 "source_list": list[int]
             }
 
-        **Time window**: Truncate your signal to only consider a selected time window.
-        If t_end = -1 the time window ends with the last sample::  
+        **Map time window**: Map time samples from your decomposed segment to the 
+        global time of your emg recording. The values of t_start and t_end correspond to
+        the start and end of the decomposed segment::  
 
             {
-                "step": "time_window",
+                "step": "map_time_window",
                 "t_start": float,
                 "t_end": float 
             }    
@@ -124,16 +126,34 @@ class post_processing:
         quality_metric: Literal["sil", "cov_isi"]
         threshold: float = 0.9
         min_spikes: int = 10 
-        tail: Literal[-1 ,1] = 1
 
     class MaskSources(BaseModel):
         step: Literal["mask_sources"]
-        unit_id: list[int] = []    
+        unit_ids: list[int] = []
+
+    class ApplyUnmixing(BaseModel):
+        step: Literal["apply_unmixing"]
+        whiten_data: bool = True
+        ext_factor: int = 12 
+        t_start: float = 0
+        t_end: float = -1 
+
+    class RefineSources(BaseModel):
+        step: Literal["refine_sources"]
+        whiten_data: bool = True
+        ext_factor: int = 12
+        refinement_loss: Literal["sil", "cov_isi"] = "sil"
+        max_iter: int = 10  
+        t_start: float = 0
+        t_end: float = -1               
   
     PostProcessStep = Annotated[
-        Union[RemoveDuplicates, 
+        Union[
+            RemoveDuplicates, 
             BadSourceDetection,
-            MaskSources,  
+            MaskSources,
+            ApplyUnmixing,
+            RefineSources 
         ],
         Field(discriminator="step")
     ]  
@@ -271,25 +291,125 @@ class post_processing:
 
         events["unit_id"] = events["unit_id"].map(label_map)
 
-        return events, label_map      
+        return events, label_map    
+
+    def _apply_unmxing(
+            self, 
+            data: np.ndarray, # (n_channels x n_samples)
+            fsamp: float,
+            weights: np.ndarray, # (n_observations x n_sources)
+            ext_factor: int,
+            whiten: bool = True,
+            t_start: float = 0,
+            t_end: float = -1,
+
+    ):
+        """ 
+        TODO 
+        
+        Args
+        ----
+            sig : np.ndarray 
+                Input (EMG) signal (n_channels x n_samples)
+            fsamp : float 
+                Sampling frequency in Hz
+            weights : np.ndarray 
+                Learned weights of the unmixing matrix    
+            ext_factor : int
+                Extension factor 
+            whiten : bool
+                If True, reconstruct sources in a whitened space
+            t_start : float
+                Start time of the considered time window in seconds  
+            t_end : float
+                End time of the considered time window in seconds                
+
+        Returns
+        -------
+            sources : np.ndarray 
+                Estimated sources / ica components (n_components x n_samples)
+            spikes : dict 
+                Sample indices of motor neuron discharges
+            scores : dict
+                Dictonary of source quality scores
+        
+        """
+
+        duration = (data.shape[1] - 1) / fsamp
+        if t_end > duration or t_end == -1:
+            t_end = duration
+        if t_start < 0:
+            t_start = 0    
+
+        t = np.linspace(0, duration, data.shape[1])
+        sample_idx = np.argwhere(t > t_start & t < t_end)
+        sources = np.zeros(weights.shape[1], data.shape[1])
+
+        n_sources = weights.shape[1]
+
+        ext_sig = extension(data[:, sample_idx], ext_factor)
+        ext_sig -= np.mean(ext_sig, axis=1, keepdims=True)
+
+        if whiten:
+            white_sig, Z = whitening(
+                Y=ext_sig, 
+                method="ZCA"
+            )
+            sources[:, sample_idx] = weights.T @ white_sig
+
+        else:
+            covariance = ext_sig @ ext_sig.T / (ext_sig.shape[1] - 1)
+            sources[:, sample_idx] = (
+                weights.T @ np.linalg.pinv(covariance) @ ext_sig
+            )
+
+        spikes = {}
+        scores = {
+            "sil": np.zeros(n_sources),
+            "cov_isi": np.zeros(n_sources)
+        }
+        for i in range(sources.shape[1]):
+            spikes[i], scores["sil"][i] = est_spike_times(
+                sources[i, :], fsamp, cluster="kmeans",
+            ) 
+            if len(spikes[i]) > 2:
+                isi = np.diff(spikes[i] / fsamp)
+                scores["cov_isi"][i] = np.std(isi) / np.mean(isi)
+            else:
+                scores["cov_isi"][i] = np.inf   
+
+        return spikes, sources, scores 
 
     def post_process(
             self, 
-            events: pd.DataFrame, 
-            sources: np.ndarray, # (n_sources x n_samples)
-            unmixing_weights: np.ndarray,
-            scores: dict,
-            fsamp: float = 2048,
+            data: np.ndarray, # (n_channels x n_samples)
+            spikes: pd.DataFrame, 
+            fsamp: float,
+            sources: np.ndarray | None, # (n_sources x n_samples)
+            unmixing_weights: np.ndarray | None,
+            scores: dict | None,
+            
     ):
         
         """
-        Pre process multi-channel time series data using the 
+        Post process multi-channel time series data using the 
         specified list of steps.
 
         Args
         ----
-            data (np.ndarray): Raw time series data (n_channels x n_samples)
-            fsamp (float): Sampling rate in Hz
+            data : np.ndarray (n_channels x n_samples)
+                EMG data 
+            spikes : pd.DataFrame
+                Lits of motor unit spikes    
+            fsamp : float 
+                Sampling rate in Hz
+            sources : np.ndarray or None (n_sources x n_samples)
+                The predicted sources
+            unmixing_weights: np.ndarray or None
+                Weights of the unmixing matrix
+            scores : dict
+                Dictonary of source quality scores    
+
 
         Returns
         -------
@@ -303,7 +423,8 @@ class post_processing:
         metadata["fsamp_out"] = fsamp
 
         # Mask bad sources
-        keep_mask = np.ones(sources.shape[0], dtype=bool)
+        n_sources = sources.shape[0]
+        source_mask = np.ones(n_sources, dtype=bool)
 
         if self.steps is not None:
             for step in self.steps:
@@ -317,7 +438,7 @@ class post_processing:
                         t_end = sources.shape[1] / fsamp
                     myscores = scores["sil"]
                     local_mask = self._detect_duplicates(
-                        events,
+                        spikes,
                         myscores,
                         fsamp,
                         t_start=t_start,
@@ -325,37 +446,52 @@ class post_processing:
                         threshold=step.threshold,
                         max_shift=step.max_shift,
                         tol=step.tolerance,
-                        keep_mask=None
+                        keep_mask=source_mask
                     )
-                    keep_mask *=local_mask
+                    source_mask = source_mask & local_mask
                 elif isinstance(step, self.BadSourceDetection):
                     if step.quality_metric == "sil":
                         myscores = scores["sil"]
                     elif step.quality_metric == "cov_isi":
                         myscores = scores["cov_isi"]
                     local_mask = self._detect_bad_sources(
-                        events,
+                        spikes,
                         myscores,
                         threshold=step.threshold,
                         min_num_spikes=step.min_spikes,
-                        keep_mask=None
+                        keep_mask=source_mask
                     )
-                    keep_mask *=local_mask
+                    source_mask = source_mask & local_mask
                 elif isinstance(step, self.MaskSources):
+                    local_mask = np.ones(n_sources, dtype=bool)
+                    local_mask[step.unit_ids] = False
+                    source_mask = source_mask & local_mask
+                elif isinstance(step, self.ApplyUnmixing):
+                    sources, spikes, local_scores = self._apply_unmxing(
+                        data=data,
+                        fsamp=fsamp,
+                        weights=unmixing_weights,
+                        ext_factor=step.ext_factor,
+                        whiten=step.whiten_data,
+                        t_start=step.t_start,
+                        t_end=step.t_end,
+                    )
+                    scores.update(local_scores)
+                elif isinstance(step, self.RefineSources):
                     pass
                 else:
                     raise ValueError(
                         "Invalid step type"
                     )
         
-        new_events = self._filter_events(events, keep_mask)
-        new_sources = sources[keep_mask, :]
+        new_spikes, label_map = self._filter_events(spikes, source_mask)
+        new_sources = sources[source_mask, :]
         new_scores = {
-            "sil": scores["sil"][keep_mask]
+            "sil": scores["sil"][source_mask]
         }
-        new_weights = unmixing_weights[:, keep_mask]
+        new_weights = unmixing_weights[:, source_mask]
 
  
-        return new_events, new_sources, new_scores, new_weights
+        return new_spikes, new_sources, new_scores, new_weights
     
 
