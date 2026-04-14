@@ -378,7 +378,7 @@ def find_outliers(
             the negative side (-1).
         mask : np.ndarray | None , default None
             Boolean mask to exclude channels from outlier detection
-            (True: bad_channel, False: good_channel)    
+            (True: outlier, False: no outlier)    
 
     Returns
     -------
@@ -399,7 +399,7 @@ def find_outliers(
             idx = -zscore(xm) > threshold
         else:
             idx = np.abs(zscore(xm)) > threshold 
-        mask = mask + idx
+        mask = mask | idx.data
         if not np.any(idx):
             break
         else:
@@ -856,8 +856,9 @@ def peel_off(
     return residual_sig, comp_sig, waveform
 
 
-def spike_dict_to_long_df(spike_dict: dict, 
-                          fsamp: float = 2048
+def spike_dict_to_long_df(
+        spike_dict: dict, 
+        fsamp: float = 2048
 ) -> pd.DataFrame:
     """
     Convert a dictionary of spike instances into a long-formatted DataFrame.
@@ -899,3 +900,5 @@ def spike_dict_to_long_df(spike_dict: dict,
     df = df.sort_values(by=["onset"])
 
     return df
+
+
