@@ -27,7 +27,7 @@ class CBSS:
         - Run a fixed-point algorithm maximizing non-gaussianity of
         the sources
         - Extract the motor unit spikes using peak-detection and 
-        kmeans-based spike clustering
+        kmeans++ based spike clustering
         - Refine the learned weights through self-supervised 
         learning (optional)
         - Peel-off the contribution of detected sources (optional)
@@ -43,10 +43,11 @@ class CBSS:
         whitening_regularization : {"auto", float, None}, default "auto" 
             Adds a small value to the eigenvalues for regularization. 
             If "auto", the mean of the second half of the eigenvalues is used.
-        spike_cluster_method : {"kmeans", "gmm"}, default "kmeans" 
-            Method used to seperate motor unit spikes and background spikes. 
-            If "kmeans" the K-Means++ algorithm is applied (default), 
-            if "gmm" a Gaussian mixture model is fitted and used for clustering.    
+        spike_detection_exp : float , default 2
+            Exponent of asymetric power law applied to the extracted sources
+            before spike detection
+        spike_detection_min_delay : float , default 0.01
+            Minimum distance between two detected spikes in seconds   
         ica_iterations : int , default 100
             Number of fastICA runs, i.e., maximum number of extracted sources.
         ica_initalization : {"random", "activity_idx"}, default "random" 
@@ -99,8 +100,10 @@ class CBSS:
     ----------
         unmixing_weights_ : np.ndarray (n_features, n_components)
             The learned unmixing weights
-        whitening_matrix_ : np.ndarray (n_features, n_features)
-            Whitening matrix    
+        whiten_ : np.ndarray (n_features, n_features)
+            Whitening matrix   
+        unwhiten_ : np.ndarray (n_features, n_features)
+            Inverse of the whitening matrix        
         n_fixed_point_iter_ : np.ndarray of int
             Number of iterations in the fixed point algorithm  
         fixed_point_deltas_ : np.ndarray
@@ -131,7 +134,7 @@ class CBSS:
             whitening_reg: str | float | None = "auto",
             spike_detection_exp: float = 2,
             spike_detection_min_delay: float = 0.01,
-            spike_cluster_method: Literal["kmeans"] = "kmeans",
+            #spike_cluster_method: Literal["kmeans"] = "kmeans",
             ica_iterations: int = 100,
             ica_initalization: Literal["random", "activity_idx"] = "random",
             ica_opt_fun_exp: float = 3,
@@ -169,7 +172,7 @@ class CBSS:
         self.whitening_reg = whitening_reg
         self.spike_detection_exp = spike_detection_exp
         self.spike_detection_min_delay = spike_detection_min_delay
-        self.spike_cluster_method = spike_cluster_method
+        #self.spike_cluster_method = spike_cluster_method
         self.ica_iterations = ica_iterations
         self.ica_initalization = ica_initalization
         self.ica_opt_fun_exp = ica_opt_fun_exp
@@ -279,7 +282,7 @@ class CBSS:
 
         # Whiten the extended signals
         print("Whitening:")
-        white_sig, self.whitening_matrix_ = whitening(
+        white_sig, self.whiten_, self.unwhiten_ = whitening(
             Y=ext_sig, 
             method=self.whitening_method
         )
@@ -325,9 +328,8 @@ class CBSS:
             # Predict source and estimate the source quality
             sources[i, :] = w.T @ white_sig
             spikes[i], scores["sil"][i] = est_spike_times(
-                sig = sources[i, :], 
+                source = sources[i, :], 
                 fsamp = fsamp, 
-                cluster = self.spike_cluster_method, 
                 a = self.spike_detection_exp,
                 min_delay = self.spike_detection_min_delay
             )
@@ -344,9 +346,8 @@ class CBSS:
                 )
                 sources[i, :] = w.T @ white_sig
                 spikes[i], scores["sil"][i] = est_spike_times(
-                    sig = sources[i, :], 
+                    source = sources[i, :], 
                     fsamp = fsamp, 
-                    cluster = self.spike_cluster_method, 
                     a = self.spike_detection_exp,
                     min_delay = self.spike_detection_min_delay
                 )
@@ -425,7 +426,7 @@ class CBSS:
         ext_sig = self._extend(sig)
 
         # Whiten data
-        white_sig = self.whitening_matrix_ @ ext_sig
+        white_sig = self.whiten_ @ ext_sig
 
         # Apply unmixing weidths
         sources = self.unmixing_weights_.T @ white_sig
@@ -440,9 +441,8 @@ class CBSS:
         # Get spikes and scores
         for i in range(sources.shape[0]):
             spikes[i], scores["sil"][i] = est_spike_times(
-                sig = sources[i, :], 
+                source = sources[i, :], 
                 fsamp = fsamp, 
-                cluster = self.spike_cluster_method, 
                 a = self.spike_detection_exp,
                 min_delay = self.spike_detection_min_delay
             )
@@ -450,6 +450,11 @@ class CBSS:
 
         return sources, spikes, scores["sil"]
     
+    def transform_weights(self):
+        """Transform the unmixing weights in the extended space"""
+
+        return self.unwhiten_ @ self.unmixing_weights_
+            
     def _extend(self, sig):
         """Extend the data, subtract the mean and cut the edges"""
 
@@ -564,9 +569,8 @@ class CBSS:
         while k < self.refinement_max_iter:
             source = w.T @ X
             spikes, sil = est_spike_times(
-                sig = source, 
+                source = source, 
                 fsamp = fsamp, 
-                cluster = self.spike_cluster_method, 
                 a = self.spike_detection_exp,
                 min_delay = self.spike_detection_min_delay
             )
