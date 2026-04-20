@@ -487,7 +487,7 @@ class pre_processing:
                 elif isinstance(step, self.TimeWindow):
                     n_samples = data.shape[1]
                     t = np.linspace(0, (n_samples-1) / fsamp_new, n_samples)
-                    sample_mask = np.where(t > step.t_start & t < step.t_end)
+                    sample_mask = np.argwhere((t >= step.t_start) & (t <= step.t_end)).flatten()
                 else:
                     raise ValueError(
                         "Invalid step type"
