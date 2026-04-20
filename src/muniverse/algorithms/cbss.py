@@ -1,15 +1,12 @@
 import numpy as np
 from typing import List, Literal, Optional
 from .core import (
-    bandpass_signals, 
-    notch_signals, 
     extension, 
     whitening, 
     est_spike_times, 
-    remove_duplicates, 
-    remove_bad_sources, 
     gram_schmidt, 
-    peel_off
+    peel_off,
+    spike_dict_to_long_df
 )
 
 class _BaseCBSS():
@@ -63,19 +60,21 @@ class _BaseCBSS():
 
         return ext_sig
 
-    def _whitening(self, ext_sig: np.ndarray):
+    def _whitening(self, data: np.ndarray, return_data=True):
+        """Whiten the data matrix"""
 
         if self.verbose:
             print("Step: Whitening")
             print(f"  - Method: {self.whitening_method}")        
 
         white_sig, self.whiten_, self.unwhiten_ = whitening(
-            Y = ext_sig, 
+            Y = data, 
             method = self.whitening_method,
             regularization = self.whitening_reg 
         )
 
-        return white_sig
+        if return_data:
+            return white_sig
     
     def _calc_cov_isi(self, spikes, fsamp):
         """ Get the coefficent of varation of the interspike intervalls """
@@ -106,18 +105,19 @@ class _BaseCBSS():
 
         Returns
         -------
+            spikes : pd.DataFrame 
+                Spike table (columns: onset, duration, sample, unit_id, description)
             sources : np.ndarray 
                 Estimated sources / ica components (n_components x n_samples)
-            spikes : dict 
-                Sample indices of motor neuron discharges
-            sil : np.ndarray 
-                Pseudo-silhouette scores of the estimated sources
+            scores : dict of np.ndarray 
+                Source trustworthiness scores ("sil" and "cov_isi")
         
         """
 
         if not hasattr(self, "unmixing_weights_"):
             raise ValueError(
-                "No unmixing weights are defined"
+                "No unmixing weights are defined."
+                "Make sure to fit the model before calling this function."
             )
 
         # Extend signals and subtract the mean and cut the edges
@@ -146,7 +146,10 @@ class _BaseCBSS():
             )
             scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
 
-        return sources, spikes, scores 
+        # Convert dict of spikes to long-formated spike table 
+        spikes = spike_dict_to_long_df(spikes)
+
+        return spikes, sources, scores 
 
 class CBSS(_BaseCBSS):
     """
@@ -252,12 +255,11 @@ class CBSS(_BaseCBSS):
             Whether a source was peeled off or not     
 
 
-
     Example
     -------
     Init CBSS class using the default parameters and run decomposition.
     >>> model = CBSS() 
-    >>> sources, spikes, sil, mu_filters = model.decompose(sig=emg_data, fsamp=2048)
+    >>> spikes, sources, scores = model.fit_predict(sig=emg_data, fsamp=2048)
 
 
     """
@@ -287,9 +289,9 @@ class CBSS(_BaseCBSS):
             sil_th: float = 0.9,
             cov_th: float = 0.35,
             unmixing_format: Literal["white", "ext"] = "white",
-            match_th: float = 0.3,
-            match_max_shift: float = 0.1,
-            match_tol: float = 0.001,
+            # match_th: float = 0.3,
+            # match_max_shift: float = 0.1,
+            # match_tol: float = 0.001,
             verbose: bool = True,
             config: dict | None = None, 
         ):
@@ -304,12 +306,12 @@ class CBSS(_BaseCBSS):
         )
 
         # Default parameters
-        self.bandpass = [20, 500]
-        self.bandpass_order = 2
-        self.notch_frequency = [50]
-        self.notch_n_harmonics = 3
-        self.notch_order = 2
-        self.notch_width = 1
+        # self.bandpass = [20, 500]
+        # self.bandpass_order = 2
+        # self.notch_frequency = [50]
+        # self.notch_n_harmonics = 3
+        # self.notch_order = 2
+        # self.notch_width = 1
 
         self.random_seed = random_seed
         # self.ext_fact = ext_fact
@@ -336,10 +338,10 @@ class CBSS(_BaseCBSS):
         self.unmixing_format = unmixing_format
         #self.verbose = verbose
 
-        self.min_num_spikes = 10
-        self.match_th = match_th
-        self.match_max_shift = match_max_shift
-        self.match_tol = match_tol
+        # self.min_num_spikes = 10
+        # self.match_th = match_th
+        # self.match_max_shift = match_max_shift
+        # self.match_tol = match_tol
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
@@ -382,36 +384,10 @@ class CBSS(_BaseCBSS):
         # Initalize random number generator
         rng = np.random.seed(self.random_seed)
 
-        # Bandpass filter signals
-        if self.bandpass is not None:
-            sig = bandpass_signals(
-                sig,
-                fsamp,
-                high_pass=self.bandpass[0],
-                low_pass=self.bandpass[1],
-                order=self.bandpass_order,
-            )
-
-        # Notch filter signals
-        if self.notch_frequency is not None:
-            sig = notch_signals(
-                sig,
-                fsamp,
-                freqs=self.notch_frequency,
-                dfreq=self.notch_width,
-                order=self.notch_order,
-                #n_harmonics=self.notch_n_harmonics,
-            )
-
-
         # Extend signals and subtract the mean and cut the edges
         ext_sig = self._extension(sig)
 
         # Whiten the extended signals
-        # white_sig, self.whiten_, self.unwhiten_ = whitening(
-        #     Y=ext_sig, 
-        #     method=self.whitening_method
-        # )
         white_sig = self._whitening(ext_sig)
 
         # Initalize the output variables
@@ -426,8 +402,6 @@ class CBSS(_BaseCBSS):
         self.n_refinement_iter_ = np.zeros(self.ica_iterations, dtype=int)
         self.refinement_scores_ = {i: [] for i in range(self.ica_iterations)}
         self.peel_off_ = np.zeros(self.ica_iterations, dtype=bool)
-        #sil = np.zeros(self.ica_iterations)
-        #cov_isi = np.zeros(self.ica_iterations)
         self.unmixing_weights_ = np.zeros((white_sig.shape[0], self.ica_iterations))
 
         if self.ica_initalization == "activity_idx":
@@ -435,7 +409,8 @@ class CBSS(_BaseCBSS):
 
         # Loop over each MU
         for i in range(self.ica_iterations):
-            print(f'Iteration {i}:')
+            if self.verbose:
+                print(f'Step: FastICA iteration {i}:')
             # Initalize
             if self.ica_initalization == "random":
                 w = np.random.randn(white_sig.shape[0])
@@ -460,9 +435,6 @@ class CBSS(_BaseCBSS):
                 min_delay = self.spike_detection_min_delay
             )
             scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
-            #print(f'  - Number of fixed point iterations: {k1}')
-            print(f'  - SIL: {scores["sil"][i]}')
-            print(f'  - cov_isi: {scores["cov_isi"][i]}')
 
             # Self supervised refinement loop
             if len(spikes[i]) > self.refinement_min_spikes and self.refinement_loop:
@@ -478,12 +450,13 @@ class CBSS(_BaseCBSS):
                     min_delay = self.spike_detection_min_delay
                 )
                 scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
-                #print(f'    - Number of refinement iterations: {k2}')
-                print(f'    - SIL: {scores["sil"][i]}')
-                print(f'    - cov_isi: {scores["cov_isi"][i]}')
 
             # Save the optimized unmixing weights
             self.unmixing_weights_[:, i] = w
+
+            if self.verbose:
+                print(f'  - SIL: {scores["sil"][i]}')
+                print(f'  - cov_isi: {scores["cov_isi"][i]}')
 
             # Peel-off the detected source
             if (
@@ -495,43 +468,20 @@ class CBSS(_BaseCBSS):
                     white_sig, spikes[i], win=self.peel_off_window, fsamp=fsamp
                 )
                 self.peel_off_[i] = True
-                print('    Peel off: True')
+                if self.verbose:
+                    print('  - Peel off: True')
 
-        # Remove duplicates
-        sources, spikes, scores["sil"], self.unmixing_weights_ = remove_duplicates(
-            sources,
-            spikes,
-            scores["sil"],
-            self.unmixing_weights_,
-            fsamp,
-            max_shift=self.match_max_shift,
-            tol=self.match_tol,
-            threshold=self.match_th,
-        )
+        # Convert dict of spikes to long-formated spike table 
+        spikes = spike_dict_to_long_df(spikes)
 
-        # Remove bad sources
-        sources, spikes, scores["sil"], self.unmixing_weights_ = remove_bad_sources(
-            sources,
-            spikes,
-            scores["sil"],
-            self.unmixing_weights_,
-            threshold=self.sil_th,
-            min_num_spikes=self.min_num_spikes,
-        )
-
-        return sources, spikes, scores["sil"], self.unmixing_weights_
-    
-    def transform_weights(self):
-        """Transform the unmixing weights in the extended space"""
-
-        return self.unwhiten_ @ self.unmixing_weights_
+        return spikes, sources, scores
             
     def _fixed_point_alg(self, w, X, i):
         """
         Fixed-point algorithm to maximize sparseness of a source signal.
-        The optimization function is 
+        The optimization function is:: 
             G(x)= x * (x^2+epsilon)^{(a-1)/2} ,
-        that represents a smooth approximation of 
+        that represents a smooth approximation of:: 
             G(x) = sign(x) * abs(x)^a .
         For a = 3 this is equvivalent to maximizing skewness.
 
@@ -656,7 +606,7 @@ class CBSS(_BaseCBSS):
         self.refinement_scores_[i] = scores[:k]
 
         if self.verbose:
-            print(f'    - Number of refinement iterations: {k}')
+            print(f'  - Number of refinement iterations: {k}')
 
         return w
         
