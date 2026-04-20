@@ -1,34 +1,95 @@
 import numpy as np
+from typing import List, Literal, Optional
 from scipy.stats import skew
-from .core import extension, whitening, est_spike_times, remove_bad_sources
+from .core import (
+    extension, 
+    est_spike_times, 
+    spike_dict_to_long_df
+)
+from .cbss import _BaseCBSS
 
 
-class UpperBound:
+class UpperBound(_BaseCBSS):
     """
     Class for computing an upper bound of convolutive blind source
-    separation (cBSS) based motor neuron identification making use
-    of a known ground-truth.
+    separation (CBSS) based motor neuron identification making use
+    of known ground-truth motor unit response waveforms.
+
+    - Transform the convolutive mixture into an instantaneous mixture 
+    by adding R delayed copies of the input signal
+    - Apply a whitening transformation to the extended signals to 
+    obtain data with unit variance
+    - Obtain for each motor unit the optimal unmixing weights it's 
+    impulse response waveform 
+    - Extract the motor unit spikes using peak-detection and 
+    spike clustering
+
+    Properties
+    ----------
+        ext_fact : int , default 12
+            Extension factor
+        whitening_method : {"ZCA", "PCA", "Cholesky"}, default "ZCA" 
+            Method used for whitening
+        whitening_regularization : {"auto", float, None}, default "auto" 
+            Adds a small value to the eigenvalues for regularization. 
+            If "auto", the mean of the second half of the eigenvalues is used.
+        spike_cluster_method : {"kmeans", "gmm"}, default "kmeans" 
+            Method used to seperate motor unit spikes and background spikes. 
+            If "kmeans" the K-Means++ algorithm is applied (default), 
+            if "gmm" a Gaussian mixture model is fitted and used for clustering.      
+        verbose : float , default True
+            If True, print progress. 
+
+    Attributes
+    ----------
+        unmixing_weights_ : np.ndarray (n_features, n_components)
+            The learned unmixing weights
+        whiten_ : np.ndarray (n_features, n_features)
+            Whitening matrix   
+        unwhiten_ : np.ndarray (n_features, n_features)
+            Inverse of the whitening matrix        
+        expected_amplitudes_ : np.ndarray 
+            For each motor unit impulse response and each delay the expected 
+            spike amplitude. The algorithm selects for each motor unit
+            the maximum value.  
+
     """
 
-    def __init__(self, config=None, **kwargs):
+    def __init__(
+            self,
+            ext_fact: int = 12,
+            whitening_method: Literal["ZCA", "PCA", "Cholesky"] = "ZCA",
+            whitening_reg: str | float | None = "auto",
+            spike_detection_exp: float = 2,
+            spike_detection_min_delay: float = 0.01,
+            verbose: bool = False,
+            config: dict | None = None
+    ):
+   
+        super().__init__(
+            ext_fact = ext_fact,
+            whitening_method = whitening_method,
+            whitening_reg = whitening_reg,
+            spike_detection_exp = spike_detection_exp,
+            spike_detection_min_delay = spike_detection_min_delay,
+            verbose = verbose
+        )
         # Default parameters
-        self.ext_fact = 12
-        self.whitening_method = "ZCA"
-        self.whitening_reg = "auto"
-        self.cluster_method = "kmeans"
+        # self.ext_fact = ext_fact
+        # self.whitening_method = whitening_method
+        # self.whitening_reg = whitening_reg
+        # self.spike_detection_exp = spike_detection_exp
+        # self.spike_detection_min_delay = spike_detection_min_delay
         self.sil_th = 0.9
         self.min_num_spikes = 10
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        # Merge with directly passed keyword arguments (overwrites config)
-        params = {**config_dict, **kwargs}
-
         valid_keys = self.__dict__.keys()
 
         # Assign all parameters as attributes
-        for key, value in params.items():
+        for key, value in config_dict.items():
             if key in valid_keys:
                 setattr(self, key, value)
             else:
@@ -41,82 +102,105 @@ class UpperBound:
             else:
                 raise AttributeError(f"Invalid parameter: {key}")
 
-    def decompose(self, sig, muaps, fsamp, return_all_sources=False):
+    def fit_predict(
+            self, 
+            sig: np.ndarray, # (n_channels, n_samples) 
+            muaps: np.ndarray, # (n_mu, n_channels, n_samples)
+            fsamp: float, 
+            return_all_sources=False
+    ):
         """
         Estimate the spike response of motor neurons given the
-        motor unit action potentials (MUAPs)
+        motor unit impulse response waveforms (MUAPs)
 
-        Args:
-            sig (ndarray): Input (EMG) signal (n_channels x n_samples)
-            muaps (ndarray): MUAPs (mu_index x n_channels x duration)
-            fsamp (float): Sampling rate of the data (unit: Hz)
+        Args
+        ----
+            sig : np.ndarray 
+                Input data (n_channels x n_samples)
+            muaps : np.ndarray 
+                Impulse response waveforms (mu_index x n_channels x duration)
+            fsamp : float
+                 Sampling rate in Hz
 
-        Returns:
-            sources (np.ndarray): Estimated sources (n_mu x n_samples)
-            spikes (dict): Spiking instances of the motor neurons
-            sil (np.ndarray): Source quality metric
-            mu_filters (np.ndarray): Motor unit filters
+        Returns
+        -------
+            spikes : pd.DataFrame 
+                Spike table (columns: onset, duration, sample, unit_id, description)
+            sources : np.ndarray 
+                Estimated sources / ica components (n_components x n_samples)
+            scores : dict of np.ndarray 
+                Source trustworthiness scores ("sil" and "cov_isi") 
+        
         """
 
-        n_mu = muaps.shape[0]
-        sources = np.zeros((n_mu, sig.shape[1]))
-        spikes = {i: [] for i in range(n_mu)}
-        sil = np.zeros(n_mu)
-        # Initialize mu_filters array
-        white_dim = sig.shape[0] * self.ext_fact  # Dimension after extension
-        mu_filters = np.zeros((white_dim, n_mu))
-
         # Extend signals and subtract the mean
-        ext_sig = extension(sig, self.ext_fact)
-
-        ext_mean = np.mean(ext_sig, axis=1, keepdims=True)
-        ext_sig -= ext_mean
-
-        # Remove the edges from the exteneded signal
-        ext_sig[:, : self.ext_fact * 2] = 0
-        ext_sig[:, -self.ext_fact * 2 :] = 0
+        ext_sig = self._extension(sig)
 
         # Whiten the extended signals
-        white_sig, Z = whitening(Y=ext_sig, method=self.whitening_method)
+        white_sig = self._whitening(ext_sig)
+
+        # Init sources
+        n_mu = muaps.shape[0]
+        sources = np.zeros((n_mu, white_sig.shape[1]))
+
+        # Init spikes and scores
+        spikes = {i: [] for i in range(sources.shape[0])}
+        scores = {
+            "sil": np.zeros(n_mu),
+            "cov_isi": np.zeros(n_mu),
+        }
+        # Initialize unmixing weights
+        self.unmixing_weights_ = np.zeros((white_sig.shape[0], n_mu))
+        self.expected_amplitudes_ = np.zeros((n_mu, muaps.shape[2]))
+
+
         # Loop over each MU
         for i in np.arange(n_mu):
             # Get the optimal MU filter
-            w = self.muap_to_filter(muaps[i, :, :], ext_mean, Z)
+            w = self._get_optimal_unmixing_weights(muaps[i, :, :], i)
             # Estimate source
             sources[i, :] = w.T @ white_sig
             # Make sure the peaks are in positive direction
-            sources[i, :] = np.sign(skew(sources[i, :])) * sources[i, :]
-            spikes[i], sil[i] = est_spike_times(
-                sources[i, :], fsamp, cluster=self.cluster_method
+            sign = np.sign(skew(sources[i, :]))
+            sources[i, :] = sign * sources[i, :]
+            spikes[i], scores["sil"][i] = est_spike_times(
+                source = sources[i, :], 
+                fsamp = fsamp, 
+                a = self.spike_detection_exp,
+                min_delay = self.spike_detection_min_delay
             )
-            # Store the filter
-            mu_filters[:, i] = w
+            scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
+            # Store the unmixing weights
+            self.unmixing_weights_[:, i] = w * sign
 
-        # Remove bad sources
-        if not return_all_sources:
-            sources, spikes, sil, mu_filters = remove_bad_sources(
-                sources,
-                spikes,
-                sil,
-                mu_filters,
-                threshold=self.sil_th,
-                min_num_spikes=self.min_num_spikes,
-            )
-        return sources, spikes, sil, mu_filters
+        # Convert dict of spikes to long-formated spike table 
+        spikes = spike_dict_to_long_df(spikes)    
 
-    def muap_to_filter(self, muap, ext_mean, Z):
+        return spikes, sources, scores
+
+    def _get_optimal_unmixing_weights(
+        self, 
+        muap: np.ndarray,
+        i: int
+    ) -> np.ndarray:
         """
-        Get the optimal motor unit filter from the ground truth MUAP.
-        Therefore, the MUAP is extended and whitened. The optimal motor unit
-        filter corresponds to the column of the extended and whitened MUAP
-        that has the highest norm.
+        Get the optimal unmixing weights from the ground truth motor unit
+        impulse response waveforms (MUAP). Therefore, the MUAP is extended 
+        and whitened. The optimal unmixing weight corresponds to the column 
+        of the extended and whitened MUAP that has the highest norm.
 
-        Args:
-            MUAP (ndarray): Multichannel MUAP (n_channels x duration)
-            Z (ndarray): Whitening matrix
+        Args
+        ----
+            muap : np.ndarray 
+                Impulse response waveform (n_channels x n_samples)
+            i : int
+                Current iteration
 
-        Returns:
-            w (ndarray): Normalized motor unit filter
+        Returns
+        -------
+            w : np.ndarray 
+                Optimal unmixing weights 
+
         """
 
         # Extend the MUAP
@@ -124,7 +208,7 @@ class UpperBound:
         # ext_muap -= ext_mean
 
         # Whiten the MUAP
-        white_muap = Z @ ext_muap
+        white_muap = self.whiten_ @ ext_muap
 
         # Find the column with the largest L2 norm and return it as MUAP filter
         col_norms = np.linalg.norm(white_muap, axis=0)
@@ -134,16 +218,9 @@ class UpperBound:
         # Normalize w
         w = w / np.linalg.norm(w)
 
+        self.expected_amplitudes_[i, :] = col_norms
+
         return w
-
-    def _write_pipeline_sidecar(self):
-        """
-        Write the pipeline metadata into a json file.
-
-        """
-        # ToDo
-        pass
-
 
 def process_neuromotion_muaps(muap_cache, simulation_config):
     """
