@@ -793,6 +793,7 @@ def spike_dict_to_long_df(
     # Drop dublicates and sort by onset
     df = df.drop_duplicates(subset=["onset", "unit_id", "sample"])
     df = df.sort_values(by=["onset"])
+    df.reset_index(drop=True, inplace=True)
 
     return df
 
