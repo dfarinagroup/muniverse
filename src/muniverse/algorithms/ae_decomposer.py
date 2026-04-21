@@ -10,6 +10,7 @@ from .core import (
     extension,
     whitening,
     est_spike_times,
+    spike_dict_to_long_df,
     # remove_duplicates,
     # remove_bad_sources,
     peel_off,
@@ -57,7 +58,14 @@ class _OrthogonalEncoderSO(nn.Module):
         V = torch.matrix_exp(K)  # [din, din], guaranteed orthogonal with det=+1 if initialized near 0
         W = V[: self.dout, :]    # take first rows -> rectangular
         y = x @ W.t()            # x: [B, din] -> y: [B, dout]
-        return y, W  # return W so we can export filters later
+        return y
+    
+    @property
+    def W(self):
+        """Extract W for inspection"""
+        K = self.A - self.A.T
+        V = torch.matrix_exp(K)
+        return V[:self.dout, :]
 
 
 class _TanhshrinkLayer(nn.Module):
@@ -125,67 +133,12 @@ class _EMGAutoencoder(nn.Module):
         x: [B, Din]
         returns: x_hat [B, Din], s_hat [B, dlat], W [dlat, Din]
         """
-        y_lin, W = self.encoder(x)      # [B, dlat], [dlat, Din]
+        y_lin = self.encoder(x)      # [B, dlat], [dlat, Din]
         s_hat = self.relu(y_lin)        # nonnegative sparse spikes
         x_lin = self.decoder(s_hat)     # [B, Din]
         x_hat = self.tanhshrink(x_lin)  # denoise tiny values
 
-        return x_hat, s_hat, W
-
-
-
-# ----------------------------
-#   Main API (mirrors CBSS)
-# ----------------------------
-
-class AEDecoderConfig:
-    def __init__(self, **kwargs):
-        # Preprocessing
-        self.bandpass = [20, 500]
-        self.bandpass_order = 2
-        self.notch_frequency = 50
-        self.notch_n_harmonics = 3
-        self.notch_order = 2
-        self.notch_width = 1
-
-        # Temporal extension
-        self.ext_fact = 2  # R (paper found R=2 best)
-        # Whitening
-        self.whitening_method = "ZCA"
-        self.whitening_reg = "auto"
-
-        # Model dims
-        self.latent_dim = None  # default -> number of original channels m
-
-        # Training
-        self.epochs = 100
-        self.batch_size = 5000         # samples per batch (time-slices)
-        self.learning_rate = 8e-3
-        self.sparsity_p = 0.9
-        self.sparsity_q = 1.8
-        self.lambda_sparsity = 1.0
-        self.weight_decay = 0.0
-        self.device = "cpu"
-        self.dtype = torch.float32
-        self.random_seed = 1909
-        self.shuffle_windows = True
-
-        # Post-processing / evaluation
-        self.cluster_method = "kmeans"
-        self.sil_th = 0.9
-        self.cov_th = 0.30
-        self.min_num_spikes = 10
-        self.match_th = 0.3
-        self.match_max_shift = 0.1
-        self.match_tol = 0.001
-
-        # Optional iterative peeling (like CBSS)
-        self.enable_peel_off = True
-        self.peel_win = 0.025
-
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
+        return x_hat, s_hat
 
 class AEDecoder:
     """
@@ -197,6 +150,9 @@ class AEDecoder:
             Number of delayed copies
         ...    
 
+        latent_dim : int or None , default None
+            Dimensionality of the latent sources. If None the number
+            of EMG channels is used
         epochs : int , default 100
             TODO Describe
         batch_size : int , default 5000         
@@ -224,7 +180,12 @@ class AEDecoder:
     Attributes
     ----------
         autoencoder_ : nn.Module
-            Class for the data model 
+            Class with the data model 
+        whiten_ : np.ndarray
+            The whitening matrix
+        unwhiten_ : np.ndarray
+            The unwhietning matrix  
+        TODO Add some markers on algorithm progress      
 
     
     References
@@ -238,75 +199,100 @@ class AEDecoder:
 
     """
     def __init__(
-            self, 
-            config: AEDecoderConfig | None = None, **kwargs
+            self,
+            ext_fact: int = 2, # R (paper found R=2 best)
+            whitening_method =  "ZCA", 
+            whitening_backend = "svd",
+            whitening_reg = "auto", 
+            latent_dim: int | None = None,
+            epochs: int = 100,
+            batch_size: int = 5000 ,
+            learning_rate: float = 8e-3,
+            sparsity_p: float = 0.9,
+            sparsity_q: float = 1.8,
+            sparsity_eps: float = 1e-8,
+            lambda_sparsity: float = 1.0,
+            weight_decay: float = 0.0,
+            device: str = "cpu", # TODO Fix type
+            dtype = torch.float32, # TODO Fix type
+            random_seed: int = 1909, 
+            shuffle_windows: bool = True
+            #config: AEDecoderConfig | None = None, **kwargs
     ):
         
-        self.cfg = config if config is not None else AEDecoderConfig()
-        for k, v in kwargs.items():
-            setattr(self.cfg, k, v)
+        self.ext_fact = ext_fact
+        # Whitening
+        self.whitening_method = whitening_method
+        self.whitening_reg = whitening_reg
+        self.whitening_backend = whitening_backend
+
+        # Model dims
+        self.latent_dim = latent_dim  # default -> number of original channels m
+
+        # Training
+        self.epochs = epochs
+        self.batch_size = batch_size         # samples per batch (time-slices)
+        self.learning_rate = learning_rate
+        self.sparsity_p = sparsity_p
+        self.sparsity_q = sparsity_q
+        self.sparsity_eps = sparsity_eps
+        self.lambda_sparsity = lambda_sparsity
+        self.weight_decay = weight_decay
+        self.random_seed = random_seed
+        self.shuffle_windows = shuffle_windows
+
+
+        if isinstance(device, str):
+            self.device = torch.device(device) 
+        else:
+            device = device
+        if isinstance(dtype, str):
+            self.dtype = getattr(torch, dtype)
+        else:
+            self.dtype = dtype
 
         # For reproducibility
-        torch.manual_seed(self.cfg.random_seed)
-        np.random.seed(self.cfg.random_seed)
+        torch.manual_seed(self.random_seed)
+        np.random.seed(self.random_seed)
 
     def _to_torch(self, x: np.ndarray) -> torch.Tensor:
         """Convert numpy array to PyTorch object"""
 
-        if isinstance(self.cfg.device, str):
-            device = torch.device(self.cfg.device) 
+        if isinstance(self.device, str):
+            device = torch.device(self.device) 
         else:
-            device = self.cfg.device
+            device = self.device
 
-        if isinstance(self.cfg.dtype, str):
-            dtype = getattr(torch, self.cfg.dtype)
+        if isinstance(self.dtype, str):
+            dtype = getattr(torch, self.dtype)
         else:
-            dtype = self.cfg.dtype
+            dtype = self.dtype
         return torch.from_numpy(x).to(device=device, dtype=dtype)
 
-    def _prep_signal(self, sig: np.ndarray, fsamp: float):
-        """
-        Preprocess:
-          - bandpass / notch
-          - temporal extension
-          - mean removal & edge zeroing like CBSS
-          - whitening (returns whitened signal and whitening matrix Z)
-        """
-        # Bandpass
-        # if self.cfg.bandpass is not None:
-        #     sig = bandpass_signals(
-        #         sig, fsamp,
-        #         high_pass=self.cfg.bandpass[0],
-        #         low_pass=self.cfg.bandpass[1],
-        #         order=self.cfg.bandpass_order
-        #     )
-        # # Notch
-        # if self.cfg.notch_frequency is not None:
-        #     sig = notch_signals(
-        #         sig, fsamp,
-        #         nfreq=self.cfg.notch_frequency,
-        #         dfreq=self.cfg.notch_width,
-        #         order=self.cfg.notch_order,
-        #         n_harmonics=self.cfg.notch_n_harmonics,
-        #     )
+    def _extension(self, sig: np.ndarray):
+        """Extend and whiten the data matrix"""
 
         # Temporal extension
-        ext_sig = extension(sig, self.cfg.ext_fact)  # [m*R, T]
+        ext_sig = extension(sig, self.ext_fact)  # [m*R, T]
         ext_sig = ext_sig - np.mean(ext_sig, axis=1, keepdims=True)
 
-        # edge zeroing (like CBSS)
-        cut = self.cfg.ext_fact * 2
+        # Remove edges 
+        cut = self.ext_fact * 2
         ext_sig[:, :cut] = 0
         ext_sig[:, -cut:] = 0
 
+        return ext_sig # (n_features, n_samples)
+    
+    def _whitening(self, ext_sig: np.ndarray):
+
         # Whitening
-        white_sig, Z, Zinv = whitening(
+        white_sig, self.white_, self.unwhite_ = whitening(
             Y=ext_sig,
-            method=self.cfg.whitening_method,
-            backend="svd",
-            regularization=self.cfg.whitening_reg,
+            method=self.whitening_method,
+            backend=self.whitening_backend,
+            regularization=self.whitening_reg,
         )
-        return white_sig, Z  # shapes: [mR, T], [mR, mR]
+        return white_sig # (n_features, n_samples)
 
     def _iter_minibatches(self, Xw: torch.Tensor):
         """ 
@@ -316,44 +302,55 @@ class AEDecoder:
         """
         T = Xw.shape[0]
 
-        if self.cfg.shuffle_windows:
+        if self.shuffle_windows:
             idx = torch.randperm(T, device=Xw.device)
         else:
             idx = torch.arange(T, device=Xw.device)
 
-        for start in range(0, T, self.cfg.batch_size):
-            sel = idx[start:start + self.cfg.batch_size]
+        for start in range(0, T, self.batch_size):
+            sel = idx[start:start + self.batch_size]
             yield Xw[sel]  # already [B, Din]        
 
-    def _build_model(
+    def _init_autoencoder(
             self, 
-            din: int, 
-            m_orig: int
+            n_features: int, 
+            n_emg_ch: int
     ):
-        """Set up autoencoder model"""
+        """
+        Initalize the autoencoder model
 
-        if self.cfg.latent_dim is not None:
-            dlat = self.cfg.latent_dim
+        Args
+        ----
+            n_features : int
+                Number features of the whitened data matrix
+            n_emg_ch : int
+                Number of EMG channels. Is used as the dimension
+                of the latent space if no value is provided    
+
+        """
+
+        if self.latent_dim is not None:
+            n_latents = self.latent_dim
         else:
-            dlat = m_orig
+            n_latents = n_emg_ch
 
         self.autoencoder_ = _EMGAutoencoder(
-            din=din,
-            dlat=dlat,
-            device=self.cfg.device,
-            dtype=self.cfg.dtype
+            din=n_features,
+            dlat=n_latents,
+            device=self.device,
+            dtype=self.dtype
         )
         # Convert device to proper PyTorch object
-        if isinstance(self.cfg.device, str):
-            device = torch.device(self.cfg.device) 
+        if isinstance(self.device, str):
+            device = torch.device(self.device) 
         else:
-            device = self.cfg.device
+            device = self.device
 
         self.autoencoder_.to(device)    
 
     def _train_autoencoder(self, Xw: torch.tensor):
         """
-        Train the Autoencoder model given some training data
+        Train the Autoencoder model given training data Xw
 
         Args
         ----
@@ -366,28 +363,26 @@ class AEDecoder:
         # Set up optimizer
         optim = torch.optim.Adam(
             self.autoencoder_.parameters(),
-            lr=self.cfg.learning_rate,
-            weight_decay=self.cfg.weight_decay
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay
         )
         self.autoencoder_.train()
 
         # Loop ober data batches
-        for epoch in range(self.cfg.epochs):
+        for epoch in range(self.epochs):
             epoch_loss = 0.0
             nb = 0
             for xb in self._iter_minibatches(Xw):
                 # Reset optimizer
                 optim.zero_grad()
                 # Estimate data
-                x_hat, s_hat, _ = self.autoencoder_(xb)
+                x_hat, s_hat = self.autoencoder_(xb)
                 # Compute the reconstruction error
                 rec = F.mse_loss(x_hat, xb)
                 # Compute the sparsity penalty
-                sp = self._lp_lq_sparsity(
-                    s_hat, p=self.cfg.sparsity_p, q=self.cfg.sparsity_q
-                )
+                sp = self._lp_lq_sparsity(s_hat)
                 # Compute total loss and do optimization step
-                loss = rec + self.cfg.lambda_sparsity * sp
+                loss = rec + self.lambda_sparsity * sp
                 loss.backward()
                 optim.step()
 
@@ -405,13 +400,25 @@ class AEDecoder:
         """ Spike detection and source quality estimation"""
         n_mu = sources.shape[0]
         spikes = {i: [] for i in range(n_mu)}
-        sil = np.zeros(n_mu)
+
+        scores = {
+            "sil": np.zeros(n_mu),
+            "cov_isi": np.zeros(n_mu),
+        }
+
+        
 
         # Spike detection on each latent 
         for i in range(n_mu):
-            spikes[i], sil[i] = est_spike_times(
+            spikes[i], scores["sil"][i] = est_spike_times(
                 sources[i, :], fsamp
             )
+
+            if len(spikes[i]) > 2:
+                isi = np.diff(spikes[i] / fsamp)
+                scores["cov_isi"][i] = np.std(isi) / np.mean(isi)
+            else:
+                scores["cov_isi"][i] = np.inf
 
         # NOTE The output of the peel off seems to be never used
         # # Optional peel-off in whitened domain (helps reduce overlap influence)
@@ -428,15 +435,9 @@ class AEDecoder:
         #         )
 
 
-        return spikes, sil
+        return spikes, scores
     
-    def _lp_lq_sparsity(
-            self, 
-            s_hat: torch.Tensor, 
-            p=0.9, 
-            q=1.8, 
-            eps=1e-8
-    ):
+    def _lp_lq_sparsity(self, s_hat: torch.Tensor):
         """
         Temporal sparsity penalty: log10( (q/p) * ||s||_p / ||s||_q ), averaged over units.
         s_hat: [B, dlat]
@@ -444,19 +445,47 @@ class AEDecoder:
         """
         # Sum across batch -> a time-aggregated view for this mini-batch
         # (treat batch as temporal slices)
-        ss = torch.clamp(s_hat, min=0.0)  # already ReLU but be safe
+        s_hat = torch.clamp(s_hat, min=0.0)  # already ReLU but be safe
         # Compute norms per-unit across batch
         # Avoid zero by eps to keep gradient stable
         lp = torch.pow(torch.sum(
-            torch.pow(ss + eps, p), dim=0) + eps, 1.0 / p
+            torch.pow(s_hat + self.sparsity_eps, self.sparsity_p), dim=0) 
+            + self.sparsity_eps, 1.0 / self.sparsity_p
         )   # [dlat]
         lq = torch.pow(torch.sum(
-            torch.pow(ss + eps, q), dim=0) + eps, 1.0 / q
+            torch.pow(s_hat + self.sparsity_eps, self.sparsity_q), dim=0) 
+            + self.sparsity_eps, 1.0 / self.sparsity_q
         )   # [dlat]
-        ratio = (q / p) * (lp / (lq + eps))
-        penalty = torch.log10(ratio + eps).mean()
+        ratio = (self.sparsity_q / self.sparsity_p) * (
+            lp / (lq + self.sparsity_eps)
+        )
+        penalty = torch.log10(ratio + self.sparsity_eps).mean()
 
         return penalty
+    
+    def fit(self, sig: np.ndarray):
+        """
+        Fit the weights of the autoencoder given training data
+
+        Args
+        ----
+            sig : np.ndarray 
+                EMG data (n_channels, n_samples)
+            fsamp: float 
+                sampling frequency (Hz)
+
+
+        """
+        # Preprocess (extension + whitening) 
+        Xe = self._extension(sig) # (n_features, n_samples)
+        Xw = self._whitening(Xe)  # (n_features, n_samples)
+
+        Xw_torch = self._to_torch(Xw)
+
+        # Build and train autoencoder
+        self._init_autoencoder(
+            n_features=Xw.shape[0], n_emg_ch=sig.shape[0])
+        self._train_autoencoder(Xw_torch.T)
 
     def fit_predict(
             self, 
@@ -473,37 +502,83 @@ class AEDecoder:
 
         Returns
         -------
-            sources : ndarray 
-                Estimated latents respresenting sources (n_mu x n_samples)
-            spikes : dict 
-                Sample indices of motor neuron discharges
-            sil : np.ndarray 
-                Silhouette-like scores per source
-            mu_filters : np.ndarray 
-                Encoder filters over whitened-extended space (dlat, mR)
+            spikes : pd.DataFrame 
+                Spike table (columns: onset, duration, sample, unit_id, description)
+            sources : np.ndarray 
+                Estimated latents / sources (n_components x n_samples)
+            scores : dict of np.ndarray 
+                Source trustworthiness scores ("sil" and "cov_isi")
+
         """
-        # ---- Preprocess (extension + whitening) ----
-        Xw, Z = self._prep_signal(sig, fsamp)  # [mR, T], [mR, mR]
-        mR, T = Xw.shape
-        m = sig.shape[0]
-        Din = mR
+        # Preprocess (extension + whitening) 
+        Xe = self._extension(sig) # (n_features, n_samples)
+        Xw = self._whitening(Xe)  # (n_features, n_samples)
 
         Xw_torch = self._to_torch(Xw)
 
-        # ---- Build & train AE ----
-        self._build_model(din=Din, m_orig=m)
+        # Build and train autoencoder
+        self._init_autoencoder(
+            n_features=Xw.shape[0], n_emg_ch=sig.shape[0])
         self._train_autoencoder(Xw_torch.T)
 
-        # ---- Infer latent sources across full sequence ----
+        # Predict latent sources for the given data
         with torch.no_grad():
-            x_hat, s_hat, W = self.autoencoder_(Xw_torch.T)
+            _, s_hat = self.autoencoder_(Xw_torch.T)
 
-        sources = s_hat.transpose(0, 1).cpu().numpy()  # [dlat, T]
-        mu_filters = W.detach().cpu().numpy().T     
+        # Convert the latent sources to numpy array (n_latents, n_samples)
+        sources = s_hat.transpose(0, 1).cpu().numpy() 
 
-        # ---- Postprocess (spikes, duplicates, pruning) ----
-        spikes, sil = self._postprocess(sources, fsamp)
+        # Apply peak detection and extract quality scores
+        spikes, scores = self._postprocess(sources, fsamp)
 
-        # Match output signature of CBSS
-        # sources must be (n_mu x n_samples). Our latent 'sources' are over [T]; we already have that.
-        return sources, spikes, sil, mu_filters
+        # Convert dict of spikes to long-formated spike table 
+        spikes = spike_dict_to_long_df(spikes)
+
+        return spikes, sources, scores
+    
+    def predict(
+            self, 
+            sig: np.ndarray, 
+            fsamp: float
+    ):
+        """
+        Predict motor unit spikes based on the trained autoencoder
+        model given some data. 
+
+        Args
+        ----
+            sig : np.ndarray 
+                EMG data (n_channels, n_samples)
+            fsamp: float 
+                sampling frequency (Hz)
+
+        Returns
+        -------
+            spikes : pd.DataFrame 
+                Spike table (columns: onset, duration, sample, unit_id, description)
+            sources : np.ndarray 
+                Estimated latents / sources (n_components x n_samples)
+            scores : dict of np.ndarray 
+                Source trustworthiness scores ("sil" and "cov_isi")
+
+        """
+        # Preprocess (extension + whitening) 
+        Xe = self._extension(sig)
+        Xw = self.white_ @ Xe 
+
+        Xw_torch = self._to_torch(Xw)
+
+        # Predict latent sources for the given data
+        with torch.no_grad():
+            _, s_hat = self.autoencoder_(Xw_torch.T)
+
+        # Convert the latent sources to numpy array (n_latents, n_samples)
+        sources = s_hat.transpose(0, 1).cpu().numpy() 
+
+        # Apply peak detection and extract quality scores
+        spikes, scores = self._postprocess(sources, fsamp)
+
+        # Convert dict of spikes to long-formated spike table 
+        spikes = spike_dict_to_long_df(spikes)
+
+        return spikes, sources, scores

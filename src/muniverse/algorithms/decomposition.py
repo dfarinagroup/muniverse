@@ -21,7 +21,7 @@ import pandas as pd
 from ..utils.logging import AlgorithmLogger
 from .cbss import CBSS
 from .upperbound import UpperBound
-from .ae_decomposer import AEDecoder, AEDecoderConfig
+from .ae_decomposer import AEDecoder #, AEDecoderConfig
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
