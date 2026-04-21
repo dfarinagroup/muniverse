@@ -10,7 +10,34 @@ from .core import (
 )
 
 class _BaseCBSS():
-    """Base class for CBSS-based motor unit idendification"""
+    """
+    
+    Base class for CBSS-based motor unit idendification
+
+    Properties
+    ----------
+
+        ext_fact : int , default 12
+            Extension factor
+
+        whitening_method : {"ZCA", "PCA", "Cholesky"}, default "ZCA" 
+            Method used for whitening
+
+        whitening_regularization : {"auto", float, None}, default "auto" 
+            Adds a small value to the eigenvalues for regularization. 
+            If "auto", the mean of the second half of the eigenvalues is used.
+
+        spike_detection_exp : float , default 2
+            Exponent of asymetric power law applied to the extracted sources
+            before spike detection
+
+        spike_detection_min_delay : float , default 0.01
+            Minimum distance between two detected spikes in seconds  
+
+        verbose : bool , default True
+            Verbose mode     
+    
+    """
 
     def __init__(
             self,
@@ -100,6 +127,7 @@ class _BaseCBSS():
         ----
             sig : np.ndarray 
                 Input (EMG) signal (n_channels x n_samples)
+
             fsamp : float 
                 Sampling frequency in Hz  
 
@@ -107,8 +135,10 @@ class _BaseCBSS():
         -------
             spikes : pd.DataFrame 
                 Spike table (columns: onset, duration, sample, unit_id, description)
+
             sources : np.ndarray 
                 Estimated sources / ica components (n_components x n_samples)
+
             scores : dict of np.ndarray 
                 Source trustworthiness scores ("sil" and "cov_isi")
         
@@ -173,90 +203,120 @@ class CBSS(_BaseCBSS):
 
     Properties
     ----------
+
         random_seed : int , default 1909 
             Seed of the random number generator.
+
         ext_fact : int , default 12
-            Extension factor
+            Number of delayed copies in the extended signal
+
         whitening_method : {"ZCA", "PCA", "Cholesky"}, default "ZCA" 
             Method used for whitening
+
         whitening_regularization : {"auto", float, None}, default "auto" 
             Adds a small value to the eigenvalues for regularization. 
             If "auto", the mean of the second half of the eigenvalues is used.
+
         spike_detection_exp : float , default 2
             Exponent of asymetric power law applied to the extracted sources
             before spike detection
+            
         spike_detection_min_delay : float , default 0.01
             Minimum distance between two detected spikes in seconds   
         ica_iterations : int , default 100
             Number of fastICA runs, i.e., maximum number of extracted sources.
+
         ica_initalization : {"random", "activity_idx"}, default "random" 
             Initalization method of the fastICA fixed-point algorithm. 
             Either drawn from a Gaussian distribution ("random") or using the 
             time instances with maximum column norms ("activity_idx").
+
         ica_opt_fun_exp : float , default 3
             Exponent a of the loss function g(x)=x * (x^2 + epsilon)^((a-1)/2) 
             representing a smooth approximation of g(x) = sign(x) * abs(x)**a. 
+
         ica_opt_fun_eps : float , default 1e-3
             Epsilon used in the loss function.    
+
         ica_max_iter : int , default 100
             Maximum number of iterations for the fastICA fixed-point algorithm.  
+
         ica_tol : float , default 1e-4 
             Convergence criterion for the fastICA fixed-point algorithm. Stops if 
             the dot product between the current and previous unmixing weights 
             minus 1 is less than the tolerance value.
+
         ica_orthogonalization : {"gram-schmidt", "projection_deflation",  None}, default "gram-schmidt"
             Method used to avoid repeaded convergence to the same source in 
             the fastICA fixed point algorithm.  
+
         refinement_loop : bool , default True
             If True, the unmixing weights w are updated through self-supervised 
             learning. The updated unmixing weights are the mean of the 
             whitened signal at the detected spikes.
+
         refinement_loss : {"cov_isi", "sil"}, default "cov_isi"
             Metric used as optimization loss in the refinement loop. Can be either
             minimizing the coefficient of variation (Cov) of the interspike 
             interalls ("cov_isi") or maximizing the silhouette score ("sil"). 
+
         refinement_max_iter : int , default 100
             Maximum number of iterations of the refinement loop
+
         refinement_min_spikes : int , default 10
             Only enter the refinement loop if the number of detected spikes is 
             above the given threshold.        
+
         peel_off : bool , default True
             If True, the contribution of identified sources is subtraced 
             from the whitened signal. 
+
         peel_off_window : float , default 0.025
             Duration of the window used to peel off contributions from 
             detected sources (in seconds).    
-        sil_th : float , default 0.9
-            Classify sources into good (score above sil_th) or bad based 
-            on a pseudo silhouette score.
-        cov_th : float , default 0.35
-            Classify sources into good (scores below cov_th) or bad based 
-            on the coefficient of variation of the interspike intevalls.    
-        verbose : float , default True
-            If True, print progress. 
+
+        peel_of_sil_th : float , default 0.9
+            Only apply peel off if the source score is above the given
+            threshold value
+
+        peel_of_cov_th : float , default 0.35
+            Only apply peel off if the source score is below the given
+            threshold value
+
+        verbose : bool , default True
+            Verbose mode
 
     Attributes
     ----------
+
         unmixing_weights_ : np.ndarray (n_features, n_components)
             The learned unmixing weights
+
         whiten_ : np.ndarray (n_features, n_features)
             Whitening matrix   
+
         unwhiten_ : np.ndarray (n_features, n_features)
-            Inverse of the whitening matrix        
+            Inverse of the whitening matrix    
+
         n_fixed_point_iter_ : np.ndarray of int
             Number of iterations in the fixed point algorithm  
+
         fixed_point_deltas_ : np.ndarray
             Cosine distance between two fixed point updates
+
         n_refinement_iter_ : np.ndarray of int
             Number of iterations in the fixed point algorithm  
+
         refinement_scores_ : np.ndarray
             Score at each refinement iteration
+
         peel_off_ : np.ndarray of bool
             Whether a source was peeled off or not     
 
 
     Example
     -------
+
     Init CBSS class using the default parameters and run decomposition.
     >>> model = CBSS() 
     >>> spikes, sources, scores = model.fit_predict(sig=emg_data, fsamp=2048)
@@ -286,12 +346,8 @@ class CBSS(_BaseCBSS):
             refinement_min_spikes: int = 10,
             peel_off: bool = True,
             peel_off_window: float = 0.025,
-            sil_th: float = 0.9,
-            cov_th: float = 0.35,
-            unmixing_format: Literal["white", "ext"] = "white",
-            # match_th: float = 0.3,
-            # match_max_shift: float = 0.1,
-            # match_tol: float = 0.001,
+            peel_off_sil_th: float = 0.9,
+            peel_off_cov_th: float = 0.35,
             verbose: bool = True,
             config: dict | None = None, 
         ):
@@ -305,21 +361,7 @@ class CBSS(_BaseCBSS):
             verbose = verbose
         )
 
-        # Default parameters
-        # self.bandpass = [20, 500]
-        # self.bandpass_order = 2
-        # self.notch_frequency = [50]
-        # self.notch_n_harmonics = 3
-        # self.notch_order = 2
-        # self.notch_width = 1
-
         self.random_seed = random_seed
-        # self.ext_fact = ext_fact
-        # self.whitening_method = whitening_method
-        # self.whitening_reg = whitening_reg
-        # self.spike_detection_exp = spike_detection_exp
-        # self.spike_detection_min_delay = spike_detection_min_delay
-        #self.spike_cluster_method = spike_cluster_method
         self.ica_iterations = ica_iterations
         self.ica_initalization = ica_initalization
         self.ica_opt_fun_exp = ica_opt_fun_exp
@@ -333,15 +375,8 @@ class CBSS(_BaseCBSS):
         self.refinement_max_iter = refinement_max_iter
         self.peel_off = peel_off
         self.peel_off_window = peel_off_window
-        self.sil_th = sil_th
-        self.cov_th = cov_th
-        self.unmixing_format = unmixing_format
-        #self.verbose = verbose
-
-        # self.min_num_spikes = 10
-        # self.match_th = match_th
-        # self.match_max_shift = match_max_shift
-        # self.match_tol = match_tol
+        self.peel_off_sil_th = peel_off_sil_th
+        self.peel_off_cov_th = peel_off_cov_th
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
@@ -366,19 +401,21 @@ class CBSS(_BaseCBSS):
         ----
             sig : np.ndarray 
                 Input (EMG) signal (n_channels x n_samples)
+
             fsamp : float 
                 Sampling frequency in Hz
 
         Returns
         -------
-            sources : np.ndarray 
-                Estimated sources / ica components (n_components x n_samples)
             spikes : dict 
                 Sample indices of motor neuron discharges
-            sil : np.ndarray 
-                Pseudo-silhouette scores of the estimated sources
-            unmixing_weights : np.ndarray 
-                Learned weights of the unmixing matrix
+
+            sources : np.ndarray 
+                Estimated sources / ica components (n_components x n_samples)
+            
+            scores : dict
+                Dictonary of source quality scores ("sil" and "cov_isi")
+
         """
 
         # Initalize random number generator
@@ -461,8 +498,8 @@ class CBSS(_BaseCBSS):
             # Peel-off the detected source
             if (
                 self.peel_off 
-                and scores["sil"][i] > self.sil_th 
-                and scores["cov_isi"][i] < self.cov_th
+                and scores["sil"][i] > self.peel_off_sil_th 
+                and scores["cov_isi"][i] < self.peel_off_cov_th
                 ):
                 white_sig, _, _ = peel_off(
                     white_sig, spikes[i], win=self.peel_off_window, fsamp=fsamp
@@ -470,6 +507,9 @@ class CBSS(_BaseCBSS):
                 self.peel_off_[i] = True
                 if self.verbose:
                     print('  - Peel off: True')
+            else:
+                if self.verbose:
+                    print('  - Peel off: False')
 
         # Convert dict of spikes to long-formated spike table 
         spikes = spike_dict_to_long_df(spikes)
@@ -487,7 +527,7 @@ class CBSS(_BaseCBSS):
 
         Args
         ----
-            w : np.ndarray) 
+            w : np.ndarray
                 Initial unmixing weight vector (n_channels,)
             X : np.ndarray 
                 Whitened signal (n_channels x n_samples)
