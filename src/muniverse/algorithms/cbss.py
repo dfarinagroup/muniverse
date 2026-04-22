@@ -443,6 +443,7 @@ class FastIcaCBSS(_BaseCBSS):
         scores = {
             "sil": np.zeros(self.ica_iterations),
             "cov_isi": np.zeros(self.ica_iterations),
+            "ica_target": np.zeros(self.ica_iterations)
         }
         self.n_fixed_point_iter_ = np.zeros(self.ica_iterations, dtype=int)
         self.fixed_point_deltas_ = {i: [] for i in range(self.ica_iterations)}
@@ -482,6 +483,7 @@ class FastIcaCBSS(_BaseCBSS):
                 min_delay = self.spike_detection_min_delay
             )
             scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
+            scores["ica_target"][i] = self._get_ica_loss(sources[i,:])
 
             # Self supervised refinement loop
             if len(spikes[i]) > self.refinement_min_spikes and self.refinement_loop:
@@ -497,6 +499,7 @@ class FastIcaCBSS(_BaseCBSS):
                     min_delay = self.spike_detection_min_delay
                 )
                 scores["cov_isi"][i] = self._calc_cov_isi(spikes[i], fsamp)
+                scores["ica_target"][i] = self._get_ica_loss(sources[i,:])
 
             # Save the optimized unmixing weights
             self.unmixing_weights_[:, i] = w
@@ -669,4 +672,14 @@ class FastIcaCBSS(_BaseCBSS):
             score = 1 - scores_i["sil"]
 
         return score
+    
+    def _get_ica_loss(self, wTX):
+        """Compute the score of the ICA optimization function"""
+        G = np.mean(
+                wTX * (
+                wTX**2 + self.ica_opt_fun_eps
+                )**((self.ica_opt_fun_exp - 1) / 2)
+            )
+        
+        return G
        
