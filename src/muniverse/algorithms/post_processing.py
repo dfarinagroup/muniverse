@@ -120,6 +120,7 @@ class PostProcessSpikes:
         quality_metric: str = "sil"
         window: tuple[float, float] = (0, -1)
         mode: Literal["max", "min"] = "max"
+        description: str = "Duplicate source"
 
     class BadSourceDetection(BaseModel):
         step: Literal["bad_source_detection"]
@@ -127,10 +128,12 @@ class PostProcessSpikes:
         threshold: float = 0.9
         min_spikes: int = 10
         mode: Literal["above", "below"] = "below" 
+        description: str = "Below quality threshold"
 
     class MaskSources(BaseModel):
         step: Literal["mask_sources"]
-        unit_ids: list[int] = []        
+        unit_ids: list[int] = []  
+        description: str = "Manually masked"      
                           
     PostProcessStep = Annotated[
         Union[
@@ -157,6 +160,7 @@ class PostProcessSpikes:
         sources,
         scores,
         fsamp,
+        unit_status,
         source_mask
     ):
 
@@ -167,7 +171,7 @@ class PostProcessSpikes:
                     f"The slected qaulity metric {step.quality_metric} is not defined"
                 )
 
-            local_mask = get_duplicates_mask(
+            local_mask, new_labels = get_duplicates_mask(
                 spikes=spikes,
                 scores=scores[step.quality_metric],
                 fsamp=fsamp,
@@ -180,6 +184,11 @@ class PostProcessSpikes:
                 mask=source_mask
             )
             source_mask = source_mask & local_mask
+            unit_status.loc[~local_mask, "status"] = "masked"
+            unit_status.loc[
+                ~local_mask, "status_description"
+            ] = step.description
+            unit_status["unit_id"] = new_labels.astype(int)
 
         elif isinstance(step, self.BadSourceDetection):
 
@@ -196,14 +205,22 @@ class PostProcessSpikes:
                 min_num_spikes=step.min_spikes
             )
             source_mask = source_mask & local_mask
+            unit_status.loc[~local_mask, "status"] = "masked"
+            unit_status.loc[
+                ~local_mask, "status_description"
+            ] = step.description
         elif isinstance(step, self.MaskSources):
 
             n_source = len(spikes["unit_id"].unique())
             local_mask = np.ones(n_source, dtype=bool)
             local_mask[step.unit_ids] = False
             source_mask = source_mask & local_mask
+            unit_status.loc[~local_mask, "status"] = "masked"
+            unit_status.loc[
+                ~local_mask, "status_description"
+            ] = step.description
 
-        return source_mask   
+        return source_mask, unit_status   
 
     def post_process(
             self, 
@@ -219,67 +236,80 @@ class PostProcessSpikes:
 
         Args
         ----
-            data : np.ndarray (n_channels x n_samples)
+            data : np.ndarray (n_channels, n_samples)
                 EMG data 
             spikes : pd.DataFrame
-                Lits of motor unit spikes    
+                Table of motor unit spikes    
             fsamp : float 
                 Sampling rate in Hz
             scores : dict or None 
-                Dictonary of source quality scores     
-            sources : np.ndarray or None (n_sources x n_samples)
+                A Dictonary of source quality scores     
+            sources : np.ndarray (n_units, n_samples) or None 
                 The predicted sources
-            unmixing_weights: np.ndarray or None , default None
-                Weights of the unmixing matrix 
-            whitening_matrix : np.ndarray or None , default None
-                Whitening matrix 
-            unmixing_format : {"white", "extended"} , default "white"    
-                Format in which the unmixing weights are provided
-
-
 
         Returns
         -------
-            data (np.ndarray): Pre-prcessed time series data (n_channels x n_samples)
-            metadata (dict): TODO    
+            spikes : pd.DataFrame
+                Table of motor unit spikes
+            sources : np.ndarray (n_units, n_samples)
+                The predicted sources / latents
+            score : dict
+                A dictonary of source quality scores    
+            metadata : dict
+                A dictonary of processing metadata     
         
         """
 
-        metadata = {}
-        metadata["fsamp_out"] = fsamp
-
         # Mask bad sources
-        n_sources = sources.shape[0]
-        source_mask = np.ones(n_sources, dtype=bool)
+        n_units = len(spikes["unit_id"].unique())
+        source_mask = np.ones(n_units, dtype=bool)
+
+        unit_status = pd.DataFrame({
+            "orig_unit_id": [i for i in range(n_units)],
+            "status": ["good"] * n_units,
+            "status_description": ["n/a"] * n_units,
+            "unit_id": [i for i in range(n_units)]
+        })
 
         if self.steps is not None:
             for step in self.steps:
 
-                source_mask = self._apply_base_step(
+                source_mask, unit_status = self._apply_base_step(
                     step = step,
                     spikes = spikes,
                     sources = sources,
                     scores = scores,
                     fsamp = fsamp,
+                    unit_status= unit_status,
                     source_mask = source_mask
                 )
-        
-        new_spikes, label_map = filter_spikes(spikes, source_mask)
-        new_sources = sources[source_mask, :]
-        new_scores = {
-            "sil": scores["sil"][source_mask],
-            "cov_isi": scores["cov_isi"][source_mask]
-        }
-        self.unmixing_weights_ = self.unmixing_weights_[:, source_mask]
 
- 
-        return new_spikes, new_sources, new_scores
+        # Package the applied processing steps
+        steps = [step.model_dump() for step in self.steps] 
+
+        metadata = {
+            "fsamp": fsamp,
+            "source_mask": source_mask,
+            "unit_status": unit_status,
+            "steps": steps
+        }
+              
+        new_spikes, _ = filter_spikes(spikes, source_mask)
+        new_sources = sources[source_mask, :]
+        new_scores = {}
+        for k, v in scores.items():
+            if isinstance(v, np.ndarray) and v.shape[0] == len(source_mask):
+                new_scores[k] = v[source_mask]
+            else:
+                new_scores[k] = v
+        
+        return new_spikes, new_sources, new_scores, metadata
     
 
 class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
     """
     
-    Class to post process motor unit spike trains making
+    Class to post process motor unit spike trains and
     integrating the CBSS framework 
     
     Parameters
@@ -412,7 +442,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         if t_start < 0:
             t_start = 0    
         t = np.linspace(0, duration, data.shape[1])
-        sample_idx = np.argwhere((t >= t_start) & (t <= t_end)).flatten()
+        sample_idx = (t >= t_start) & (t <= t_end)
 
         return sample_idx     
 
@@ -428,7 +458,31 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             spikes: pd.DataFrame, 
             fsamp: float, 
         ):
-        """Calculate the unmixng weights from data and spikes"""
+        """
+        Supervised fitting of a CBSS model given EMG
+        data and motor unit spike labels
+
+        Args
+        ----
+            sig : np.ndarray (n_channels, n_samples)
+                EMG data matrix
+            spikes : pd.DataFrame
+                Table of motor unit spike labels
+            fsamp : float
+                Sampling rate in Hz
+
+        Returns
+        -------
+            spikes : pd.DataFrame 
+                Table of motor unit spikes (can be temporally shifted)
+            sources : np.ndarray 
+                Estimated sources / ica components (n_components, n_samples)     
+            scores : dict
+                Dictonary of source quality scores            
+
+        
+        
+        """
 
         ext_sig = self._extension(sig)
 
@@ -471,7 +525,11 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         return new_spikes, sources, scores
 
     def _optimze_delay(self, X, spikes, fsamp):
-        """Helper function"""
+        """
+        Helper function to find optimal delay for 
+        a set of motor unit spike labels
+        
+        """
 
         if self.max_spike_shifts == 0:
             delays = [0]
@@ -541,11 +599,17 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
                 Format in which the unmixing weights are provided
 
 
-
         Returns
         -------
-            data (np.ndarray): Pre-prcessed time series data (n_channels x n_samples)
-            metadata (dict): TODO    
+            spikes : pd.DataFrame
+                Table of motor unit spikes
+            sources : np.ndarray (n_units, n_samples)
+                The predicted sources / latents
+            score : dict
+                A dictonary of source quality scores    
+            metadata : dict
+                A dictonary of processing metadata     
+           
         
         """
 

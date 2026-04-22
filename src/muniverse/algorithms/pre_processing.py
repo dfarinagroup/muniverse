@@ -513,8 +513,10 @@ class PreProcessEMG:
                     n_samples = data.shape[1]
                     t = np.linspace(0, (n_samples-1) / fsamp_new, n_samples)
                     if step.t_end == -1:
-                        step.t_end = (n_samples - 1) / fsamp
-                    sample_mask = (t >= step.t_start) & (t <= step.t_end)
+                        t_end = (n_samples - 1) / fsamp
+                    else:
+                        t_end = step.t_end
+                    sample_mask = (t >= step.t_start) & (t <= t_end)
                     t_start = t_start
                 elif isinstance(step, self.GetMetric):
                     if step.window is not None:
