@@ -451,25 +451,26 @@ def decompose_cbss(
         # Map spikes and sources to gloabl time
         sources = np.zeros((seg_sources.shape[0], data.shape[1]))
         sources[:, pre_meta["sample_mask"]] = seg_sources
-        if pre_meta["t_start"] > 0:
-            spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
 
-        if "postProcessingConfig" in algo_cfg.keys():
-            steps = algo_cfg["postProcessingConfig"]   
-        else:
-            steps = []
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
 
-        spikes, sources, scores, post_meta, return_code = _post_process_spikes(
-            spikes, sources, scores, pre_meta["fsamp"], steps
-        )
-        # Update the logger
-        logger.set_return_code(return_code["name"], return_code["value"])
-        if return_code["value"] == 0:
-            for step in pre_meta["steps"]:
-                logger.add_processing_step(
-                    step_name="PostProcessing",
-                    details=step
-                )    
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
 
 
         # Prepare results
@@ -477,13 +478,10 @@ def decompose_cbss(
             "data": data,
             "sources": sources, 
             "spikes": spikes, 
-            "scores": scores
+            "scores": scores,
+            "pre_process_meta": pre_meta,
+            "post_process_meta": post_meta
         }
-        if "preProcessingConfig" in algo_cfg.keys():
-            results["pre_process_meta"] = pre_meta
-        if "postProcessingConfig" in algo_cfg.keys():
-            results["post_process_meta"] = post_meta
-
 
         # Always finalize logger to ensure metadata is captured
         logger.finalize()
@@ -539,83 +537,79 @@ def decompose_ae(
     else:
         logger.set_input_data(file_name="numpy_array", file_format="npy")
 
-    # Load config
-    if algorithm_config:
-        algo_cfg = algorithm_config.get("Config", algorithm_config)
-        logger.set_algorithm_config(algo_cfg)
+    # Load and set algorithm configuration
+    algo_cfg = _get_config(algorithm_config, "ae")
+    logger.set_algorithm_config(algo_cfg)
+
+    # Get the sampling rate
+    fsamp = algo_cfg["sampling_frequency"]
+
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
     else:
-        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
-        config_path = config_dir / "ae.json"
-        if not config_path.exists():
-            raise FileNotFoundError(f"Default AE config not found at {config_path}")
-        algo_cfg = load_config(str(config_path))
-        logger.set_algorithm_config(algo_cfg)
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(data, steps, fsamp)  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            )    
 
-    try:
-
-        # Apply preprocessing steps
-        if "preProcessingConfig" in algo_cfg.keys():
-            pre_module = PreProcessEMG(steps=algo_cfg["preProcessingConfig"])
-            data, pre_meta = pre_module.pre_process(
-                data=data, fsamp=algo_cfg["sampling_frequency"]
-            )
-
-            for step in pre_meta["steps"]:
-                logger.add_processing_step(
-                    step_name=step["step"],
-                    details=step
-                )
-            
-            # Get the data segment relevant for decomposition
-            segmented_data = _segment_data(
-                data, pre_meta["ch_mask"], pre_meta["sample_mask"]
-            )
-        else:
-            segmented_data = data  
-
-        # Run AE
-        model = AEDecoder(config=SimpleNamespace(**algo_cfg["algorithmConfig"]))
-        spikes, sources, scores = model.fit_predict(
-            sig=segmented_data, fsamp=pre_meta["fsamp"]
+    # Run CBSS decomposition
+    spikes, seg_sources, scores, model, return_code = _run_ae(
+        segmented_data, 
+        pre_meta["fsamp"], 
+        SimpleNamespace(**algo_cfg["algorithmConfig"])
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="FastIcaCBSS",
+            details=algo_cfg["algorithmConfig"]
         )
 
-        # Apply post processing
-        if "postProcessingConfig" in algo_cfg.keys():
-            post_module = PostProcessSpikes(steps=algo_cfg["postProcessingConfig"])
-            spikes, sources, scores, post_meta = post_module.post_process(
-                spikes=spikes, 
-                fsamp=pre_meta["fsamp"], 
-                scores=scores, 
-                sources=sources
-            )
+    # Apply post processing
+    if seg_sources is not None:
+        # Map spikes and sources to gloabl time
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
 
-            for step in post_meta["steps"]:
-                logger.add_processing_step(
-                    step_name=step["step"],
-                    details=step
-                )
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
 
         # Prepare results
         results = {
             "data": data,
             "sources": sources, 
             "spikes": spikes, 
-            "scores": scores
+            "scores": scores,
+            "pre_process_meta": pre_meta,
+            "post_process_meta": post_meta
         }
-        if "preProcessingConfig" in algo_cfg.keys():
-            results["pre_process_meta"] = pre_meta
-        if "postProcessingConfig" in algo_cfg.keys():
-            results["post_process_meta"] = post_meta
 
-        logger.set_return_code("ae_decomposer", 0)
-        print("[INFO] AE decomposition completed successfully")
-
-    except Exception as e:
-        print(f"[ERROR] AE decomposition failed: {e}")
-        logger.set_return_code("ae_decomposer", 1)
-        results = {"sources": None, "spikes": {}, "silhouette": None, "mu_filters": None}
-
-    finally:
         # Always finalize logger to ensure metadata is captured
         logger.finalize()
     
@@ -806,7 +800,7 @@ def _run_ae(data, fsamp, cfg):
         scores = None
         model = None     
 
-    return spikes, sources, scores, model
+    return spikes, sources, scores, model, return_code
 
 def _pre_process_data(data, steps, fsamp):
     """Preprocess EMG Data"""
