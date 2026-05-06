@@ -1,9 +1,9 @@
 """
-High-level wrapper functions for EMG decomposition with logging.
+High-level wrapper functions for EMG decomposition pipelines with logging.
 
 These functions never raise exceptions. They always return (results, log_data),
-even on failure. Failed decompositions return {"sources": None, ...} with logs containing
-error details. Callers could check if results["sources"] is None to detect failures.
+even on failure. Failed decompositions return {"spikes": None, ...} with logs containing
+error details. Callers could check if results["spikes"] is None to detect failures.
 """
 
 import json
@@ -39,44 +39,68 @@ def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, "r") as f:
         return json.load(f)
     
-def _segment_data(data, ch_mask, sample_mask):
-    """Helper function to segment data """
-
-    segmented = data
-
-    if ch_mask is not None:
-        segmented = data[ch_mask, :]
-    if sample_mask is not None:    
-        segmented = segmented[:, sample_mask]
-
-    return segmented
-
 def decompose_scd(
     data: np.ndarray,
+    fsamp: float,
     algorithm_config: Optional[Dict] = None,
     engine: Literal["local", "docker", "singularity"] = "singularity",
     container: str = "environment/muniverse_scd.sif",
     metadata: Optional[Dict] = None
 ) -> Tuple[Dict, Dict]:
     """
-    Run SCD decomposition using container.
+    API to run SCD decomposition using a container or a local installation.
 
-    Args:
-        data: numpy array of EMG data (channels x samples)
-        algorithm_config: Optional dictionary containing algorithm configuration
-        engine: Container engine to use ("docker", "singularity" or "local")
-        container: Path to container image
-        metadata: Optional dictionary containing input data metadata for logging
-        repo_path: If SCD runs on your native OS provide the path to the folder hosting the code
-        conda_env: If SCD runs on your native OS specify which conda environment to be used
+    Args
+    ----
+        data : np.ndarray
+            EMG data (n_channels, n_samples)
 
-    Returns:
-        Tuple containing:
-        - Dictionary with decomposition results containing:
-          * sources: Estimated sources
-          * spikes: Spike timing dictionary
-          * silhouette: Quality metrics (if available)
-        - Dictionary with processing metadata
+        fsamp : float
+            Sampling rate in Hz
+
+        algorithm_config : dict 
+            Optional dictionary containing algorithm configuration
+
+        engine : {"docker", "singularity", "local"} , default "singularity"
+            Engine/container used to execute SCD. If "local" SCD is 
+            executed using your local installation (pip installed).
+
+        container : str
+             Path to container image
+
+        metadata: dict 
+            Optional dictionary containing metadata for logging
+
+
+    Returns
+    -------
+        results : dict
+            Dictonary with decomposition results containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log_data : dict
+            Dictionary with processing metadata    
+
+    References
+    ----------
+    .. [1] Grison et et al., "A Particle Swarm Optimised Independence Estimator 
+           for Blind Source Separation of Neurophysiological Time Series",
+           IEEE Transactions on Biomedical Engineering, 2024 
+    .. [2] Grison et et al., "Unlocking the full potential of high-density surface EMG: 
+           novel non-invasive high-yield motor unit decomposition",
+           The Journal of Physiology, 2025        
+    .. [3] Mamidanna et et al., "MUniverse: A Simulation and Benchmarking 
+           Suite for Motor Unit Decomposition", The Thirty-ninth Annual 
+           Conference on Neural Information Processing Systems 
+           Datasets and Benchmarks Track, 2025         
+
     """
     # Initialize logger
     logger = AlgorithmLogger()
@@ -119,9 +143,6 @@ def decompose_scd(
     algo_cfg = _get_config(algorithm_config, "scd")
     logger.set_algorithm_config(algo_cfg)
 
-    # Get the sampling rate
-    fsamp = algo_cfg["sampling_frequency"]    
-
     # Run preprocessing module
     if "preProcessingConfig" in algo_cfg.keys():
         steps = algo_cfg["preProcessingConfig"]
@@ -140,11 +161,17 @@ def decompose_scd(
     # Run SCD decomposition
     if engine == "local":
         spikes, seg_sources, scores, return_code = _run_scd_local(
-            segmented_data, fsamp, algo_cfg["algorithmConfig"]
+            data=segmented_data, 
+            fsamp=pre_meta["fsamp"], 
+            algo_cfg=algo_cfg["algorithmConfig"]
         )
     else:
         spikes, seg_sources, scores, return_code =_run_scd_container(
-            segmented_data, fsamp, algo_cfg["algorithmConfig"], engine, container
+            data=segmented_data, 
+            fsamp=pre_meta["fsamp"], 
+            algo_cfg=algo_cfg["algorithmConfig"], 
+            engine=engine, 
+            container=container
         )
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
@@ -182,15 +209,15 @@ def decompose_scd(
                 details=step
             )    
 
-        # Prepare results
-        results = {
-            "data": data,
-            "sources": sources, 
-            "spikes": spikes, 
-            "scores": scores,
-            "pre_process_meta": pre_meta,
-            "post_process_meta": post_meta
-        }   
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }   
 
     # Always finalize logger to ensure metadata is captured
     if engine == "local":
@@ -204,6 +231,7 @@ def decompose_scd(
 def decompose_upperbound(
     data: np.ndarray,
     muaps: np.ndarray,
+    fsamp: float,
     algorithm_config: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
 ) -> Tuple[Dict, Dict]:
@@ -214,10 +242,16 @@ def decompose_upperbound(
     ----
         data : np.ndarray (n_channels, n_samples)
             EMG data 
+
         muaps : np.ndarray (n_units, n_channels, n_samples)
-            Impulse response waveforms for each motor unit    
+            Impulse response waveforms for each motor unit   
+
+        fsamp : float
+            Sampling rate in Hz     
+
         algorithm_config : dict (Optional) 
             Dictonary with the pipeline configuration
+
         metadata: dict (Optional)
             Optional dictionary containing input data metadata for logging
 
@@ -233,10 +267,10 @@ def decompose_upperbound(
                 pre processing steps (Optional)
                 - post_process_metadata (dict): Metadata correspoding to
                 post processing steps (Optional)
+
         log : dict
             Dictonary of processing metadata        
-        model : UpperBoundCBSS
-            The model used for decomposition    
+ 
     """
     # Initialize logger
     logger = AlgorithmLogger()
@@ -264,107 +298,136 @@ def decompose_upperbound(
         algo_cfg = load_config(str(algorithm_config_path))
         logger.set_algorithm_config(algo_cfg)
 
-    try:
 
-        # Validate muaps format
-        if muaps.ndim != 3:
-            raise ValueError(
-                "MUAPs must be a 3D array (n_motor_units x n_channels x duration)"
+    # Validate muaps format
+    if muaps.ndim != 3:
+        raise ValueError(
+            "MUAPs must be a 3D array (n_units, n_channels, n_samples)"
             )
         
-        # Apply preprocessing steps
-        if "preProcessingConfig" in algo_cfg.keys():
-            pre_module = PreProcessEMG(steps=algo_cfg["preProcessingConfig"])
-            data, pre_meta = pre_module.pre_process(
-                data=data, fsamp=algo_cfg["sampling_frequency"]
-            )
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(
+        data=data, 
+        steps=steps, 
+        fsamp=fsamp
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            ) 
 
-            for step in pre_meta["steps"]:
-                logger.add_processing_step(
-                    step_name=step["step"],
-                    details=step
+        # If the EMG was filtered, apply the same operations to the MUAPs
+        STEPS = {"bandpass", "highpass", "lowpass", "notch"}
+        filtered_steps = [d for d in pre_meta["steps"] if d.get("step") in STEPS]
+
+        if len(filtered_steps) > 0:
+            pad_len = 100
+            filt_muaps = np.pad(muaps, ((0,0), (0,0), (pad_len, pad_len)))
+            for i in range(muaps.shape[0]):
+                filt_muaps[i, : , :], _, _, _ = _pre_process_data(
+                    data=filt_muaps[i, :, :], 
+                    steps=filtered_steps, 
+                    fsamp=fsamp
                 )
-            
-            # Get the data segment relevant for decomposition
-            segmented_data = _segment_data(
-                data, pre_meta["ch_mask"], pre_meta["sample_mask"]
-            )
-        else:
-            segmented_data = data
+            muaps = filt_muaps[:, :, pad_len:-pad_len]
 
-        # TODO Apply any filtering operation also to the MUAPs (if used)
+        # If the data was downsampled, apply the same downsampling to the MUAPs
+        if pre_meta["fsamp"] != fsamp:
+            downsample = fsamp // pre_meta["fsamp"]
+            muaps = muaps[:, :, ::downsample]
+
+        # Apply the channel mask
+        muaps = muaps[:, pre_meta["ch_mask"], :]            
+
      
-        # Initialize and run upperbound
-        model = UpperBoundCBSS(config=SimpleNamespace(**algo_cfg))
-        # Run decomposition
-        spikes, segmented_sources, scores = model.fit_predict(
-            sig=segmented_data, fsamp=pre_meta["fsamp"]
-        )
+    # Run UpperBound decomposition
+    spikes, seg_sources, scores, return_code = _run_upper_bound(
+        data=segmented_data, 
+        muaps=muaps,
+        fsamp=pre_meta["fsamp"], 
+        cfg=SimpleNamespace(**algo_cfg["algorithmConfig"])
+    ) 
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="UpperBoundCBSS",
+            details=algo_cfg["algorithmConfig"]
+        ) 
 
-        if "preProcessingConfig" in algo_cfg.keys():
+    # Apply post processing
+    if seg_sources is not None:
         # Map spikes and sources to gloabl time
-            sources = np.zeros((segmented_sources.shape[0], data.shape[1]))
-            sources[:, pre_meta["sample_mask"]] = segmented_sources
-            if pre_meta["t_start"] > 0:
-                spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
+    else:
+        sources = seg_sources
 
-        # Apply post processing
-        if "postProcessingConfig" in algo_cfg.keys():
-            post_module = PostProcessSpikes(steps=algo_cfg["postProcessingConfig"])
-            spikes, sources, scores, post_meta = post_module.post_process(
-                spikes=spikes, 
-                fsamp=pre_meta["fsamp"], 
-                scores=scores, 
-                sources=sources
-            )
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
 
-            for step in post_meta["steps"]:
-                logger.add_processing_step(
-                    step_name=step["step"],
-                    details=step
-                )
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
 
-        # Prepare results
-        results = {
-            "data": data,
-            "sources": sources, 
-            "spikes": spikes, 
-            "scores": scores
-        }
-        if "preProcessingConfig" in algo_cfg.keys():
-            results["pre_process_meta"] = pre_meta
-        if "postProcessingConfig" in algo_cfg.keys():
-            results["post_process_meta"] = post_meta
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
 
-        logger.set_return_code("upperbound", 0)
-        print(f"[INFO] UpperBound decomposition completed successfully")
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }    
 
-    except Exception as e:
-        print(f"[ERROR] UpperBound decomposition failed: {str(e)}")
-        logger.set_return_code("upperbound", 1)
-        results = {"sources": None, "spikes": {}, "silhouette": None, "mu_filters": None}
-    
-    finally:
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
+    # Finalize logger to ensure metadata is captured
+    logger.finalize()
     
     return results, logger.log_data
 
 
 def decompose_cbss(
     data: np.ndarray,
+    fsamp: float,
     algorithm_config: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
 ) -> Tuple[Dict, Dict, FastIcaCBSS]:
     """
-    Run CBSS decomposition.
+    API to run a CBSS decomposition pipeline with optional
+    pre and post processing steps.
 
     Args
     ----
         data : np.ndarray 
             EMG data (n_channels, n_samples)
+
+        fsamp : float
+            Sampling rate in Hz     
+
         algorithm_config : dict (Optional) 
             Dictonary with the pipeline configuration
+
         metadata: dict (Optional)
             Optional dictionary containing input data metadata for logging
 
@@ -380,10 +443,10 @@ def decompose_cbss(
                 pre processing steps (Optional)
                 - post_process_metadata (dict): Metadata correspoding to
                 post processing steps (Optional)
-        log : dict
+
+        log_data : dict
             Dictonary of processing metadata        
-        model : FastIcaCBSS
-            The model used for decomposition
+
 
     """
     # Initialize logger
@@ -401,15 +464,16 @@ def decompose_cbss(
     algo_cfg = _get_config(algorithm_config, "cbss")
     logger.set_algorithm_config(algo_cfg)
 
-    # Get the sampling rate
-    fsamp = algo_cfg["sampling_frequency"]
-
     # Run preprocessing module
     if "preProcessingConfig" in algo_cfg.keys():
         steps = algo_cfg["preProcessingConfig"]
     else:
         steps = []
-    data, segmented_data, pre_meta, return_code = _pre_process_data(data, steps, fsamp)  
+    data, segmented_data, pre_meta, return_code = _pre_process_data(
+        data=data, 
+        steps=steps, 
+        fsamp=fsamp
+    )  
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
     if return_code["value"] == 0:
@@ -421,9 +485,9 @@ def decompose_cbss(
 
     # Run CBSS decomposition
     spikes, seg_sources, scores, return_code = _run_cbss(
-        segmented_data, 
-        pre_meta["fsamp"], 
-        SimpleNamespace(**algo_cfg["algorithmConfig"])
+        data=segmented_data, 
+        fsamp=pre_meta["fsamp"], 
+        cfg=SimpleNamespace(**algo_cfg["algorithmConfig"])
     )  
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
@@ -462,23 +526,24 @@ def decompose_cbss(
             )    
 
 
-        # Prepare results
-        results = {
-            "data": data,
-            "sources": sources, 
-            "spikes": spikes, 
-            "scores": scores,
-            "pre_process_meta": pre_meta,
-            "post_process_meta": post_meta
-        }
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }
 
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
+    # Always finalize logger to ensure metadata is captured
+    logger.finalize()
         
     return results, logger.log_data
 
 def decompose_ae(
     data: np.ndarray,
+    fsamp: float,
     algorithm_config: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
 ) -> Tuple[Dict, Dict]:
@@ -489,8 +554,13 @@ def decompose_ae(
     ----
         data : np.ndarray 
             EMG data (n_channels, n_samples)
+
+        fsamp: float
+            Sampling rate in Hz
+
         algorithm_config : dict (Optional) 
             Dictonary with the pipeline configuration
+
         metadata: dict (Optional)
             Optional dictionary containing input data metadata for logging
 
@@ -506,10 +576,10 @@ def decompose_ae(
                 pre processing steps (Optional)
                 - post_process_metadata (dict): Metadata correspoding to
                 post processing steps (Optional)
-        log : dict
+
+        log_data : dict
             Dictonary of processing metadata        
-        model : AEDecoder
-            The model used for decomposition
+
 
     """
     
@@ -529,9 +599,6 @@ def decompose_ae(
     # Load and set algorithm configuration
     algo_cfg = _get_config(algorithm_config, "ae")
     logger.set_algorithm_config(algo_cfg)
-
-    # Get the sampling rate
-    fsamp = algo_cfg["sampling_frequency"]
 
     # Run preprocessing module
     if "preProcessingConfig" in algo_cfg.keys():
@@ -591,18 +658,18 @@ def decompose_ae(
             )    
 
 
-        # Prepare results
-        results = {
-            "data": data,
-            "sources": sources, 
-            "spikes": spikes, 
-            "scores": scores,
-            "pre_process_meta": pre_meta,
-            "post_process_meta": post_meta
-        }
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }
 
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
+    # Always finalize logger to ensure metadata is captured
+    logger.finalize()
     
     return results, logger.log_data
 
@@ -754,6 +821,33 @@ def _run_scd_container(data, fsamp, algo_cfg, engine, container):
             scores = None
 
         return spikes, sources, scores, return_code           
+
+def _run_upper_bound(data, muaps, fsamp, cfg):
+    """Run UpperBoundCBSS decomposition"""
+
+    try:
+        model = UpperBoundCBSS(config=cfg)
+
+        spikes, sources, scores = model.fit_predict(
+                sig=data, muaps=muaps, fsamp=fsamp
+            )
+        
+        return_code = {
+            "name": "UpperBoundCBSS", 
+            "value": 0
+        } 
+
+    except Exception as e:
+        print(f"[ERROR] UpperBoundCBSS failed: {str(e)}")
+        return_code = {
+            "name": "UpperBoundCBSS", 
+            "value": 1
+        } 
+        spikes = None
+        sources = None
+        scores = None 
+        
+    return spikes, sources, scores, return_code
 
 
 def _run_cbss(data, fsamp, cfg):
