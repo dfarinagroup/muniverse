@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Literal, Optional
 from scipy.stats import skew
+from scipy.signal.windows import tukey
 from .core import (
     extension, 
     est_spike_times, 
@@ -75,6 +76,7 @@ class UpperBoundCBSS(_BaseCBSS):
             whitening_reg: str | float | None = "auto",
             spike_detection_exp: float = 2,
             spike_detection_min_delay: float = 0.01,
+            win_alpha: float = 0,
             verbose: bool = False,
             config: dict | None = None
     ):
@@ -94,34 +96,27 @@ class UpperBoundCBSS(_BaseCBSS):
         # self.whitening_reg = whitening_reg
         # self.spike_detection_exp = spike_detection_exp
         # self.spike_detection_min_delay = spike_detection_min_delay
-        self.sil_th = 0.9
-        self.min_num_spikes = 10
+        self.win_alpha = win_alpha
+        # self.sil_th = 0.9
+        # self.min_num_spikes = 10
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        valid_keys = self.__dict__.keys()
+        self._params = self.__dict__.keys()
 
         # Assign all parameters as attributes
         for key, value in config_dict.items():
-            if key in valid_keys:
+            if key in self._params:
                 setattr(self, key, value)
             else:
                 print(f"Warning: ignoring invalid parameter: {key}")
-
-    def set_param(self, **kwargs):
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                raise AttributeError(f"Invalid parameter: {key}")
 
     def fit_predict(
             self, 
             sig: np.ndarray, # (n_channels, n_samples) 
             muaps: np.ndarray, # (n_mu, n_channels, n_samples)
-            fsamp: float, 
-            return_all_sources=False
+            fsamp: float
     ):
         """
         Estimate the spike response of motor neurons given the
@@ -130,9 +125,9 @@ class UpperBoundCBSS(_BaseCBSS):
         Args
         ----
             sig : np.ndarray 
-                Input data (n_channels x n_samples)
+                Input data (n_channels, n_samples)
             muaps : np.ndarray 
-                Impulse response waveforms (mu_index x n_channels x duration)
+                Impulse response waveforms (n_units, n_channels, n_samples)
             fsamp : float
                  Sampling rate in Hz
 
@@ -141,7 +136,7 @@ class UpperBoundCBSS(_BaseCBSS):
             spikes : pd.DataFrame 
                 Spike table (columns: onset, duration, sample, unit_id, description)
             sources : np.ndarray 
-                Estimated sources / ica components (n_components x n_samples)
+                Estimated sources (n_components, n_samples)
             scores : dict of np.ndarray 
                 Source trustworthiness scores ("sil" and "cov_isi") 
         
@@ -217,6 +212,10 @@ class UpperBoundCBSS(_BaseCBSS):
 
         """
 
+        # Apply tukey window
+        win = tukey(M=muap.shape[1], alpha=self.win_alpha).reshape(-1,1)
+        muap = win.T * muap
+
         # Extend the MUAP
         ext_muap = extension(muap, self.ext_fact)
         # ext_muap -= ext_mean
@@ -235,6 +234,25 @@ class UpperBoundCBSS(_BaseCBSS):
         self.expected_amplitudes_[i, :] = col_norms
 
         return w
+    
+    def save_model(self):
+        """"
+        Save the model parameters and learned attributes
+        for downstream usage
+        
+        """
+
+        return {
+            "parameters": self._params,
+            "attributes": {
+                "unmixing_weights_": self.unmixing_weights_,
+                "whiten_": self.whiten_,
+                "unwhiten_": self.unwhiten_,
+                "expected_amplitudes_" : self.expected_amplitudes_
+            }
+        }
+    
+# TODO Move the following files somewhere else     
 
 def process_neuromotion_muaps(muap_cache, simulation_config):
     """
