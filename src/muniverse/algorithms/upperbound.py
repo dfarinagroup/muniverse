@@ -42,10 +42,18 @@ class UpperBoundCBSS(_BaseCBSS):
             Adds a small value to the eigenvalues for regularization. 
             If "auto", the mean of the second half of the eigenvalues is used.
 
-        spike_cluster_method : {"kmeans", "gmm"}, default "kmeans" 
-            Method used to seperate motor unit spikes and background spikes. 
-            If "kmeans" the K-Means++ algorithm is applied (default), 
-            if "gmm" a Gaussian mixture model is fitted and used for clustering.  
+        spike_detection_exp : float , default 2
+            Exponent of asymetric power law applied to the extracted sources
+            before spike detection
+
+        spike_detection_min_delay : float , default 0.01
+            Minimum distance between two detected spikes in seconds  
+
+        win_alpha : float , default 0 
+            Shape parameter of a Tukey window (representing the fraction of the window 
+            inside the cosine tapered region) that is applied to the MUAPs
+            to minimize edge effects. If zero, the Tukey window is equivalent to a 
+            rectangular window. If one, the Tukey window is equivalent to a Hann window. 
 
         verbose : float , default True
             If True, print progress. 
@@ -65,6 +73,24 @@ class UpperBoundCBSS(_BaseCBSS):
             For each motor unit impulse response and each delay the expected 
             spike amplitude. The algorithm selects for each motor unit
             the maximum value.  
+
+    References
+    ----------
+    .. [1] Klotz and Rohlen, "Revisiting convolutive blind source separation 
+           for identifying spiking motor neuron activity: from theory to 
+           practice", Journal of Neural Engineering, 2025 
+    .. [2] Mamidanna et et al., "MUniverse: A Simulation and Benchmarking 
+           Suite for Motor Unit Decomposition", The Thirty-ninth Annual 
+           Conference on Neural Information Processing Systems 
+           Datasets and Benchmarks Track, 2025                    
+
+
+    Example
+    -------
+
+    Init UpperBoundCBSS class using the default parameters and run decomposition.
+    >>> model = UpperBoundCBSS() 
+    >>> spikes, sources, scores = model.fit_predict(sig=emg_data, muaps=muaps, fsamp=2048)        
 
     """
 
@@ -90,27 +116,25 @@ class UpperBoundCBSS(_BaseCBSS):
             spike_detection_min_delay = spike_detection_min_delay,
             verbose = verbose
         )
-        # Default parameters
-        # self.ext_fact = ext_fact
-        # self.whitening_method = whitening_method
-        # self.whitening_reg = whitening_reg
-        # self.spike_detection_exp = spike_detection_exp
-        # self.spike_detection_min_delay = spike_detection_min_delay
+
         self.win_alpha = win_alpha
-        # self.sil_th = 0.9
-        # self.min_num_spikes = 10
 
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        self._params = self.__dict__.keys()
+        self._params = set(self.__dict__.keys()) - {"_params"}
 
-        # Assign all parameters as attributes
+        # Set all parameters from the config dict
         for key, value in config_dict.items():
             if key in self._params:
                 setattr(self, key, value)
             else:
                 print(f"Warning: ignoring invalid parameter: {key}")
+
+        self._attributes = set([
+            "unmixing_weights_", "whiten_", 
+            "unwhiten_", "expected_amplitudes_"
+        ])        
 
     def fit_predict(
             self, 
@@ -235,22 +259,6 @@ class UpperBoundCBSS(_BaseCBSS):
 
         return w
     
-    def save_model(self):
-        """"
-        Save the model parameters and learned attributes
-        for downstream usage
-        
-        """
-
-        return {
-            "parameters": self._params,
-            "attributes": {
-                "unmixing_weights_": self.unmixing_weights_,
-                "whiten_": self.whiten_,
-                "unwhiten_": self.unwhiten_,
-                "expected_amplitudes_" : self.expected_amplitudes_
-            }
-        }
     
 # TODO Move the following files somewhere else     
 
