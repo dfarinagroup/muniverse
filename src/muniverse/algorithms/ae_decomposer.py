@@ -147,35 +147,69 @@ class AEDecoder:
 
     Properties
     ----------
+        spike_detection_exp : float , default 2
+            Exponent of asymetric power law applied to the extracted sources
+            before spike detection
+
+        spike_detection_min_delay : float , default 0.01
+            Minimum distance between two detected spikes in seconds  
+
         ext_fact : int, default 2
             Number of delayed copies
-        ...    
+
+        whitening_method : {"ZCA", "PCA", "Cholesky"}, default "ZCA" 
+            Method used for whitening
+
+        whitening_regularization : {"auto", float, None}, default "auto" 
+            Adds a small value to the eigenvalues for regularization. 
+            If "auto", the mean of the second half of the eigenvalues is used.
+            
+        whitening_backend : {"ed", "svd"}, default "ed" 
+            Method used to calculate eigenvalues and eigenvectors. Can be
+            either based on singular value decomposition ("svd") or an
+            eigendecomposition ("ed"). Only needed if method is "ZCA" or "PCA".
 
         latent_dim : int or None , default None
             Dimensionality of the latent sources. If None the number
             of EMG channels is used
+
         epochs : int , default 100
-            TODO Describe
+            Number of epoches used to train the autoencoder model
+
         batch_size : int , default 5000         
-            Number of time samples per batch
-        learning_rate : float , default 8e-3
-            Learning rate used to train the autoencoder
-        sparsity_p : float, default 0.9
-            TODO
-        sparsity_q : float , default 1.8
-            TODO Describe
-        lambda_sparsity : float , default 1.0
-            TODO Describe
-        weight_decay : float, default 0.0
-            TODO Describe
-        device : str or torch.device , default "cpu" 
-            TODO Describe
-        dtype : torch.dtype , default torch.float32 
-            TODO Describe
-        random_seed : int , default 1909
-            TODO Describe
+            Number of time samples used per mini-batch during the
+            training of the autoencoder model
+
         shuffle_windows : bool , default True
-            TODO Describe
+            If "True", the minibacthes are randomly shuffeled 
+            during the training of the autoencoder model    
+
+        learning_rate : float , default 8e-3
+            Learning rate of the Adam optimizer used to train the autoencoder
+
+        weight_decay : float, default 0.0
+            Weight decay of the Adam optimizer used to train the
+            autoencoder model    
+
+        sparsity_p : float, default 0.9
+            Parameter controlling the degree of the sparsity penalty in
+            the cost function
+            
+        sparsity_q : float , default 1.8
+            Parameter to regularize the sparsity penalty in the cost function
+
+        lambda_sparsity : float , default 1.0
+            Weight term for the sparsity penality in the cost function
+
+        device : str or torch.device , default "cpu" 
+            Device on which torch tensors will be allocated
+
+        dtype : torch.dtype , default torch.float32 
+            Floating-point precision for torch tensors 
+
+        random_seed : int , default 1909
+            Seed of the random number generator.
+
 
 
     Attributes
@@ -191,7 +225,14 @@ class AEDecoder:
     
     References
     ----------
-    .. [1] Mayer et al. (2023).
+    .. [1] MacSporran Mayer et al., "Unsupervised neural decoding of 
+           signals recorded by thin-film electrode arrays implanted in muscles using 
+           autoencoding with a physiologically derived optimisation criterion",
+           Biomedical Signal Processing and Control, 2023
+    .. [2] Mamidanna et et al., "MUniverse: A Simulation and Benchmarking 
+           Suite for Motor Unit Decomposition", The Thirty-ninth Annual 
+           Conference on Neural Information Processing Systems 
+           Datasets and Benchmarks Track, 2025        
 
 
     Examples
@@ -268,14 +309,19 @@ class AEDecoder:
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        valid_keys = self.__dict__.keys()
+        self._params = set(self.__dict__.keys()) - {"_params"}
 
         # Assign all parameters as attributes
         for key, value in config_dict.items():
-            if key in valid_keys:
+            if key in self._params:
                 setattr(self, key, value)
             else:
                 print(f"Warning: ignoring invalid parameter: {key}")
+
+        self._attributes = set([
+            "autoencoder_", "whiten_", "unwhiten_"
+        ]) 
+
 
     def _to_torch(self, x: np.ndarray) -> torch.Tensor:
         """Convert numpy array to PyTorch object"""
@@ -308,7 +354,7 @@ class AEDecoder:
     def _whitening(self, ext_sig: np.ndarray):
 
         # Whitening
-        white_sig, self.white_, self.unwhite_ = whitening(
+        white_sig, self.whiten_, self.unwhiten_ = whitening(
             Y=ext_sig,
             method=self.whitening_method,
             backend=self.whitening_backend,
@@ -335,8 +381,7 @@ class AEDecoder:
 
     def _init_autoencoder(
             self, 
-            n_features: int, 
-            n_emg_ch: int
+            n_features: int
     ):
         """
         Initalize the autoencoder model
@@ -345,20 +390,12 @@ class AEDecoder:
         ----
             n_features : int
                 Number features of the whitened data matrix
-            n_emg_ch : int
-                Number of EMG channels. Is used as the dimension
-                of the latent space if no value is provided    
 
         """
 
-        if self.latent_dim is not None:
-            n_latents = self.latent_dim
-        else:
-            n_latents = n_emg_ch
-
         self.autoencoder_ = _EMGAutoencoder(
             din=n_features,
-            dlat=n_latents,
+            dlat=self.latent_dim,
             device=self.device,
             dtype=self.dtype
         )
@@ -507,9 +544,12 @@ class AEDecoder:
 
         Xw_torch = self._to_torch(Xw)
 
+        # Set the latent dimension (if not specified)
+        if self.latent_dim is None:
+            self.latent_dim = sig.shape[0]
+
         # Build and train autoencoder
-        self._init_autoencoder(
-            n_features=Xw.shape[0], n_emg_ch=sig.shape[0])
+        self._init_autoencoder(n_features=Xw.shape[0])
         self._train_autoencoder(Xw_torch.T)
 
     def fit_predict(
@@ -541,9 +581,12 @@ class AEDecoder:
 
         Xw_torch = self._to_torch(Xw)
 
+        # Set the latent dimension (if not specified)
+        if self.latent_dim is None:
+            self.latent_dim = sig.shape[0]
+
         # Build and train autoencoder
-        self._init_autoencoder(
-            n_features=Xw.shape[0], n_emg_ch=sig.shape[0])
+        self._init_autoencoder(n_features=Xw.shape[0])
         self._train_autoencoder(Xw_torch.T)
 
         # Predict latent sources for the given data
@@ -589,7 +632,7 @@ class AEDecoder:
         """
         # Preprocess (extension + whitening) 
         Xe = self._extension(sig)
-        Xw = self.white_ @ Xe 
+        Xw = self.whiten_ @ Xe 
 
         Xw_torch = self._to_torch(Xw)
 
@@ -607,3 +650,55 @@ class AEDecoder:
         spikes = spike_dict_to_long_df(spikes)
 
         return spikes, sources, scores
+    
+    
+    def save_model(self):
+        """"
+        Save the model parameters and learned attributes
+        for downstream usage
+        
+        """
+
+        params = {}
+        attributes = {}
+        for key, value in self.__dict__.items():
+            if key in self._params:
+                params[key] = value
+            elif key in self._attributes:
+                if key == "autoencoder_":
+                    attributes[key] = self.autoencoder_.state_dict()
+                else:
+                    attributes[key] = value 
+        
+        return {
+            "parameters": params,
+            "attributes": attributes
+        }
+    
+    def load_model(self, model):
+        """"
+        Load a model including both parameters and learned 
+        attributes for downstream usage
+
+        Args
+        ----
+            model : dict
+                Dictonary containing all parameters and learned 
+                attributes of the model 
+        
+        """
+
+        for key, value in model["parameters"].items():
+            if key in self._params:
+                setattr(self, key, value)
+        for key, value in model["attributes"].items():        
+            if key in self._attributes:
+                if key == "autoencoder_":
+                    n_features = value["encoder.A"].shape[0]
+                    self._init_autoencoder(n_features)
+                    self.autoencoder_.load_state_dict(
+                        model["attributes"][key]
+                    )
+                else:
+                    setattr(self, key, value)
+    
