@@ -27,6 +27,11 @@ class _BaseCBSS():
             Adds a small value to the eigenvalues for regularization. 
             If "auto", the mean of the second half of the eigenvalues is used.
 
+        whitening_backend : {"ed", "svd"}, default "ed" 
+            Method used to calculate eigenvalues and eigenvectors. Can be
+            either based on singular value decomposition ("svd") or an
+            eigendecomposition ("ed"). Only needed if method is "ZCA" or "PCA".    
+
         spike_detection_exp : float , default 2
             Exponent of asymetric power law applied to the extracted sources
             before spike detection
@@ -58,7 +63,13 @@ class _BaseCBSS():
         self.spike_detection_min_delay = spike_detection_min_delay
         self.verbose = verbose
 
-    def set_param(self, **kwargs):
+        self._params = set(self.__dict__.keys()) - {"_params"}
+
+        self._attributes = set([
+            "unmixing_weights_", "whiten_", "unwhiten_"
+        ])
+
+    def set_parameter(self, **kwargs):
         """
         Update parameters given an arbitary list of key value pairs
 
@@ -69,7 +80,7 @@ class _BaseCBSS():
         
         """
         for key, value in kwargs.items():
-            if hasattr(self, key):
+            if key in self._params:
                 setattr(self, key, value)
             else:
                 raise AttributeError(f"Invalid parameter: {key}")        
@@ -183,6 +194,46 @@ class _BaseCBSS():
         spikes = spike_dict_to_long_df(spikes)
 
         return spikes, sources, scores 
+    
+    def save_model(self):
+        """"
+        Save the model parameters and learned attributes
+        for downstream usage
+        
+        """
+
+        params = {}
+        attributes = {}
+        for key, value in self.__dict__.items():
+            if key in self._params:
+                params[key] = value
+            elif key in self._attributes:
+                attributes[key] = value 
+        
+        return {
+            "parameters": params,
+            "attributes": attributes
+        }
+    
+    def load_model(self, model):
+        """"
+        Load a model including both parameters and learned 
+        attributes for downstream usage
+
+        Args
+        ----
+            model : dict
+                Dictonary containing all parameters and learned 
+                attributes of the model 
+        
+        """
+
+        for key, value in model["parameters"].items():
+            if key in self._params:
+                setattr(self, key, value)
+        for key, value in model["attributes"].items():        
+            if key in self._attributes:
+                setattr(self, key, value)
 
 class FastIcaCBSS(_BaseCBSS):
     """
@@ -231,6 +282,7 @@ class FastIcaCBSS(_BaseCBSS):
             
         spike_detection_min_delay : float , default 0.01
             Minimum distance between two detected spikes in seconds   
+
         ica_iterations : int , default 100
             Number of fastICA runs, i.e., maximum number of extracted sources.
 
@@ -319,7 +371,17 @@ class FastIcaCBSS(_BaseCBSS):
             Score at each refinement iteration
 
         peel_off_ : np.ndarray of bool
-            Whether a source was peeled off or not     
+            Whether a source was peeled off or not
+
+    References
+    ----------
+    .. [1] Negro et et al., "Multi-channel intramuscular and surface
+           EMG decomposition by convolutive blind source separation",
+           Journal of Neural Engineering, 2016 
+    .. [2] Mamidanna et et al., "MUniverse: A Simulation and Benchmarking 
+           Suite for Motor Unit Decomposition", The Thirty-ninth Annual 
+           Conference on Neural Information Processing Systems 
+           Datasets and Benchmarks Track, 2025                    
 
 
     Example
@@ -391,14 +453,20 @@ class FastIcaCBSS(_BaseCBSS):
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        valid_keys = self.__dict__.keys()
+        self._params = set(self.__dict__.keys()) - {"_params"}
 
-        # Assign all parameters as attributes
+        # Set all parameters from the config dict
         for key, value in config_dict.items():
-            if key in valid_keys:
+            if key in self._params:
                 setattr(self, key, value)
             else:
                 print(f"Warning: ignoring invalid parameter: {key}")
+
+        self._attributes = set([
+            "unmixing_weights_", "whiten_", "unwhiten_",
+            "n_fixed_point_iter_", "fixed_point_deltas_",
+            "n_refinement_iter_", "refinement_scores_", "peel_off_"
+        ])      
 
     def fit_predict(self, 
                   sig: np.ndarray, # (n_channels x n_samples)
@@ -682,4 +750,6 @@ class FastIcaCBSS(_BaseCBSS):
             )
         
         return G
+    
+        
        
