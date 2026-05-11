@@ -2,8 +2,6 @@
     "Name": "AE Decomposer Pipeline",
     "Description": "Configuration parameters for the Autoencoder-based EMG decomposition algorithm",
 
-    "sampling_frequency": 2048,
-
     "preProcessingConfig": [
         {
             "step": "bandpass",

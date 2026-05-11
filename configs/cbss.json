@@ -2,8 +2,6 @@
     "Name": "FastIcaCBSS Pipeline Configuration",
     "Description": "Configuration parameters for FastIcaCBSS Pipeline",
 
-    "sampling_frequency": 2048,
-
     "preProcessingConfig": [
         {
             "step": "bandpass",

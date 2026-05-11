@@ -1,11 +1,18 @@
 {
     "Name": "SCD Configuration",
     "Description": "Configuration parameters for Swarm Contrastive Decomposition algorithm",
-    "Seed": 42,
     
-    "Config": {
-        "start_time": 0,
-        "end_time": -1,
+    "Seed": 42,
+
+    "preProcessingConfig": [
+        {
+            "step": "time_window",
+            "t_start": 0,
+            "t_end": -1
+        }
+    ],
+    
+    "algorithmConfig": {
         "sampling_frequency": 2048,
         "time_differentiate": null,
         "notch_params": null,
@@ -49,5 +56,7 @@
         "output_final_source_plot": false,
         "verbose_mode": true,
         "device": "cuda"
-    }
+    },
+
+    "postProcessingConfig": []
 }
