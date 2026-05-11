@@ -428,7 +428,7 @@ def extension(
             Extended signal (n_channels x (R * n_samples))
     """
     n_channels, n_samples = Y.shape
-    eY = np.zeros((n_channels * R, n_samples))
+    eY = np.zeros((n_channels * R, n_samples)).astype(Y.dtype)
 
     for i in range(n_channels):
         col = np.concatenate(([Y[i, 0]], np.zeros(R - 1)))
@@ -630,8 +630,8 @@ def gram_schmidt(
             Orthogonalized vector
 
     """
-    w = np.asarray(w, dtype=float)
-    B = np.asarray(B, dtype=float)
+    #w = np.asarray(w, dtype=float)
+    B = np.asarray(B, dtype=w.dtype)
 
     # Remove zero columns from B
     non_zero_cols = ~np.all(B == 0, axis=0)
