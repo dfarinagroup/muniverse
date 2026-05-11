@@ -63,7 +63,7 @@ class _BaseCBSS():
         self.spike_detection_min_delay = spike_detection_min_delay
         self.verbose = verbose
 
-        self._params = set(self.__dict__.keys()) - {"_params"}
+        self._params = set(self.__dict__.keys()) - {"_params"} - {"_attributes"}
 
         self._attributes = set([
             "unmixing_weights_", "whiten_", "unwhiten_"
@@ -341,7 +341,7 @@ class FastIcaCBSS(_BaseCBSS):
 
         peel_of_cov_th : float , default 0.35
             Only apply peel off if the source score is below the given
-            threshold value
+            threshold value 
 
         verbose : bool , default True
             Verbose mode
@@ -387,8 +387,8 @@ class FastIcaCBSS(_BaseCBSS):
     Example
     -------
 
-    Init CBSS class using the default parameters and run decomposition.
-    >>> model = CBSS() 
+    Init FastIcaCBSS class using the default parameters and run decomposition.
+    >>> model = FastIcaCBSS() 
     >>> spikes, sources, scores = model.fit_predict(sig=emg_data, fsamp=2048)
 
 
@@ -453,7 +453,7 @@ class FastIcaCBSS(_BaseCBSS):
         # Convert config object (if provided) to a dictionary
         config_dict = vars(config) if config is not None else {}
 
-        self._params = set(self.__dict__.keys()) - {"_params"}
+        self._params = set(self.__dict__.keys()) - {"_params"} - {"_attributes"}
 
         # Set all parameters from the config dict
         for key, value in config_dict.items():
@@ -497,7 +497,11 @@ class FastIcaCBSS(_BaseCBSS):
         """
 
         # Initalize random number generator
-        rng = np.random.seed(self.random_seed)
+        #rng = np.random.seed(self.random_seed)
+        rng = np.random.default_rng(self.random_seed)
+
+        # Convert data to the desired precision
+        sig = np.asarray(sig, dtype="float64")
 
         # Extend signals and subtract the mean and cut the edges
         ext_sig = self._extension(sig)
@@ -529,7 +533,8 @@ class FastIcaCBSS(_BaseCBSS):
                 print(f'Step: FastICA iteration {i}:')
             # Initalize
             if self.ica_initalization == "random":
-                w = np.random.randn(white_sig.shape[0])
+                #w = np.random.randn(white_sig.shape[0]).astype(self.dtype)
+                w = rng.standard_normal(white_sig.shape[0])
             elif self.ica_initalization == "activity_idx":
                 col_norms = np.linalg.norm(white_sig, axis=0)
                 col_norms[act_idx_histoty.astype(int)] = 0
