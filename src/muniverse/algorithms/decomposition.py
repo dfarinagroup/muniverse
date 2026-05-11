@@ -140,8 +140,8 @@ def decompose_scd(
         logger.set_input_data(file_name="numpy_array", file_format="npy")
 
     # Load and set algorithm configuration
-    algo_cfg = _get_config(algorithm_config, "scd")
-    logger.set_algorithm_config(algo_cfg)
+    algo_cfg = _get_config(algorithm_config, "scd")   
+    logger.set_algorithm_config(algo_cfg) 
 
     # Run preprocessing module
     if "preProcessingConfig" in algo_cfg.keys():
@@ -158,17 +158,17 @@ def decompose_scd(
                 details=step
             )  
 
+    algo_cfg["algorithmConfig"]["sampling_frequency"] = pre_meta["fsamp"]
+
     # Run SCD decomposition
     if engine == "local":
-        spikes, seg_sources, scores, return_code = _run_scd_local(
+        spikes, seg_sources, scores, state, return_code = _run_scd_local(
             data=segmented_data, 
-            fsamp=pre_meta["fsamp"], 
-            algo_cfg=algo_cfg["algorithmConfig"]
+            cfg=algo_cfg["algorithmConfig"]
         )
     else:
-        spikes, seg_sources, scores, return_code =_run_scd_container(
+        spikes, seg_sources, scores, state, return_code =_run_scd_container(
             data=segmented_data, 
-            fsamp=pre_meta["fsamp"], 
             algo_cfg=algo_cfg["algorithmConfig"], 
             engine=engine, 
             container=container
@@ -215,6 +215,7 @@ def decompose_scd(
         "sources": sources, 
         "spikes": spikes, 
         "scores": scores,
+        "model_state": state,
         "pre_process_meta": pre_meta,
         "post_process_meta": post_meta
     }   
@@ -329,6 +330,7 @@ def decompose_upperbound(
         filtered_steps = [d for d in pre_meta["steps"] if d.get("step") in STEPS]
 
         if len(filtered_steps) > 0:
+            # Pad MUAPs with zeros to avoid edge effects
             pad_len = 100
             filt_muaps = np.pad(muaps, ((0,0), (0,0), (pad_len, pad_len)))
             for i in range(muaps.shape[0]):
@@ -349,7 +351,7 @@ def decompose_upperbound(
 
      
     # Run UpperBound decomposition
-    spikes, seg_sources, scores, return_code = _run_upper_bound(
+    spikes, seg_sources, scores, state, return_code = _run_upper_bound(
         data=segmented_data, 
         muaps=muaps,
         fsamp=pre_meta["fsamp"], 
@@ -397,6 +399,7 @@ def decompose_upperbound(
         "sources": sources, 
         "spikes": spikes, 
         "scores": scores,
+        "model_state": state,
         "pre_process_meta": pre_meta,
         "post_process_meta": post_meta
     }    
@@ -484,7 +487,7 @@ def decompose_cbss(
             )    
 
     # Run CBSS decomposition
-    spikes, seg_sources, scores, return_code = _run_cbss(
+    spikes, seg_sources, scores, state, return_code = _run_cbss(
         data=segmented_data, 
         fsamp=pre_meta["fsamp"], 
         cfg=SimpleNamespace(**algo_cfg["algorithmConfig"])
@@ -532,6 +535,7 @@ def decompose_cbss(
         "sources": sources, 
         "spikes": spikes, 
         "scores": scores,
+        "model_state": state,
         "pre_process_meta": pre_meta,
         "post_process_meta": post_meta
     }
@@ -616,7 +620,7 @@ def decompose_ae(
             )    
 
     # Run AE decomposition
-    spikes, seg_sources, scores, return_code = _run_ae(
+    spikes, seg_sources, scores, state, return_code = _run_ae(
         segmented_data, 
         pre_meta["fsamp"], 
         SimpleNamespace(**algo_cfg["algorithmConfig"])
@@ -664,6 +668,7 @@ def decompose_ae(
         "sources": sources, 
         "spikes": spikes, 
         "scores": scores,
+        "model_state": state,
         "pre_process_meta": pre_meta,
         "post_process_meta": post_meta
     }
@@ -691,11 +696,12 @@ def _get_config(cfg, method):
 
     return algo_cfg
 
-def _run_scd_local(data, fsamp, cfg):
+def _run_scd_local(data, cfg):
     """Run SCD decomposition locally"""
 
     try:
         # Configure SCD 
+        fsamp = cfg["sampling_frequency"]
         device = "cuda" if torch.cuda.is_available() else "cpu"
         cfg["device"] = device
         config = scd.Config(**cfg)
@@ -730,6 +736,8 @@ def _run_scd_local(data, fsamp, cfg):
                 "name": "scd", 
                 "value": 0
             }
+        
+        state = dictionary
 
     except Exception as e:
             print(f"[ERROR] SCD decomposition failed: {str(e)}")
@@ -740,10 +748,11 @@ def _run_scd_local(data, fsamp, cfg):
             spikes = None
             sources = None
             scores = None
+            state = None
 
-    return spikes, sources, scores, return_code         
+    return spikes, sources, scores, state, return_code         
     
-def _run_scd_container(data, fsamp, algo_cfg, engine, container):
+def _run_scd_container(data, algo_cfg, engine, container):
     """Run SCD decomposition in container"""
 
     with tempfile.TemporaryDirectory() as run_dir:
@@ -810,6 +819,14 @@ def _run_scd_container(data, fsamp, algo_cfg, engine, container):
             else:
                 scores = None 
 
+            # Load the dictonary of the model state
+            dict_path = run_dir / "state.pkl"
+            if dict_path.exists():
+                with open(dict_path, "rb") as f:
+                    state = pickle.load(f) 
+            else:
+                state = None   
+
         except Exception as e:
             print(f"[ERROR] SCD decomposition failed: {str(e)}")
             return_code = {
@@ -819,8 +836,9 @@ def _run_scd_container(data, fsamp, algo_cfg, engine, container):
             spikes = None
             sources = None
             scores = None
+            state = None
 
-        return spikes, sources, scores, return_code           
+        return spikes, sources, scores, state, return_code           
 
 def _run_upper_bound(data, muaps, fsamp, cfg):
     """Run UpperBoundCBSS decomposition"""
@@ -831,6 +849,8 @@ def _run_upper_bound(data, muaps, fsamp, cfg):
         spikes, sources, scores = model.fit_predict(
                 sig=data, muaps=muaps, fsamp=fsamp
             )
+        
+        state = model.save_model()
         
         return_code = {
             "name": "UpperBoundCBSS", 
@@ -846,8 +866,9 @@ def _run_upper_bound(data, muaps, fsamp, cfg):
         spikes = None
         sources = None
         scores = None 
+        state = None
         
-    return spikes, sources, scores, return_code
+    return spikes, sources, scores, state, return_code
 
 
 def _run_cbss(data, fsamp, cfg):
@@ -859,6 +880,8 @@ def _run_cbss(data, fsamp, cfg):
         spikes, sources, scores = model.fit_predict(
                 sig=data, fsamp=fsamp
             )
+        
+        state = model.save_model()
         
         return_code = {
             "name": "FastIcaCBSS", 
@@ -874,8 +897,9 @@ def _run_cbss(data, fsamp, cfg):
         spikes = None
         sources = None
         scores = None 
+        state = None
         
-    return spikes, sources, scores, return_code
+    return spikes, sources, scores, state, return_code
 
 def _run_ae(data, fsamp, cfg):
     """Run autoencoder decomposition"""
@@ -886,6 +910,9 @@ def _run_ae(data, fsamp, cfg):
         spikes, sources, scores = model.fit_predict(
                 sig=data, fsamp=fsamp
             )
+        
+        state = model.save_model()
+
         return_code = {
             "name": "AEDecoder", 
             "value": 0
@@ -900,8 +927,9 @@ def _run_ae(data, fsamp, cfg):
         spikes = None
         sources = None
         scores = None  
+        state = None
 
-    return spikes, sources, scores, return_code
+    return spikes, sources, scores, state, return_code
 
 def _pre_process_data(data, steps, fsamp):
     """Preprocess EMG Data"""
