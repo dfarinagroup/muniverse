@@ -964,7 +964,8 @@ def _pre_process_data(data, steps, fsamp):
             "fsamp": fsamp,
             "ch_mask": np.ones(data.shape[0], dtype=bool),
             "sample_mask": np.ones(data.shape[1], dtype=bool),
-            "steps": []
+            "steps": [],
+            "t_start": 0
         }
 
     return data, segmented_data, pre_meta, return_code
