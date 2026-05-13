@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import convolve, correlate, correlation_lags, find_peaks
 from scipy.stats import kurtosis, skew
-
+from scipy.optimize import linear_sum_assignment
 
 def match_spikes(
         s1, 
