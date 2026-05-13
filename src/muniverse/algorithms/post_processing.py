@@ -33,38 +33,71 @@ class PostProcessSpikes:
         List of post processing steps. Each step is a dictionary describing
         the processing operation.
 
-        Supported step types are:
-        "remove_dublicates", "bad_source_detection", "mask_sources"
+    Processing Steps
+    ----------------
 
-        **Remove Duplicates**: Automatically detect duplicates in your sources::
+    **Remove Duplicates**: Automatically detect duplicates in your spike trains.
+    The parameter "max_shift" denotes the maximum delay between two spike
+    trains (in seconds), "tolerance" (in seconds) is the window in which 
+    two spikes are considered idendical, "threshold" is the fraction of 
+    spikes required to consider two spike trains belonging to the same
+    unit. The "mode" determines which source to keep. If "first", the 
+    first unit is kept. If "min" or "max" the selection is based on the
+    specified "quality_metric". The "window" parameter alows to consider 
+    only spikes in the selected time frame and "description" is a 
+    message used for logging::
 
-            {
-                "step": "remove_duplicates",
-                "max_shift": float,
-                "tolerance": float,
-                "threshold": float,
-                "quality_metric": str,
-                "mode": "max" | "min"
-            }
+        {
+            "step": "remove_duplicates",
+            "max_shift": float, # default 0.01
+            "tolerance": float, # default 0.001
+            "threshold": float, # default 0.3
+            "quality_metric": str, # default "sil"
+            "mode": "max" | "min" | "first", # default "max"
+            "window": tuple, # default (0, -1),
+            "description": str # default "Duplicate source"
+        }
 
-        **Bad Source Detection**: Automatically detect bad sources based on a quality
-        metric and some theshold::  
+    **Bad Source Detection**: Automatically detect bad sources based 
+    on a "quality_metric" and the specified "theshold". Further, you 
+    can specify a minimum number of required spikes ("min_spikes")
+    and "mode" specifies wheather to keep units above or below the
+    specified theshold. Further, "description" is a message used for logging::  
 
-            {
-                "step": "bad_source_detection",
-                "quality_metric": str,
-                "threshold_value": float,
-                "min_spikes": int,
-                "mode": "below" | "above" 
-            } 
+        {
+            "step": "bad_source_detection",
+            "quality_metric": str, # default "sil"
+            "threshold_value": float, # default 0.9
+            "min_spikes": int, # default 10
+            "mode": "below" | "above", # default "below"
+            "description": str, # default "Below quality threshold"
+        } 
 
-        **Mask Sources**: Mask all sources given in "sources_list" to be excluded in the following. 
-        Can be either used to reject known bad sources or limit the analysis to a subset of your data::  
+    **Mask Sources**: Mask all sources given in "sources_list" 
+    to be excluded in the following. Can be either used to reject 
+    known bad sources or limit the analysis to a subset of your data::  
 
-            {
-                "step": "mask_sources",
-                "source_list": list[int]
-            }
+        {
+            "step": "mask_sources",
+            "source_list": list[int] # Default []
+            "description": str, # default "Manually masked" 
+        }
+
+    **Validate Prediction**: Validate the predicted spike trains given some
+    reference spikes. The parameter "tol" is the maximum delay (in seconds)
+    to mark two spikes idendical, "max_shift" ist the maximum global 
+    delay between two spike trains (in seconds) and "threshold" is the 
+    minimum fraction of common spikes that two spike trains are considered
+    to be the same::  
+
+        {
+            "step": "validate_prediction",
+            "t_start": float, # default 0
+            "t_end": float, # default -1
+            "tol": float, # default 0.001
+            "max_shift": float, # default 0.1
+            "threshold": float, # default 0.3
+        }    
 
     Examples:
     ---------
@@ -142,7 +175,7 @@ class PostProcessSpikes:
     class ValidateSpikePrediction(BaseModel):
         step: Literal["validate_prediction"]
         t_start: float = 0
-        t_end: float = 60
+        t_end: float = -1
         tol: float = 0.001
         max_shift: float = 0.1
         threshold: float = 0.3
@@ -365,69 +398,131 @@ class PostProcessSpikes:
 class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
     """
     
-    Class to post process motor unit spike trains and
-    integrating the CBSS framework 
+    Class to post process motor unit spike trains while
+    making use of the CBSS model 
     
     Parameters
     ----------
+
     steps : list of dict
         List of post processing steps. Each step is a dictionary describing
         the processing operation.
 
-        Supported step types are:
-        "remove_dublicates", "bad_source_detection", "mask_sources"
+    ext_fact : int , default 12
+            Extension factor
 
-        **Remove Duplicates**: Automatically detect duplicates in your sources::
+        whitening_method : {"ZCA", "PCA", "Cholesky"}, default "ZCA" 
+            Method used for whitening
 
-            {
-                "step": "remove_duplicates",
-                "max_shift": float,
-                "tolerance": float,
-                "threshold": float,
-                "quality_metric": str,
-                "mode": "max" | "min"
-            }
+        whitening_regularization : {"auto", float, None}, default "auto" 
+            Adds a small value to the eigenvalues for regularization. 
+            If "auto", the mean of the second half of the eigenvalues is used.
 
-        **Bad Source Detection**: Automatically detect bad sources based on a quality
-        metric and some theshold::  
+        whitening_backend : {"ed", "svd"}, default "ed" 
+            Method used to calculate eigenvalues and eigenvectors. Can be
+            either based on singular value decomposition ("svd") or an
+            eigendecomposition ("ed"). Only needed if method is "ZCA" or "PCA".    
 
-            {
-                "step": "bad_source_detection",
-                "quality_metric": str,
-                "threshold_value": float,
-                "min_spikes": int,
-                "mode": "below" | "above" 
-            } 
+        spike_detection_exp : float , default 2
+            Exponent of asymetric power law applied to the extracted sources
+            before spike detection
 
-        **Mask Sources**: Mask all sources given in "sources_list" to be excluded in the following. 
-        Can be either used to reject known bad sources or limit the analysis to a subset of your data::  
+        spike_detection_min_delay : float , default 0.01
+            Minimum distance between two detected spikes in seconds  
 
-            {
-                "step": "mask_sources",
-                "source_list": list[int]
-            }
+        verbose : bool , default True
+            Verbose mode       
 
-        **Predict Spikes**: Use the learned unmixing weights to predict 
-        motor unit spikes in the time window specified by t_start and 
-        t_end::
+    Processing Steps
+    ----------------
 
-            {
-                "step": "predict_spikes",
-                "t_start": float,
-                "t_end": float
-            
-            }
+    **Remove Duplicates**: Automatically detect duplicates in your spike trains.
+    The parameter "max_shift" denotes the maximum delay between two spike
+    trains (in seconds), "tolerance" (in seconds) is the window in which 
+    two spikes are considered idendical, "threshold" is the fraction of 
+    spikes required to consider two spike trains belonging to the same
+    unit. The "mode" determines which source to keep. If "first", the 
+    first unit is kept. If "min" or "max" the selection is based on the
+    specified "quality_metric". The "window" parameter alows to consider 
+    only spikes in the selected time frame and "description" is a 
+    message used for logging::
 
-        **Fit From Spikes**: Supervised learning of  the unmixing weights of a 
-        CBSS model given a set of motor unit spike labels (in the specified time 
-        window). The learned unmixing weights are then applied to the data::
+        {
+            "step": "remove_duplicates",
+            "max_shift": float, # default 0.01
+            "tolerance": float, # default 0.001
+            "threshold": float, # default 0.3
+            "quality_metric": str, # default "sil"
+            "mode": "max" | "min" | "first", # default "max"
+            "window": tuple, # default (0, -1),
+            "description": str # default "Duplicate source"
+        }
 
-            {
-                "step": "predict_spikes",
-                "t_start": float,
-                "t_end": float
-            
-            }        
+    **Bad Source Detection**: Automatically detect bad sources based 
+    on a "quality_metric" and the specified "theshold". Further, you 
+    can specify a minimum number of required spikes ("min_spikes")
+    and "mode" specifies wheather to keep units above or below the
+    specified theshold. Further, "description" is a message used for logging::  
+
+        {
+            "step": "bad_source_detection",
+            "quality_metric": str, # default "sil"
+            "threshold_value": float, # default 0.9
+            "min_spikes": int, # default 10
+            "mode": "below" | "above", # default "below"
+            "description": str, # default "Below quality threshold"
+        } 
+
+    **Mask Sources**: Mask all sources given in "sources_list" 
+    to be excluded in the following. Can be either used to reject 
+    known bad sources or limit the analysis to a subset of your data::  
+
+        {
+            "step": "mask_sources",
+            "source_list": list[int] # Default []
+            "description": str, # default "Manually masked" 
+        }
+
+    **Validate Prediction**: Validate the predicted spike trains given some
+    reference spikes. The parameter "tol" is the maximum delay (in seconds)
+    to mark two spikes idendical, "max_shift" ist the maximum global 
+    delay between two spike trains (in seconds) and "threshold" is the 
+    minimum fraction of common spikes that two spike trains are considered
+    to be the same::  
+
+        {
+            "step": "validate_prediction",
+            "t_start": float, # default 0
+            "t_end": float, # default -1
+            "tol": float, # default 0.001
+            "max_shift": float, # default 0.1
+            "threshold": float, # default 0.3
+
+    **Predict Spikes**: Use the learned unmixing weights to predict 
+    motor unit spikes in the time window specified by "t_start" and 
+    "t_end". If "rewhiten" is True the whitening maxtrix is recomputed 
+    based on the given data::
+
+        {
+            "step": "predict_spikes",
+            "rewhiten": bool, # default True
+            "t_start": float, # default 0
+            "t_end": float, # default -1   
+        }
+
+    **Fit From Spikes**: Supervised learning of the unmixing weights of a 
+    CBSS model given a set of motor unit spike labels (in the specified time 
+    window). The learned unmixing weights are then applied to the data.
+    The parameters "t_start" and "t_end" specify the considered time frame
+    and "max_delay" is the maximum delay (in seconds) alowed in the CBSS model::
+
+        {
+            "step": "fit_from_spikes",
+            "t_start": float, # default 0
+            "t_end": float, # default -1
+            "max_delay": float # default 0.01
+        
+        }        
     
     """
 
