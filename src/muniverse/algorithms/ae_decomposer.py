@@ -660,7 +660,7 @@ class AEDecoder:
         spikes, scores = self._postprocess(sources, fsamp)
 
         # Convert dict of spikes to long-formated spike table 
-        spikes = spike_dict_to_long_df(spikes)
+        spikes = spike_dict_to_long_df(spikes, fsamp=fsamp)
 
         return spikes, sources, scores
     

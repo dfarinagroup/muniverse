@@ -689,7 +689,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             scores["pnr"][i], _ = calc_pnr(sources[i], new_spikes[i])
 
         # Convert dict of spikes to long-formated spike table 
-        new_spikes = spike_dict_to_long_df(new_spikes)    
+        new_spikes = spike_dict_to_long_df(new_spikes, fsamp=fsamp)    
 
         # Update the unmixing format
         self.unmixing_format_ = "white"

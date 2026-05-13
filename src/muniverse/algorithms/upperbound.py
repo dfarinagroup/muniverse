@@ -207,7 +207,7 @@ class UpperBoundCBSS(_BaseCBSS):
             self.unmixing_weights_[:, i] = w * sign
 
         # Convert dict of spikes to long-formated spike table 
-        spikes = spike_dict_to_long_df(spikes)    
+        spikes = spike_dict_to_long_df(spikes, fsamp=fsamp)    
 
         return spikes, sources, scores
 
