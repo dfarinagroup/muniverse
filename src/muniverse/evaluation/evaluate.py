@@ -530,3 +530,149 @@ def get_basic_spike_statistics(
             mean_fr = 1 / np.mean(isi)
 
     return cov, mean_fr
+
+def evaluate_spike_matches(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    t_start: float = 0,
+    t_end: float = 60,
+    tol: float = 0.001,
+    max_shift: float = 0.1,
+    fsamp: float = 2048,
+    threshold: float = 0.3,
+    mask: np.ndarray | None = None,
+    pre_matched: bool = False,
+):
+    """
+    Match spiking motor unit activity between two data sets.
+
+    Args
+    ----
+        df1 : pd.DataFrame
+            Data Frame containing spiking neuron activities of dataset 1. 
+            It must include the columns 'unit_id' and 'onset'.
+
+        df2 : pd.DataFrame
+            Data Frame containing spiking neuron activities of dataset 2.
+            It must include the columns 'unit_id' and 'onset'.
+
+        t_start : float, default 0 
+            Start of the time window to be considered (in seconds)
+
+        t_end : float, defualt 60 
+            End of the time window to be considered (in seconds)
+
+        tol : float , default 0.001
+            Common spikes need to be in the window [spike-tol, spike+tol]
+            in seconds
+
+        max_shift : float 
+            Maximum delay between two spike trains (in seconds)
+
+        fsamp : float 
+            Sampling rate (in Hz) of the binary spike train
+
+        theshold : float , default 0.3
+            Common sources need to have a matching score higher than the theshold
+
+        mask : np.ndarray of bool | None , default None
+            Boolean mask to indicate units to be excluded (optional) 
+
+        pre_matched : bool , default False
+            If True, it is assumed that units have already been pre-matched   
+
+    Returns
+    -------
+        results : pd.DataFrame 
+            Table of matched units
+
+    """
+    source_labels_1 = sorted(df1["unit_id"].unique())
+    source_labels_2 = sorted(df2["unit_id"].unique())
+
+    if mask is None:
+        mask = np.ones(len(source_labels_1), dtype=bool)
+
+    # Asign source labels using the Hungarian method
+    if not pre_matched:
+        cost_matrix = np.ones((len(source_labels_1), len(source_labels_2)))
+
+        for i, l1 in enumerate(source_labels_1):
+
+            if ~mask[i]:
+                cost_matrix[i, :] = 100
+
+            spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(
+                spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+
+            for j, l2 in enumerate(source_labels_2):
+
+                spikes_2 = df2[df2["unit_id"] == l2]["onset"].values
+                spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+                spike_train_2 = bin_spikes(
+                    spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end
+                )
+                _, shift = max_xcorr(
+                    spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
+                )
+                tp, fp, fn = match_spike_trains(
+                    spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+                )
+                denom = len(spikes_2)
+                match_score = tp / denom if denom > 0 else 0
+
+                cost_matrix[i, j] = 1 - match_score
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    else:
+        row_ind = np.arange(len(source_labels_1))
+        col_ind = np.arange(len(source_labels_2))
+
+    results = []
+
+    for l1 in source_labels_1:
+        if l1 in row_ind:
+            idx = np.argmax(row_ind == l1)
+            l2 = source_labels_2[col_ind[idx]]
+
+            spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(
+                spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+
+            spikes_2 = df2[df2["unit_id"] == l2]["onset"].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+            spike_train_2 = bin_spikes(
+                spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+            _, shift = max_xcorr(
+                spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
+            )
+            tp, fp, fn = match_spike_trains(
+                spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+            )
+            denom = len(spikes_2)
+            match_score = tp / denom if denom > 0 else 0
+            delay = shift / fsamp
+            if match_score < threshold:
+                l2, tp, fp, fn, delay = None, 0, len(spikes_1), 0, None
+        else:
+            l2, tp, fp, fn, delay = None, 0, len(spikes_1), 0, None
+
+        results.append(
+            {
+                "unit_id": l1,
+                "unit_id_ref": l2,
+                "delay_seconds": delay,
+                "TP": tp,
+                "FN": fn,
+                "FP": fp,
+            }
+        )
+
+    return pd.DataFrame(results)
