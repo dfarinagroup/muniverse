@@ -229,6 +229,11 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     ch_cv = d_mu_properties["cv"].loc[:, tgt_ms_labels]
     ch_len = d_mu_properties["len"].loc[:, tgt_ms_labels]
 
+    # Generate MUAPs using BioMime with dedicated generator
+    zi = torch.randn(num_mus, model_config.Model.Generator.Latent, generator=torch_generator)
+    if device == "cuda":
+        zi = zi.cuda()
+
     # Generate MUAPs for each movement step
     muaps = []
     for sp in tqdm(range(num_steps), dynamic_ncols=True, desc="Simulating MUAPs during dynamic movement..."):
@@ -242,10 +247,7 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
             mu_properties['length'][:, sp] * ch_len.iloc[sp, :].values,
         )).transpose(1, 0)
         
-        # Generate MUAPs using BioMime with dedicated generator
-        zi = torch.randn(num_mus, model_config.Model.Generator.Latent, generator=torch_generator)
         if device == "cuda":
-            zi = zi.cuda()
             cond = cond.cuda()
 
         sim = generator.sample(num_mus, cond.float(), cond.device, zi)
