@@ -138,11 +138,7 @@ def initialize_mu_properties(config, mn_pool, num_steps):
     fibre_density = subject_cfg.get("FibreDensity")
     num_mus = mn_pool.N
     
-    # Create dedicated RNG objects for subject seed
     subject_seed = subject_cfg.get("SubjectSeed")
-    subject_rng = np.random.RandomState(subject_seed)
-    torch_generator = torch.Generator()
-    torch_generator.manual_seed(subject_seed)
 
     # Assign physiological properties using dedicated RNG
     num_fb = np.round(MS_AREA[ms_label] * fibre_density)
@@ -176,10 +172,10 @@ def initialize_mu_properties(config, mn_pool, num_steps):
         'iz': iz, 'cv': cv, 'length': length
     }
 
-    return properties_dict, property_tensors, torch_generator
+    return properties_dict, property_tensors, subject_seed
 
 
-def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, num_mus, torch_generator):
+def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, num_mus, subject_seed):
     """
     Generate MUAPs using BioMime neural network for the full range of motion.
     
@@ -204,6 +200,10 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     model_pth = config.get("PathToBioMimeWeights", "./ckp/model_linear.pth")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
+    # Seed global torch RNG before Generator init so weight-init draws advance the
+    # same RNG that zi is sampled from, matching main branch behaviour exactly.
+    torch.manual_seed(subject_seed)
+
     # Load model config and setup generator
     model_config = update_config("./ckp/config.yaml")
     generator = Generator(model_config.Model.Generator)
@@ -229,8 +229,7 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     ch_cv = d_mu_properties["cv"].loc[:, tgt_ms_labels]
     ch_len = d_mu_properties["len"].loc[:, tgt_ms_labels]
 
-    # Generate MUAPs using BioMime with dedicated generator
-    zi = torch.randn(num_mus, model_config.Model.Generator.Latent, generator=torch_generator)
+    zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
     if device == "cuda":
         zi = zi.cuda()
 
@@ -289,10 +288,10 @@ def generate_muap_library(config, mn_pool, msk_model) -> Tuple[np.ndarray, np.nd
     d_mu_properties, num_steps, min_angle, max_angle = simulate_dof_range(msk_model, movement_cfg.get("MovementDOF"), ms_label)
     
     # Initialize motor unit properties
-    init_mu_properties_dict, mu_properties, torch_generator = initialize_mu_properties(config, mn_pool, num_steps)
-    
+    init_mu_properties_dict, mu_properties, subject_seed = initialize_mu_properties(config, mn_pool, num_steps)
+
     # Generate MUAPs using BioMime
-    muaps = generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, mn_pool.N, torch_generator)
+    muaps = generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, mn_pool.N, subject_seed)
     
     # Generate angle labels that correspond to the actual MUAP library
     muap_angle_labels = np.linspace(min_angle, max_angle, num_steps).astype(int)
@@ -378,9 +377,15 @@ def main(args):
         )
         muaps, muap_angle_labels, properties = generate_muap_library(config, mn_pool, msk_model)
     
-    # Generate spike trains
+    # Generate spike trains — fresh pool, np.random re-seeded to subject_seed.
+    # In main branch, generate_muaps saves/restores the global np state back to
+    # "seeded(subject_seed) + 0 draws" before the spike pool is created, so we
+    # replicate that here explicitly.
     fs = config.get("RecordingConfiguration").get("SamplingFrequency")
-    spikes, firing_rates = generate_spike_trains(effort_profile, mn_pool, fs)
+    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
+    np.random.seed(subject_seed)
+    mn_pool_spikes = MotoneuronPool(num_mus, mn_pool_label, **mn_default_settings)
+    spikes, firing_rates = generate_spike_trains(effort_profile, mn_pool_spikes, fs)
     
     # Generate EMG signal
     emg = generate_emg(muaps, spikes, muap_angle_labels, angle_profile)
