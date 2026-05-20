@@ -13,7 +13,7 @@ import pytest
 
 from muniverse.datasets import generate_synthetic_recording
 from muniverse.datasets import init as new_init
-from muniverse.utils.containers import verify_container_engine
+from muniverse.utils.containers import verify_container_engine, pull_container, get_container_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,7 +39,7 @@ _SHORT_MOVEMENT_OVERRIDE = {
 
 _SHORT_DOF = "Test"
 
-NEW_CONTAINER = "pranavm19/muniverse:neuromotion"
+DOCKER_IMAGE = "pranavm19/muniverse:neuromotion"
 
 
 def _pick_engine():
@@ -81,6 +81,13 @@ def engine():
 
 
 @pytest.fixture(scope="module")
+def container(engine):
+    """Pull the container image if needed and return the engine-appropriate reference."""
+    pull_container(DOCKER_IMAGE, engine)
+    return get_container_ref(DOCKER_IMAGE, engine)
+
+
+@pytest.fixture(scope="module")
 def short_config(tmp_path_factory):
     """Write the short config to a temp file and return the path."""
     cfg = _load_short_config()
@@ -94,13 +101,13 @@ def short_config(tmp_path_factory):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not _has_container(), reason="No container engine available")
-def test_new_generate_synthetic_recording_structure(engine, short_config, tmp_path):
+def test_new_generate_synthetic_recording_structure(engine, container, short_config, tmp_path):
     """New API returns a dict with the expected keys and shapes."""
     results = generate_synthetic_recording(
         input_config=short_config,
         output_dir=str(tmp_path),
         engine=engine,
-        container=NEW_CONTAINER,
+        container=container,
         cache_dir=None,
     )
 
@@ -117,7 +124,7 @@ def test_new_generate_synthetic_recording_structure(engine, short_config, tmp_pa
 
 
 @pytest.mark.skipif(not _has_container(), reason="No container engine available")
-def test_new_generate_synthetic_recording_determinism(engine, short_config, tmp_path):
+def test_new_generate_synthetic_recording_determinism(engine, container, short_config, tmp_path):
     """Same config+seed produces identical EMG output on two runs."""
     out1 = tmp_path / "run1"
     out2 = tmp_path / "run2"
@@ -128,14 +135,14 @@ def test_new_generate_synthetic_recording_determinism(engine, short_config, tmp_
         input_config=short_config,
         output_dir=str(out1),
         engine=engine,
-        container=NEW_CONTAINER,
+        container=container,
         cache_dir=None,
     )
     r2 = generate_synthetic_recording(
         input_config=short_config,
         output_dir=str(out2),
         engine=engine,
-        container=NEW_CONTAINER,
+        container=container,
         cache_dir=None,
     )
 
