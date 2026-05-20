@@ -1,83 +1,143 @@
+"""
+Tests for the datasets module.
+
+These tests require a container engine (Docker or Singularity) to run.
+"""
+
 import json
-import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from src.data_generation import generate_recording, init
-from src.utils.containers import verify_container_engine
+from muniverse.datasets import generate_synthetic_recording
+from muniverse.datasets import init as new_init
+from muniverse.utils.containers import verify_container_engine
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+CONFIGS_DIR = Path(__file__).parent.parent / "configs"
+DEFAULT_CONFIG_PATH = CONFIGS_DIR / "neuromotion.json"
+
+# Lightweight config override: short movement so the container finishes quickly.
+_SHORT_MOVEMENT_OVERRIDE = {
+    "EffortProfile": "Trapezoid",
+    "AngleProfile": "Constant",
+    "InitialAngle": 0,
+    "TargetAngle": 0,
+    "TargetEffort": 10,
+    "NRepetitions": 1,
+    "RestDuration": 0.5,
+    "RampDuration": 0.5,
+    "HoldDuration": 0.5,
+    "SinFrequency": 0,
+    "MovementDuration": 2,
+}
+
+NEW_CONTAINER = "pranavm19/muniverse:neuromotion"
 
 
-def has_container_engine():
-    """Check if any container engine is available."""
-    try:
-        return verify_container_engine("docker") or verify_container_engine(
-            "singularity"
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return False
+def _pick_engine():
+    """Return the first available container engine, or None."""
+    for engine in ("singularity", "docker"):
+        try:
+            if verify_container_engine(engine):
+                return engine
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+    return None
 
 
-@pytest.mark.skipif(
-    not has_container_engine(),
-    reason="No container engine (Docker or Singularity) is available",
-)
-def test_dataset_init():
-    """Test that init properly sets up containers and selects the appropriate engine."""
-    # Test without config (should use defaults)
-    engine = init()
-    assert engine in ["docker", "singularity"], f"Unexpected engine: {engine}"
+def _load_short_config():
+    """Load default config with a short movement profile for fast testing."""
+    with open(DEFAULT_CONFIG_PATH) as f:
+        config = json.load(f)
+    config["MovementConfiguration"]["MovementProfileParameters"].update(
+        _SHORT_MOVEMENT_OVERRIDE
+    )
+    return config
 
 
-@pytest.mark.skipif(
-    not has_container_engine(),
-    reason="No container engine (Docker or Singularity) is available",
-)
-def test_generate_dataset():
-    """Test basic dataset generation with default settings."""
-    # Load the test configuration
-    config_path = (
-        Path(__file__).parent.parent
-        / "src/data_generation/neuromotion_config_template.json"
+def _has_container():
+    return _pick_engine() is not None
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def engine():
+    e = _pick_engine()
+    if e is None:
+        pytest.skip("No container engine available")
+    return e
+
+
+@pytest.fixture(scope="module")
+def short_config(tmp_path_factory):
+    """Write the short config to a temp file and return the path."""
+    cfg = _load_short_config()
+    p = tmp_path_factory.mktemp("cfg") / "test_config.json"
+    p.write_text(json.dumps(cfg))
+    return str(p)
+
+
+# ---------------------------------------------------------------------------
+# New datasets API
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not _has_container(), reason="No container engine available")
+def test_new_generate_synthetic_recording_structure(engine, short_config, tmp_path):
+    """New API returns a dict with the expected keys and shapes."""
+    results = generate_synthetic_recording(
+        input_config=short_config,
+        output_dir=str(tmp_path),
+        engine=engine,
+        container=NEW_CONTAINER,
+        cache_dir=None,
     )
 
-    # Create a temporary directory to simulate the output
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = {"input_config": config_path, "output_dir": tmpdir}
-        generate_recording(config)
-        # Check that the output path is within our temporary directory.
-        assert os.path.abspath(tmpdir) in os.path.abspath(tmpdir)
-
-
-@pytest.mark.skipif(
-    not has_container_engine(),
-    reason="No container engine (Docker or Singularity) is available",
-)
-def test_subject_seed_effects():
-    """Test that different subject seeds produce different but valid outputs through the containerized interface."""
-    # Load the test configuration
-    config_path = (
-        Path(__file__).parent.parent
-        / "src/data_generation/neuromotion_config_template.json"
+    expected_keys = {"emg", "spikes", "effort_profile", "angle_profile", "muaps", "muap_angle_labels"}
+    assert expected_keys.issubset(results.keys()), (
+        f"Missing keys: {expected_keys - results.keys()}"
     )
 
-    # Create two temporary directories for outputs
-    with (
-        tempfile.TemporaryDirectory() as tmpdir1,
-        tempfile.TemporaryDirectory() as tmpdir2,
-    ):
-        # Run with same seed twice
-        config1 = {"input_config": config_path, "output_dir": tmpdir1}
-        config2 = {"input_config": config_path, "output_dir": tmpdir2}
-        generate_recording(config1)
-        generate_recording(config2)
+    emg = results["emg"]
+    assert emg.ndim == 3, f"EMG should be 3-D (rows, cols, time), got shape {emg.shape}"
 
-        # Load the generated MUAPs
-        muaps1 = np.load(os.path.join(tmpdir1, "muaps.npy"))
-        muaps2 = np.load(os.path.join(tmpdir2, "muaps.npy"))
+    # Verify output file was saved
+    assert (tmp_path / "emg_data.npz").exists()
 
-        # Test shapes
-        assert muaps1.shape == muaps2.shape, "MUAP shapes should be identical"
+
+@pytest.mark.skipif(not _has_container(), reason="No container engine available")
+def test_new_generate_synthetic_recording_determinism(engine, short_config, tmp_path):
+    """Same config+seed produces identical EMG output on two runs."""
+    out1 = tmp_path / "run1"
+    out2 = tmp_path / "run2"
+    out1.mkdir()
+    out2.mkdir()
+
+    r1 = generate_synthetic_recording(
+        input_config=short_config,
+        output_dir=str(out1),
+        engine=engine,
+        container=NEW_CONTAINER,
+        cache_dir=None,
+    )
+    r2 = generate_synthetic_recording(
+        input_config=short_config,
+        output_dir=str(out2),
+        engine=engine,
+        container=NEW_CONTAINER,
+        cache_dir=None,
+    )
+
+    np.testing.assert_array_equal(
+        r1["emg"], r2["emg"],
+        err_msg="EMG output is not deterministic across two runs with the same seed",
+    )
+

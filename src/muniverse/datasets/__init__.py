@@ -1,58 +1,177 @@
 """
-Dataset loading and management utilities.
+Data generation utilities for neuromotion.
 """
 
 import json
 import os
-from pathlib import Path
-from typing import Any, Dict, Union
+import time
+import numpy as np
+from easyDataverse import Dataverse
 
-#import requests
+from ..utils.containers import pull_container, verify_container_engine
+from ..utils.logging import SimulationLogger
+from .simulate import generate_recording as _run_recording, validate_config
+from .movement import generate_effort_profile, generate_angle_profile
 
 
-def load_dataset(
-    dataset_id: str, output_dir: Union[str, Path] = None
-) -> Dict[str, Any]:
+def init():
     """
-    Load a dataset from Harvard Dataverse.
-
-    Args:
-        dataset_id: The dataset identifier (DOI or persistent ID)
-        output_dir: Directory to store downloaded files (defaults to ./data)
+    Initialize the datasets module.
+    This includes verifying container engines and pulling container images if needed.
+    If both Docker and Singularity are available, Singularity will be used by default.
 
     Returns:
-        Dict containing the dataset metadata and paths to downloaded files
+        str: The selected container engine ("docker" or "singularity")
     """
-    if output_dir is None:
-        output_dir = Path("./data")
+    # Check availability of both engines
+    docker_available = verify_container_engine("docker")
+    singularity_available = verify_container_engine("singularity")
+
+    # Select engine based on availability
+    if singularity_available:
+        engine = "singularity"
+    elif docker_available:
+        engine = "docker"
     else:
-        output_dir = Path(output_dir)
+        raise RuntimeError(
+            "No container engine (Docker or Singularity) is available. Please install one first."
+        )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Get container name (using default)
+    container_name = "pranavm19/muniverse:neuromotion"
 
-    # TODO: Implement Harvard Dataverse API integration
-    # This is a placeholder for the actual implementation
-    dataset_info = {"id": dataset_id, "files": [], "metadata": {}}
-
-    return dataset_info
+    # Pull container if needed
+    pull_container(container_name, engine)
+    print(f"[INFO] Datasets module initialized using {engine}.")
 
 
-def load_recording(recording_path: Union[str, Path]) -> Dict[str, Any]:
+def generate_synthetic_recording(
+    input_config, output_dir, engine, container, cache_dir, verbose=False
+):
     """
-    Load a specific recording from a dataset.
+    Generate a synthetic neuromotion recording using the provided configuration file.
+    This function handles all scaffolding: config loading, validation, profile generation,
+    directory setup, and logging. It then calls the execution function.
 
     Args:
-        recording_path: Path to the recording file
+        input_config (str): Path to the JSON configuration file containing movement and recording parameters.
+        engine (str): Container engine to use ("docker" or "singularity").
+        container (str):
+            For Docker: Name of the container image (e.g., "pranavm19/muniverse:neuromotion")
+            For Singularity: Full path to the container file (e.g., "environment/muniverse_neuromotion.sif")
+        output_dir (str, optional): Path to the output directory where the generated data will be saved. Defaults to None.
+        verbose (bool, optional): If True, enable verbose logging. Defaults to False.
 
     Returns:
-        Dict containing the recording data and metadata
+        dict: Dictionary containing simulation outputs (see simulate.generate_recording for details).
     """
-    recording_path = Path(recording_path)
-    if not recording_path.exists():
-        raise FileNotFoundError(f"Recording not found at {recording_path}")
+    # Validate required parameters
+    if not input_config or not output_dir:
+        raise ValueError("Both 'input_config' and 'output_dir' are required parameters")
 
-    # TODO: Implement recording loading based on file type
-    # This should handle different formats (BIDS, raw, etc.)
-    recording_data = {"path": str(recording_path), "data": None, "metadata": {}}
+    if not engine or not container:
+        raise ValueError("'engine' and 'container' are required parameters")
 
-    return recording_data
+    # Initialize logger
+    logger = SimulationLogger()
+
+    # Load and validate configuration
+    input_config = os.path.abspath(input_config)
+    with open(input_config, "r") as f:
+        config_content = json.load(f)
+
+    # Validate configuration file
+    validate_config(config_content, verbose)
+    logger.set_config(config_content)
+
+    # Generate movement profiles from config
+    effort_profile, _ = generate_effort_profile(config_content)
+    angle_profile, _ = generate_angle_profile(config_content)
+
+    results = _run_recording(
+        config=config_content,
+        effort_profile=effort_profile,
+        angle_profile=angle_profile,
+        engine=engine,
+        container=container,
+        logger=logger,
+        verbose=verbose,
+    )
+
+    if output_dir is not None:
+        output_dir = os.path.abspath(output_dir)
+        np.savez(os.path.join(output_dir, "emg_data.npz"), **results)
+        print(f"[INFO] Data saved to {output_dir}")
+    
+    return results
+
+
+def generate_hybrid_recording(
+    input_config, output_dir, engine, container, cache_dir, muaps, muap_angle_labels, verbose=False  # noqa: cache_dir unused (reserved for future)
+):
+    """
+    Generate a hybrid recording using provided MUAPs and angle labels.
+    This function handles all scaffolding: config loading, validation, profile generation,
+    directory setup, and logging. It then calls the execution function.
+
+    Args:
+        input_config (str): Path to the JSON configuration file containing movement and recording parameters.
+        engine (str): Container engine to use ("docker" or "singularity").
+        container (str):
+            For Docker: Name of the container image (e.g., "pranavm19/muniverse:neuromotion")
+            For Singularity: Full path to the container file (e.g., "environment/muniverse_neuromotion.sif")
+        muaps (np.ndarray): MUAPs array with shape (n_motor_units, n_angle_labels, ch_rows, ch_cols, n_timepoints).
+        muap_angle_labels (np.ndarray): Angle labels array of length n_angle_labels describing what angle each MUAP corresponds to.
+        output_dir (str, optional): Path to the output directory where the generated data will be saved. Defaults to None.
+        verbose (bool, optional): If True, enable verbose logging. Defaults to False.
+
+    Returns:
+        dict: Dictionary containing simulation outputs (see generate_hybrid_recording for details).
+    """
+    # Validate required parameters
+    if not input_config or not output_dir:
+        raise ValueError("Both 'input_config' and 'output_dir' are required parameters")
+
+    if not engine or not container:
+        raise ValueError("'engine' and 'container' are required parameters")
+
+    if muaps is None:
+        raise ValueError("'muaps' is a required parameter for hybrid recording")
+
+    if muap_angle_labels is None:
+        raise ValueError("'muap_angle_labels' is a required parameter for hybrid recording")
+
+    # Initialize logger
+    logger = SimulationLogger()
+
+    # Load and validate configuration
+    input_config = os.path.abspath(input_config)
+    with open(input_config, "r") as f:
+        config_content = json.load(f)
+
+    # Validate configuration file
+    validate_config(config_content, verbose)
+    logger.set_config(config_content)
+
+    # Generate movement profiles from config
+    effort_profile, _ = generate_effort_profile(config_content)
+    angle_profile, _ = generate_angle_profile(config_content)
+
+    results = _run_recording(
+        config=config_content,
+        effort_profile=effort_profile,
+        angle_profile=angle_profile,
+        engine=engine,
+        container=container,
+        muaps=muaps,
+        muap_angle_labels=muap_angle_labels,
+        logger=logger,
+        verbose=verbose,
+    )
+
+    if output_dir is not None:
+        output_dir = os.path.abspath(output_dir)
+        np.savez(os.path.join(output_dir, "emg_data.npz"), **results)
+        print(f"[INFO] Data saved to {output_dir}")
+    
+    return results

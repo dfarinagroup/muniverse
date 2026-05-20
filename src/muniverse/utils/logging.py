@@ -305,7 +305,7 @@ class BaseMetadataLogger:
 class SimulationLogger(BaseMetadataLogger):
     """Logger for simulation runs."""
 
-    def __init__(self, run_id: Optional[str] = None):
+    def __init__(self):
         super().__init__()
         # Update fields for simulation runs
         self.log_data["DatasetType"] = "raw"
