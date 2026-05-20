@@ -92,8 +92,31 @@ def validate_config(config_content, verbose=False):
     if not isinstance(recording_cfg["SamplingFrequency"], (int, float)) or recording_cfg["SamplingFrequency"] <= 0:
         raise ValueError("SamplingFrequency must be a positive number")
     
-    # TODO: Validate filter properties
-    # TODO: Validate electrode configuration
+    # Validate filter properties
+    filter_cfg = recording_cfg["FilterProperties"]
+    required_filter_params = ["FilterType", "CutoffFrequency", "FilterOrder"]
+    for param in required_filter_params:
+        if param not in filter_cfg:
+            raise ValueError(f"Missing required parameter in FilterProperties: {param}")
+    if not isinstance(filter_cfg["CutoffFrequency"], (int, float)) or filter_cfg["CutoffFrequency"] <= 0:
+        raise ValueError("CutoffFrequency must be a positive number")
+    if not isinstance(filter_cfg["FilterOrder"], int) or filter_cfg["FilterOrder"] <= 0:
+        raise ValueError("FilterOrder must be a positive integer")
+
+    # Validate electrode configuration
+    electrode_cfg = recording_cfg["ElectrodeConfiguration"]
+    required_electrode_params = ["NElectrodes", "NRows", "NCols"]
+    for param in required_electrode_params:
+        if param not in electrode_cfg:
+            raise ValueError(f"Missing required parameter in ElectrodeConfiguration: {param}")
+    for param in ["NElectrodes", "NRows", "NCols"]:
+        if not isinstance(electrode_cfg[param], int) or electrode_cfg[param] <= 0:
+            raise ValueError(f"{param} must be a positive integer")
+    if electrode_cfg["NElectrodes"] != electrode_cfg["NRows"] * electrode_cfg["NCols"]:
+        raise ValueError("NElectrodes must equal NRows * NCols")
+    desired_cols = electrode_cfg.get("DesiredNCols", electrode_cfg["NCols"])
+    if not isinstance(desired_cols, int) or desired_cols <= 0 or desired_cols > electrode_cfg["NCols"]:
+        raise ValueError("DesiredNCols must be a positive integer no greater than NCols")
     
     if verbose:
         print("[INFO] Configuration validation passed")
@@ -189,12 +212,14 @@ def generate_recording(
         # Run container
         cmd = [run_script_path, engine, container, script_path, run_dir]
         try:
-            subprocess.run(cmd, check=True, cwd=current_dir)
+            subprocess.run(cmd, check=True, cwd=current_dir, capture_output=verbose, text=verbose)
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Recording generation failed: {e}")
             if verbose:
-                print(f"[ERROR] stdout: {e.output}")
-                print(f"[ERROR] stderr: {e.stderr}")
+                if e.stdout:
+                    print(f"[ERROR] stdout:\n{e.stdout}")
+                if e.stderr:
+                    print(f"[ERROR] stderr:\n{e.stderr}")
             logger.set_return_code("run.sh", e.returncode)
             logger.finalize(engine, container)
             raise
