@@ -116,16 +116,15 @@ All datasets are hosted on [Harvard Dataverse](https://dataverse.harvard.edu/dat
 muniverse/
 ├── src/                    # Package source code
 │   └── muniverse/
-│       ├── datasets/       # Dataset loading utilities
+│       ├── datasets/       # Dataset loading and simulation utilities
 │       ├── algorithms/     # Decomposition algorithms
-│       ├── data_generation/# Data generation utilities
 │       ├── evaluation/     # Performance evaluation
 │       └── utils/          # Utility functions
 ├── notebooks/              # Tutorial notebooks
 ├── scripts/                # Utility scripts
 ├── configs/                # Algorithm and dataset configurations
 ├── docker/                 # Docker container definitions
-├── docs/                   # GitHub Pages documentation
+├── docs/                   # GitHub Pages documentation (Coming soon!)
 ├── tests/                  # Unit tests
 ├── pyproject.toml          # Package configuration
 └── README.md               
@@ -147,7 +146,6 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 - **Swarm-Contrastive-Decomposition** - Decomposition algorithm ([GitHub](https://github.com/AgneGris/swarm-contrastive-decomposition))
 - **Harvard Dataverse** - FAIR data hosting platform
 - **BIDS** - Brain Imaging Data Structure standard
-- **Croissant** - ML dataset metadata format
 
 ## Citation
 
