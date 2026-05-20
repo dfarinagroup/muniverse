@@ -99,6 +99,9 @@ def simulate_dof_range(msk_model, dof, ms_label):
     elif dof == "Radial-Ulnar-Deviation":
         poses = ["rdev", "default", "udev"]
         min_angle, max_angle = -10, 25
+    elif dof == "Test":
+        poses = ["rdev", "default", "udev"]
+        min_angle, max_angle = -2, 2
     
     durations = np.abs([min_angle, max_angle]) / fs_mov
 
@@ -119,9 +122,8 @@ def simulate_dof_range(msk_model, dof, ms_label):
 
     return d_mu_params, num_steps, min_angle, max_angle
 
-
 def initialize_mu_properties(config, mn_pool, num_steps):
-    """
+    """ 
     Initialize motor neuron properties and prepare them for MUAP generation.
     
     Args:
@@ -138,8 +140,6 @@ def initialize_mu_properties(config, mn_pool, num_steps):
     fibre_density = subject_cfg.get("FibreDensity")
     num_mus = mn_pool.N
     
-    subject_seed = subject_cfg.get("SubjectSeed")
-
     # Assign physiological properties using dedicated RNG
     num_fb = np.round(MS_AREA[ms_label] * fibre_density)
     config_props = edict({
@@ -151,11 +151,7 @@ def initialize_mu_properties(config, mn_pool, num_steps):
         "cv": [4, 0.3],  # Recommend not setting std too large. cv range in training dataset is [3, 4.5]
     })
 
-    # Temporarily set the global state to subject seed for reproducibility
-    original_np_state = np.random.get_state()
-    np.random.seed(subject_seed)
     properties = mn_pool.assign_properties(config_props, normalise=True)
-    np.random.set_state(original_np_state)
     
     properties_dict = {key: val for key, val in properties.items()}
 
@@ -172,10 +168,10 @@ def initialize_mu_properties(config, mn_pool, num_steps):
         'iz': iz, 'cv': cv, 'length': length
     }
 
-    return properties_dict, property_tensors, subject_seed
+    return properties_dict, property_tensors
 
 
-def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, num_mus, subject_seed):
+def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, num_mus):
     """
     Generate MUAPs using BioMime neural network for the full range of motion.
     
@@ -200,10 +196,6 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     model_pth = config.get("PathToBioMimeWeights", "./ckp/model_linear.pth")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Seed global torch RNG before Generator init so weight-init draws advance the
-    # same RNG that zi is sampled from, matching main branch behaviour exactly.
-    torch.manual_seed(subject_seed)
-
     # Load model config and setup generator
     model_config = update_config("./ckp/config.yaml")
     generator = Generator(model_config.Model.Generator)
@@ -229,7 +221,10 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     ch_cv = d_mu_properties["cv"].loc[:, tgt_ms_labels]
     ch_len = d_mu_properties["len"].loc[:, tgt_ms_labels]
 
-    zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
+    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
+    torch_generator = torch.Generator()
+    torch_generator.manual_seed(subject_seed)
+    zi = torch.randn(num_mus, model_config.Model.Generator.Latent, generator=torch_generator)
     if device == "cuda":
         zi = zi.cuda()
 
@@ -288,16 +283,15 @@ def generate_muap_library(config, mn_pool, msk_model) -> Tuple[np.ndarray, np.nd
     d_mu_properties, num_steps, min_angle, max_angle = simulate_dof_range(msk_model, movement_cfg.get("MovementDOF"), ms_label)
     
     # Initialize motor unit properties
-    init_mu_properties_dict, mu_properties, subject_seed = initialize_mu_properties(config, mn_pool, num_steps)
+    init_mu_properties_dict, mu_properties = initialize_mu_properties(config, mn_pool, num_steps)
 
     # Generate MUAPs using BioMime
-    muaps = generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, mn_pool.N, subject_seed)
+    muaps = generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms_label, mn_pool.N)
     
     # Generate angle labels that correspond to the actual MUAP library
     muap_angle_labels = np.linspace(min_angle, max_angle, num_steps).astype(int)
 
     return muaps, muap_angle_labels, init_mu_properties_dict
-
 
 def generate_spike_trains(effort_profile: np.ndarray, mn_pool, fs) -> Tuple[List, np.ndarray]:
     """
@@ -348,6 +342,9 @@ def main(args):
         print(f"[ERROR] Failed to load input data from {run_dir}: {e}")
         raise
 
+    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
+    np.random.seed(subject_seed)
+
     # Define a MotorneuronPool object
     ms_label = config.get("MovementConfiguration").get("TargetMuscle")
     
@@ -377,15 +374,9 @@ def main(args):
         )
         muaps, muap_angle_labels, properties = generate_muap_library(config, mn_pool, msk_model)
     
-    # Generate spike trains — fresh pool, np.random re-seeded to subject_seed.
-    # In main branch, generate_muaps saves/restores the global np state back to
-    # "seeded(subject_seed) + 0 draws" before the spike pool is created, so we
-    # replicate that here explicitly.
+    # Generate spike trains
     fs = config.get("RecordingConfiguration").get("SamplingFrequency")
-    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
-    np.random.seed(subject_seed)
-    mn_pool_spikes = MotoneuronPool(num_mus, mn_pool_label, **mn_default_settings)
-    spikes, firing_rates = generate_spike_trains(effort_profile, mn_pool_spikes, fs)
+    spikes, firing_rates = generate_spike_trains(effort_profile, mn_pool, fs)
     
     # Generate EMG signal
     emg = generate_emg(muaps, spikes, muap_angle_labels, angle_profile)

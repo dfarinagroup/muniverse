@@ -37,6 +37,8 @@ _SHORT_MOVEMENT_OVERRIDE = {
     "MovementDuration": 2,
 }
 
+_SHORT_DOF = "Test"
+
 NEW_CONTAINER = "pranavm19/muniverse:neuromotion"
 
 
@@ -55,6 +57,7 @@ def _load_short_config():
     """Load default config with a short movement profile for fast testing."""
     with open(DEFAULT_CONFIG_PATH) as f:
         config = json.load(f)
+    config["MovementConfiguration"]["MovementDOF"] = _SHORT_DOF
     config["MovementConfiguration"]["MovementProfileParameters"].update(
         _SHORT_MOVEMENT_OVERRIDE
     )
