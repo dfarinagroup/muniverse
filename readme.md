@@ -152,13 +152,16 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 If you use MUniverse in your research, please cite:
 
 ```bibtex
-@inproceedings{
-mamidanna2025muniverse,
-title={{MU}niverse: A Simulation and Benchmarking Suite for Motor Unit Decomposition},
-author={Pranav Mamidanna and Thomas Klotz and Dimitrios Halatsis and Agnese Grison and Irene Mendez Guerra and Shihan Ma and Arnault H. Caillet and Simon Avrillon and Robin Rohl{\'e}n and Dario Farina},
-booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
-year={2025},
-url={https://openreview.net/forum?id=Slrp3l7aYo}
+@inproceedings{NEURIPS2025_dcce2899,
+ author = {Mamidanna, Pranav and Klotz, Thomas and Chalatsis, Dimitrios and Grison, Agnese and Mendez Guerra, Irene and Ma, Shihan and Caillet, Arnault and Avrillon, Simon and Rohl\'{e}n, Robin and Farina, Dario},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {D. Belgrave and C. Zhang and H. Lin and R. Pascanu and P. Koniusz and M. Ghassemi and N. Chen},
+ pages = {},
+ publisher = {Curran Associates, Inc.},
+ title = {MUniverse: A Simulation and Benchmarking Suite for Motor Unit Decomposition},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2025/file/dcce28990bf662c6b916c52cd7e975da-Paper-Datasets_and_Benchmarks_Track.pdf},
+ volume = {38},
+ year = {2025}
 }
 ```
 
