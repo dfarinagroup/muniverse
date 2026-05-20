@@ -62,7 +62,7 @@ def validate_config(config_content, verbose=False):
         )
     
     # Validate movement DOF
-    valid_dofs = ["Flexion-Extension", "Radial-Ulnar-Deviation"]
+    valid_dofs = ["Flexion-Extension", "Radial-Ulnar-Deviation", "Test"]
     if movement_cfg["MovementDOF"] not in valid_dofs:
         raise ValueError(f"MovementDOF must be one of: {valid_dofs}")
     
