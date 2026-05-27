@@ -838,6 +838,15 @@ def generate_muaps(
     print(f"Starting simulation with {num_mus} motor units, {steps} movement steps")
     start_time = time.time()
 
+    # Sample latent vectors once so each MU keeps a consistent identity across
+    # all movement steps.  Previously zi was resampled every step, causing the
+    # MUAP morphology to jump randomly instead of evolving smoothly with the
+    # changing biomechanical conditions.
+    if not morph:
+        zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
+        if device == "cuda":
+            zi = zi.cuda()
+
     muaps = []
     for sp in tqdm(
         range(steps),
@@ -854,13 +863,8 @@ def generate_muaps(
                 length[:, sp] * ch_len.iloc[sp, :].values,
             )
         ).transpose(1, 0)
-        if not morph:
-            zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
-            if device == "cuda":
-                zi = zi.cuda()
-        else:
-            if device == "cuda":
-                base_muaps = base_muaps.cuda()
+        if morph and device == "cuda":
+            base_muaps = base_muaps.cuda()
 
         if device == "cuda":
             cond = cond.cuda()
