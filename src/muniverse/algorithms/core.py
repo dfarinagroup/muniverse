@@ -480,9 +480,9 @@ def whitening(
 
     if method == "Cholesky":
         covariance = Y @ Y.T / (n_samples - 1)
-        R = np.linalg.cholesky(covariance)
-        Z = np.linalg.inv(R.T)
-        Z_inv = R.T
+        L = np.linalg.cholesky(covariance)
+        Z = np.linalg.inv(L)
+        Z_inv = L
         wY = Z @ Y
         return wY, Z, Z_inv
 
