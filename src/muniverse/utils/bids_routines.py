@@ -15,7 +15,6 @@ from typing import List, Literal, Optional
 
 import numpy as np
 import pandas as pd
-#from edfio import Edf, Bdf, EdfSignal, read_edf, read_bdf
 from pyedflib.highlevel import read_edf, write_edf, make_signal_headers
 
 
@@ -579,7 +578,6 @@ class EMGBIDSRecording(BIDSDataset):
         inherited_level: list | None = None,
         parent_dataset: BIDSDataset | None = None
     ):
-        """Init EMGBIDSRecording class"""
 
         super().__init__(
             datasetname=datasetname,
@@ -751,11 +749,7 @@ class EMGBIDSRecording(BIDSDataset):
         return name
     
     def _find_inherited_file(self, ending):
-        """
-        Automatically find metadata files that are potentially inherited.
-        
-
-        """
+        """Automatically find metadata files that are potentially inherited"""
 
         warnings.warn(
             f"File *_{ending} could not be found in the expected folder."
@@ -797,10 +791,7 @@ class EMGBIDSRecording(BIDSDataset):
             run_label, 
             recording_label,
             datatype):
-        """
-        Return error if the selected arguments are invalid
-        
-        """
+        """Return error if the selected arguments are invalid"""
 
         if type(subject_label) is not str:
             raise ValueError("subject_label must be of type string")
@@ -828,10 +819,7 @@ class EMGBIDSRecording(BIDSDataset):
             raise ValueError("datatype must be emg")
 
     def _init_emg_sidecar(self, fsamp, plfreq):
-        """
-        Initalize the required EMG sidecar metadata
-
-        """
+        """Initalize the required EMG sidecar metadata"""
 
         metadata = {
             "EMGPlacementScheme": "How electrode positions are determined (ChannelSpecific, Measured or Other)",
@@ -1018,6 +1006,22 @@ class EMGBIDSRecording(BIDSDataset):
                     self.events_sidecar = json.load(f)                  
 
     def set_metadata(self, field_name, source, overwrite=False):
+        """
+        Function to update metadata fields.
+
+        Args
+        ----
+            field_name : str 
+                name of the attribute/metadata field to be update
+
+            source : dict, DataFrame, or str 
+                Metadata (dict or str) or path to file (str) that should be used 
+                to update the metadata field
+     
+            overwrite : bool , default False 
+                If True, the attribute is overwritten by the given input.
+                Otherwise, the new input and aby existing content are merged. 
+        """
 
         super().set_metadata(field_name, source, overwrite)
 
@@ -1053,7 +1057,12 @@ class EMGBIDSRecording(BIDSDataset):
                     )
                   
 
-    def set_data(self, field_name, mydata, fsamp):
+    def set_data(
+            self, 
+            field_name: str, 
+            mydata: np.ndarray, 
+            fsamp: float
+    ):
         """
         Add raw data and convert it into edf format
 
@@ -1083,7 +1092,11 @@ class EMGBIDSRecording(BIDSDataset):
             self.fsamp = fsamp
 
 
-    def read_data_frame(self, df, idx):
+    def read_data_frame(
+            self, 
+            df: pd.DataFrame, 
+            idx: int
+    ):
         """
         Read data from a table of recording files
 
@@ -1116,7 +1129,9 @@ class EMGBIDSRecording(BIDSDataset):
 class EMGBIDSNeuromotionRecording(EMGBIDSRecording):
     """
     Class for handling neuromotion simulation data in BIDS format.
-    Inherits from bids_emg_recording and adds support for additional simulation-specific files.
+    Inherits from EMGBIDSRecording and adds support for additional 
+    simulation-specific files.
+
     """
 
     BIDSIGNORE = [
@@ -1605,10 +1620,13 @@ class BIDSDecompositionDerivative(EMGBIDSRecording):
         """
         Convert a dictionary of spike times to long-format TSV-style DataFrame.
 
-        Parameters:
-            spikes (dict or DataFrame): {source_id: list of spike timings (in samples)} 
-                    or long-format table (must contain unit_id and one of onset or sample)
-            fsamp(float): Sampling frequency in Hz
+        Args
+        ----
+            spikes : dict or DataFrame 
+                Dictonary or Table with motor unit spikes
+
+            fsamp : float
+                Sampling frequency in Hz
 
         """
 
@@ -1666,18 +1684,37 @@ def run_bids_validator(
     """
     API to the official BIDS validator.
 
-    Args:
-        path (str): Absolute of relative path to your BIDS dataset 
-        ignored_codes (list of str): Ignored error codes (e.g. ["SIDECAR_KEY_RECOMMENDED"])
-        ignored_fileds (list of str): Errors corresponding to that field are ignored (e.g. ["DeviceSerialNumber"])
-        ignored_files (list of str): Ignored errors in these files (e.g. ["/dataset_description.json"])
-        print_errors (bool): Descides if errors should be printed 
-        print_warnings (bool): Descides if warnings should be printed 
+    Args
+    ----
 
-    Returns:
-        errors (list): List of detected errors
-        warnings (list): List of detected warnings  
-        valid (bool): True if there are no errors  
+        path : str 
+            Absolute or relative path to your BIDS dataset
+
+        ignored_codes : list of str 
+            Ignored error codes (e.g. ["SIDECAR_KEY_RECOMMENDED"])
+
+        ignored_fileds : list of str 
+            Errors corresponding to that field are ignored (e.g. ["DeviceSerialNumber"])
+
+        ignored_files : list of str 
+            Ignored errors in these files (e.g. ["/dataset_description.json"])
+
+        print_errors : bool 
+            Descides if errors should be printed 
+
+        print_warnings : bool
+            Descides if warnings should be printed 
+
+    Returns
+    -------
+        errors : list 
+            List of detected errors
+        
+        warnings : list 
+            List of detected warnings  
+
+        valid : bool 
+            Returns True if there were no errors deteced  
     
     """
 
