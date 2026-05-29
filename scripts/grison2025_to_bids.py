@@ -301,7 +301,10 @@ dataset_sidecar = manual_metadata["DatasetDescription"] #dataset_sidecar_templat
 dataset_sidecar["GeneratedBy"][0]["Version"] = __version__
 dataset_sidecar["GeneratedBy"][0]["License"] = __license__
 
-Grison_2025 = bids_dataset(datasetname='Grison_et_al_2025', root=str(Path.home()) + '/Downloads/')
+Grison_2025 = BIDSDataset(
+    datasetname='Grison_et_al_2025', 
+    path=str(Path.home()) + '/Downloads/'
+)
 Grison_2025.set_metadata(field_name='subjects_data', source=subjects_data)
 Grison_2025.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
 Grison_2025.readme = readme
@@ -379,7 +382,7 @@ for i in np.arange(n_sub):
             events = get_events_tsv(target_k, fsamp, mvc_level)
 
             # Make a recording and add data and metadata
-            emg_recording = bids_emg_recording(
+            emg_recording = EMGBIDSRecording(
                 parent_dataset=Grison_2025,
                 subject_label=str(i+1).zfill(2), 
                 task_label=task_label, 
@@ -392,14 +395,14 @@ for i in np.arange(n_sub):
             emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
             emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
             emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata, overwrite=True)
-            emg_recording.set_data(field_name='emg_data', mydata=data_k,fsamp=emg_sidecar['SamplingFrequency'])
+            emg_recording.set_data(field_name='data', mydata=data_k,fsamp=emg_sidecar['SamplingFrequency'])
             emg_recording.set_metadata(field_name="events_sidecar", source=events_sidecar)
             emg_recording.set_metadata(field_name="events", source=events)
 
             emg_recording.write()
 
             # Add the annotaed spike labels
-            ref_labels = bids_decomp_derivatives(
+            ref_labels = BIDSDecompositionDerivative(
                 parent_recording=emg_recording,
                 pipelinename="Manual",
                 format="subdir",

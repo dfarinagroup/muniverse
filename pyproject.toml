@@ -26,6 +26,7 @@ dependencies = [
     "pyedflib",
     "python-dateutil",
     "bids-validator-deno",
+    "pydantic",
 ]
 
 [project.optional-dependencies]

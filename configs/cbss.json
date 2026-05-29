@@ -1,31 +1,69 @@
 {
-    "Name": "CBSS Configuration",
-    "Description": "Configuration parameters for CBSS algorithm",
+    "Name": "FastIcaCBSS Pipeline Configuration",
+    "Description": "Configuration parameters for FastIcaCBSS Pipeline",
 
-    "Config": {
-        "start_time": 0,
-        "end_time": -1,
-        "sampling_frequency": 2048,
-        "bandpass": [20, 500],
-        "bandpass_order": 2,
-        "notch_frequency": 50,
-        "notch_n_harmonics": 3,
-        "notch_order": 2,
-        "notch_width": 1,
+    "preProcessingConfig": [
+        {
+            "step": "bandpass",
+            "high_pass": 20,
+            "low_pass": 500,
+            "method": "butter",
+            "order": 2
+        },
+        {
+            "step": "notch",
+            "freqs": [50, 100, 150],
+            "method": "butter",
+            "order": 2
+        },
+        {
+            "step": "time_window",
+            "t_start": 0,
+            "t_end": -1
+        }
+    ],
+
+    "algorithmConfig": {
+        "random_seed": 1909,
         "ext_fact": 12,
         "whitening_method": "ZCA",
+        "whitening_backend": "ed",
         "whitening_reg": "auto",
-        "ica_n_iter": 100,
-        "opt_initalization": "random",
-        "opt_function_exp": 3,
-        "opt_max_iter": 100,
-        "opt_tol": 1e-4,
-        "source_deflation": "gram-schmidt",
-        "peel_off": false,
-        "cluster_method": "kmeans",
-        "random_seed": 1909,
+        "spike_detection_exp": 2,
+        "spike_detection_min_delay": 0.01,
+        "ica_iterations": 100,
+        "ica_initalization": "random",
+        "ica_opt_fun_exp": 3,
+        "ica_opt_fun_eps": 0.001,
+        "ica_max_iter": 100,
+        "ica_tol": 5e-4,
+        "ica_orthogonalization": "gram-schmidt",
         "refinement_loop": true,
-        "sil_th": 0.9,
-        "cov_th": 0.35
-    }
+        "refinement_loss": "cov_isi",
+        "refinement_max_iter": 100,
+        "refinement_min_spikes": 10,
+        "peel_off": false,
+        "peel_off_window": 0.025,
+        "peel_off_sil_th": 0.9,
+        "peel_off_cov_th": 0.35,
+        "verbose": true
+    },
+
+    "postProcessingConfig": [
+        {
+            "step": "remove_duplicates",
+            "max_shift": 0.01,
+            "tolerance": 0.001,
+            "threshold": 0.3,
+            "quality_metric": "sil",
+            "mode": "max"
+        },
+        {
+            "step": "bad_source_detection",
+            "quality_metric": "sil",
+            "threshold": 0.9,
+            "min_spikes": 10,
+            "mode": "below"
+        }  
+    ]
 }

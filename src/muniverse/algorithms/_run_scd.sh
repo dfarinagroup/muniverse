@@ -8,8 +8,6 @@ ENGINE=$1
 CONTAINER_NAME=$2
 SCRIPT_PATH=$3
 RUN_DIR=$4
-REPO_PATH=$5
-CONDA_ENV=$6
 
 # Detect NVIDIA GPU availability on the host
 if command -v nvidia-smi &>/dev/null && nvidia-smi -L &>/dev/null; then
@@ -43,13 +41,7 @@ elif [ "$ENGINE" == "singularity" ]; then
              conda activate decomposition && \
              cd /opt/scd/ && \
              python run_scd.py --run_dir /run_dir/"
-elif [ "$ENGINE" == "host" ]; then
-  echo "[INFO] Running SCD on the host system"
-  bash -c "source $(conda info --base)/etc/profile.d/conda.sh && \
-           conda activate "$CONDA_ENV" && \
-           cp \"$SCRIPT_PATH\" \"$REPO_PATH\" && \
-           python \"$REPO_PATH/$(basename $SCRIPT_PATH)\" --run_dir \"$RUN_DIR\" "
 else
-  echo "ERROR: Unknown engine '$ENGINE'. Use 'docker', 'singularity' or 'host'."
+  echo "ERROR: Unknown engine '$ENGINE'. Use 'docker' or 'singularity'."
   exit 1
 fi

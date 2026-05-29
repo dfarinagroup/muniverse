@@ -2,22 +2,36 @@ import numpy as np
 import pandas as pd
 from scipy.signal import convolve, correlate, correlation_lags, find_peaks
 from scipy.stats import kurtosis, skew
+from scipy.optimize import linear_sum_assignment
 
-
-def match_spikes(s1, s2, shift=0, tol=0.001):
+def match_spikes(
+        s1, 
+        s2, 
+        shift=0, 
+        tol=0.001
+):
     """
     Match spike times of two neurons given time shift and tolerance.
 
-    Args:
-        - s1 (ndarray): Spike times of the first neuron (in seconds)
-        - s2 (ndarray): Spike times of the second neuron (in seconds)
-        - shift (float): Temporal delay between the spiking neuron activity (in seconds)
-        - tol (float): Common spikes are in a window [spike-tol, spike+tol]
+    Args
+    ----
+        s1 : np.ndarray 
+            Spike times of the first neuron (in seconds)
+        s2 : np.ndarray 
+            Spike times of the second neuron (in seconds)
+        shift : int 
+            Delay between the spike trains (in seconds)
+        tol : float 
+            Common spikes are in a window [spike-tol, spike+tol] 
 
-    Returns:
-        - tp (float): Number of true positive spikes
-        - fp (float): Number of false positive spikes
-        - fn (float): Number of false negative spikes
+    Returns
+    -------
+        tp : int 
+            Number of true positive spikes
+        fp : int 
+            Number of false positive spikes
+        fn : int 
+            Number of false negative spikes
 
     """
 
@@ -46,21 +60,37 @@ def match_spikes(s1, s2, shift=0, tol=0.001):
     return tp, fp, fn
 
 
-def match_spike_trains(s1, s2, shift=0, tol=0.001, fsamp=10000):
+def match_spike_trains(
+        s1: np.ndarray, 
+        s2: np.ndarray, 
+        shift: float = 0, 
+        tol: float = 0.001, 
+        fsamp: float = 10000
+) -> tuple[int, int, int]:
     """
     Match spike trains of two neurons given sample shift and tolerance.
 
-    Args:
-        - s1 (ndarray): Binary spike train of the first neuron
-        - s2 (ndarray): Binary spike train of the second neuron
-        - shift (int): Delay between the spike trains (in samples)
-        - tol (float): Common spikes are in a window [spike-tol, spike+tol] (unit: seconds)
-        - fsamp (float): Sampling frequency in Hz
+    Args
+    ----
+        s1 : np.ndarray 
+            Binary spike train of the first neuron
+        s2 : np.ndarray 
+            Binary spike train of the second neuron
+        shift : int 
+            Delay between the spike trains (in samples)
+        tol : float 
+            Common spikes are in a window [spike-tol, spike+tol] (unit: seconds)
+        fsamp  : float 
+            Sampling frequency in Hz
 
-    Returns:
-        - tp (int): Number of true positive spikes
-        - fp (int): Number of false positive spikes
-        - fn (int): Number of false negative spikes
+    Returns
+    -------
+        tp : int 
+            Number of true positive spikes
+        fp : int 
+            Number of false positive spikes
+        fn : int 
+            Number of false negative spikes
 
     """
 
@@ -78,16 +108,24 @@ def match_spike_trains(s1, s2, shift=0, tol=0.001, fsamp=10000):
     return tp, fp, fn
 
 
-def get_bin_spikes(spike_indices, n_samples):
+def get_bin_spikes(
+        spike_indices: np.ndarray, 
+        n_samples: int
+) -> np.ndarray:
     """
     Make binary spike trains given a set of spike indices
 
-    Args:
-        spike_indices (ndarray): Array of spike indices (i.e, integers)
-        n_samples (int): Number of time samples
+    Args
+    ----
+        spike_indices : np.ndarray of int 
+            Array of spike indices 
+        n_samples : int 
+            Number of time samples
 
-    Returns:
-        spike_train (ndarray): Binary spike train vector
+    Returns
+    -------
+        spike_train : ndarray 
+            Binary spike train vector
 
     """
 
@@ -97,28 +135,36 @@ def get_bin_spikes(spike_indices, n_samples):
     return spike_train
 
 
-def bin_spikes(spike_times, fsamp=10000, t_start=0, t_end=60):
+def bin_spikes(
+        spike_times: np.ndarray, 
+        fsamp: float = 2048, 
+        t_start: float = 0, 
+        t_end: float = 60
+) -> np.ndarray:
     """
     Make binary spike trains given a set of spike times
 
     Args:
-        spike_times (ndarray): Array of spike times (in seconds)
-        fsamp (float): Sampling rate in Hz of the binary spike train
-        t_start (float) : Start of the time window to be considered (in seconds)
-        t_end (float): End of the time window to be considered (in seconds)
-
+        spike_times : np.ndarray 
+            Array of spike times (in seconds)
+        fsamp : float 
+            Sampling rate in Hz 
+        t_start : float 
+            Start of the time window to be considered (in seconds)
+        t_end : float 
+            End of the time window to be considered (in seconds)
 
     Returns:
-        spike_train (ndarray): Binary spike train vector
+        spike_train : np.ndarray 
+            Binary spike train vector
 
     """
 
-    step_size = 1 / fsamp
-    n_samples = int(np.ceil((t_end - t_start) / step_size)) + 1
+    n_samples = int(np.ceil((t_end - t_start) * fsamp)) + 1
     spike_train = np.zeros(n_samples, dtype=int)
-    spike_indices = np.round((spike_times - t_start) / step_size).astype(
-        int
-    )  # (spike_times / step_size).astype(int)
+    spike_indices = np.round(
+        (spike_times - t_start) * fsamp
+    ).astype(int)  
     spike_indices = spike_indices[(spike_indices >= 0) & (spike_indices < n_samples)]
     spike_train[spike_indices] = 1
 
@@ -128,9 +174,8 @@ def bin_spikes(spike_times, fsamp=10000, t_start=0, t_end=60):
 def best_time_shift(
     spikes1, spikes2, tolerance=0.001, max_shift=0.01, shift_step=0.0005
 ):
-    """
-    Try multiple time shifts and return the one with maximum TP.
-    """
+    """ Try multiple time shifts and return the one with maximum TP """
+
     best_tp = 0
     best_shift = 0.0
     best_fp, best_fn = 0, 0
@@ -145,18 +190,30 @@ def best_time_shift(
     return best_tp, best_fp, best_fn, best_shift
 
 
-def max_xcorr(sig1, sig2, max_shift=1000):
+def max_xcorr(
+        sig1: np.ndarray, 
+        sig2: np.ndarray, 
+        max_shift: int = 1000
+) -> tuple[float, int]:
     """
-    Align two spike trains by finding the delay maximizing their cross-correlation.
+    Align two signals by finding the delay maximizing 
+    their cross-correlation.
 
-    Arguments:
-        - a (ndarray): Reference signal
-        - b (ndarray): Another signal
-        - max_shift (int): Maximum delay (in samples) between the two signals
+    Args
+    ----
+        sig1 : np.ndarray
+            Reference signal
+        sig2 : np.ndarray 
+            Another signal
+        max_shift : int 
+            Maximum delay (in samples) between the two signals
 
-    Outputs:
-        - overlap (float): Maximum cross-correlation
-        - best_shift (float): Delay that maximizes the cross-correlation
+    Returns
+    -------
+        overlap : float 
+            Maximum cross-correlation
+        best_shift : int 
+            Delay that maximizes the cross-correlation
 
     """
 
@@ -173,41 +230,66 @@ def max_xcorr(sig1, sig2, max_shift=1000):
 
 
 def label_sources(
-    df, fsamp=10000, t_start=0, t_end=60, threshold=0.3, max_shift=0.1, tol=0.001
-):
+        df: pd.DataFrame, 
+        fsamp: float, 
+        t_start: float = 0, 
+        t_end: float = -1, 
+        threshold: float = 0.3, 
+        max_shift: float = 0.1, 
+        tol: float = 0.001
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Find common sources given a set of sources and spike times
+    Find common sources given a set of spike trains
 
-    Args:
-        df1 (DataFrame): Data Frame containing spiking neuron activities (columns: 'source_id', 'spike_time')
-        fsamp (float): Sampling frequecny (in Hz) of the binary spike trains
-        t_start (float) : Start of the time window to be considered (in seconds)
-        t_end (float): End of the time window to be considered (in seconds)
-        theshold (float) : Common sources need to have a matching score higher than the theshold
-        max_shift (float): Maximum delay between two sources (in seconds)
-        tol (float): Common spikes need to be in the window [spike-tol, spike+tol]
+    Args
+    ----
+        df : pd.DataFrame 
+            Data Frame containing spiking neuron activities 
+        fsamp : float 
+            Sampling frequecny in Hz
+        t_start : float 
+            Start of the time window to be considered (in seconds)
+        t_end : float 
+            End of the time window to be considered (in seconds)
+        theshold : float 
+            Common sources need to have a matching score higher than the theshold
+        max_shift :float 
+            Maximum delay between two sources (in seconds)
+        tol : float 
+            Common spikes need to be in the window [spike-tol, spike+tol]
 
 
-    Returns:
-        labels (ndarray): new labels of the sources
-        match_matrix (ndarray): matching scores between all pairs of sources
+    Returns
+    -------
+        labels : np.ndarray 
+            new labels of the sources
+        match_matrix : np.ndarray 
+            matching scores between all pairs of sources
 
     """
 
-    units = sorted(df["source_id"].unique())
+    if t_end == -1:
+        t_end = df["onset"].max() + 0.1
+
+    units = sorted(df["unit_id"].unique())
     n_source = len(units)
     labels = np.arange(n_source)
     match_matrix = np.identity(n_source)
 
     for i in np.arange(n_source):
-        spikes_1 = df[df["source_id"] == units[i]]["spike_time"].values
+        spikes_1 = df[df["unit_id"] == units[i]]["onset"].values
+        spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
         st1 = bin_spikes(spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end)
 
         for j in np.arange(i + 1, n_source):
-            spikes_2 = df[df["source_id"] == units[j]]["spike_time"].values
+            spikes_2 = df[df["unit_id"] == units[j]]["onset"].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             st2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _, shift = max_xcorr(st1, st2, max_shift=int(max_shift * fsamp))
-            tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift / fsamp, tol=tol)
+            #tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift / fsamp, tol=tol)
+            tp, _, _ = match_spike_trains(
+                    st1, st2, shift=shift, tol=tol, fsamp=fsamp
+                )
             denom = max(len(spikes_1), len(spikes_2))
             match_score = tp / denom if denom > 0 else 0
 
@@ -215,26 +297,36 @@ def label_sources(
             match_matrix[j, i] = match_score
 
             if match_score >= threshold:
-                labels[j] = i
+                labels[j] = labels[i]
 
     return labels, match_matrix
 
 
 def signal_based_quality_metrics(
-    source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001
-):
+    source: np.ndarray, 
+    spikes: np.ndarray, 
+    fsamp: float, 
+    min_peak_dist: float = 0.01, 
+    match_dist: float = 0.001
+) -> dict:
     """
     Compute a set of signal based quality metrics
 
     Args:
-        - source (ndarray): The predicted source
-        - spikes (ndarray): Indices of the predicted spikes
-        - fsamp : float Sampling frequency (Hz).
-        - min_peak_distance_ms (float): Minimum distance between peaks (for peak detection), in seconds.
-        - match_dist (float): Window size (± s) around predicted spikes to exclude from background.
+        source : np.ndarray 
+            The predicted source
+        spikes : np.ndarray 
+            Indices of the predicted spikes
+        fsamp : float Sampling frequency (Hz).
+        min_peak_dist : float 
+            Minimum distance between peaks (for peak detection) in seconds.
+        match_dist : float 
+            Window size (±) around predicted spikes to exclude from background.
 
     Returns
-        - quality_metrics (dict): Dictonary of source quality metrics
+    -------
+        quality_metrics : dict 
+            Dictonary of source quality metrics
 
     """
 
@@ -283,22 +375,38 @@ def signal_based_quality_metrics(
     return quality_metrics
 
 
-def pseudo_sil_score(source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001):
+def pseudo_sil_score(
+        source: np.ndarray, # (n_samples, ) 
+        spikes: np.ndarray, # (n_spikes, ) 
+        fsamp: float, 
+        min_peak_dist: float = 0.01, 
+        match_dist: float = 0.001
+) -> tuple[float, np.ndarray, tuple]:
     """
     Computes a silhouette-like quality score for predicted spikes based on
     peak detection and background spike amplitudes.
 
-    Args:
-        - source (np.ndarray): The source signal.
-        - predicted_spikes (np.ndarray): Indices of predicted spike times.
-        - fsamp : float Sampling frequency (Hz).
-        - min_peak_distance_ms (float): Minimum distance between peaks (for peak detection), in seconds.
-        - match_dist (float): Window size (± s) around predicted spikes to exclude from background.
+    Args
+    ----
+        source : np.ndarray 
+            The predicted spiky source signal
+        redicted_spikes : np.ndarray 
+            Indices of predicted spike times
+        fsamp : float 
+            Sampling frequency in Hz
+        min_peak_distance_ms : float 
+            Minimum distance between peaks (for peak detection) in seconds
+        match_dist : float 
+            Window size (± s) around predicted spikes to exclude from background.
 
-    Returns:
-        - sil (float): Silhouette-like quality score.
-        - background_spikes (ndarray): Indices of the background spikes
-        - centroids (tuple): Centrodis of the peak and noise cluster
+    Returns
+    -------
+        sil : float 
+            Silhouette-like quality score
+        background_spikes : np.ndarray 
+            Indices of the background spikes
+        centroids : tuple 
+            Centrodis of the peak and noise cluster
     """
 
     spikes = np.asarray(spikes, dtype=int)
@@ -333,18 +441,28 @@ def pseudo_sil_score(source, spikes, fsamp, min_peak_dist=0.01, match_dist=0.001
     return sil, background_spikes
 
 
-def calc_pnr(source, spikes_idx):
+def calc_pnr(
+        source: np.ndarray, # (n_samples, ) 
+        spikes_idx: np.ndarray # (n_spikes, ) 
+):
     """
     Calculate the pulse-to-noise ratio, i.e., a logarithmic measure of the amplitude of the
     spike cluster compared to the background noise in a source.
 
-    Args:
-        - source (ndarray): Source predicted by a decomposition
-        - spikes_idx (ndarray): Array of spike indices predicted by a decomposition
+    Args
+    ----
+        source : np.ndarray 
+            The predicted spiky source signal
+        spikes_idx : np.ndarray 
+            Array of spike indices predicted by a decomposition
 
-    Returns:
-        - pnr (float): Pulse-to-noise ratio of a source
-        - noise_indices (ndarray): Array of indices associated with noise
+    Returns
+    -------
+        pnr : float 
+            Pulse-to-noise ratio of a source
+        noise_indices : np.ndarray 
+            Array of indices associated with noise
+
     """
 
     # Calculate PNR
@@ -371,18 +489,27 @@ def calc_pnr(source, spikes_idx):
     return pnr, noise_indices
 
 
-def get_basic_spike_statistics(spike_times, min_num_spikes=10):
+def get_basic_spike_statistics(
+        spike_times: np.ndarray, 
+        min_num_spikes: int = 10
+) -> tuple[float, float]:
     """
     Compute the mean firing rate (Hz) and the coefficient of variation
     of the interspike intervalls given a spike train
 
-    Args:
-        - spike_times (ndarray): Array of spike times (in seconds)
-        - min_num_spikes (int): Minimum number of spikes required for the analysis
+    Args
+    ----
+        spike_times : np.ndarray
+            Array of spike times (in seconds)
+        min_num_spikes : int 
+            Minimum number of spikes required for the analysis
 
-    Returns:
-        - cov (float): Coefficient of variation of the interspike intervalls
-        - mean_fr (float): Mean discharge rate of the neuron
+    Returns
+    -------
+        cov : float 
+            Coefficient of variation of the interspike intervalls
+        mean_fr : float 
+            Mean discharge rate of the neuron
 
     """
 
@@ -403,3 +530,155 @@ def get_basic_spike_statistics(spike_times, min_num_spikes=10):
             mean_fr = 1 / np.mean(isi)
 
     return cov, mean_fr
+
+def evaluate_spike_matches(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    t_start: float = 0,
+    t_end: float = -1,
+    tol: float = 0.001,
+    max_shift: float = 0.1,
+    fsamp: float = 2048,
+    threshold: float = 0.3,
+    mask: np.ndarray | None = None,
+    pre_matched: bool = False,
+):
+    """
+    Match spiking motor unit activity between two data sets.
+
+    Args
+    ----
+        df1 : pd.DataFrame
+            Data Frame containing spiking neuron activities of dataset 1. 
+            It must include the columns 'unit_id' and 'onset'.
+
+        df2 : pd.DataFrame
+            Data Frame containing spiking neuron activities of dataset 2.
+            It must include the columns 'unit_id' and 'onset'.
+
+        t_start : float, default 0 
+            Start of the time window to be considered (in seconds)
+
+        t_end : float, defualt 60 
+            End of the time window to be considered (in seconds)
+
+        tol : float , default 0.001
+            Common spikes need to be in the window [spike-tol, spike+tol]
+            in seconds
+
+        max_shift : float 
+            Maximum delay between two spike trains (in seconds)
+
+        fsamp : float 
+            Sampling rate (in Hz) of the binary spike train
+
+        theshold : float , default 0.3
+            Common sources need to have a matching score higher than the theshold
+
+        mask : np.ndarray of bool | None , default None
+            Boolean mask to indicate units to be excluded (optional) 
+
+        pre_matched : bool , default False
+            If True, it is assumed that units have already been pre-matched   
+
+    Returns
+    -------
+        results : pd.DataFrame 
+            Table of matched units
+
+    """
+
+    if t_end == -1:
+        t_end = max(
+                df1["onset"].max(), df2["onset"].max()
+            )  + 0.1
+
+    source_labels_1 = sorted(df1["unit_id"].unique())
+    source_labels_2 = sorted(df2["unit_id"].unique())
+
+    if mask is None:
+        mask = np.ones(len(source_labels_1), dtype=bool)
+
+    # Asign source labels using the Hungarian method
+    if not pre_matched:
+        cost_matrix = np.ones((len(source_labels_1), len(source_labels_2)))
+
+        for i, l1 in enumerate(source_labels_1):
+
+            if ~mask[i]:
+                cost_matrix[i, :] = 100
+
+            spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(
+                spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+
+            for j, l2 in enumerate(source_labels_2):
+
+                spikes_2 = df2[df2["unit_id"] == l2]["onset"].values
+                spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+                spike_train_2 = bin_spikes(
+                    spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end
+                )
+                _, shift = max_xcorr(
+                    spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
+                )
+                tp, fp, fn = match_spike_trains(
+                    spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+                )
+                denom = len(spikes_2)
+                match_score = tp / denom if denom > 0 else 0
+
+                cost_matrix[i, j] = 1 - match_score
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    else:
+        row_ind = np.arange(len(source_labels_1))
+        col_ind = np.arange(len(source_labels_2))
+
+    results = []
+
+    for l1 in source_labels_1:
+        if l1 in row_ind:
+            idx = np.argmax(row_ind == l1)
+            l2 = source_labels_2[col_ind[idx]]
+
+            spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
+            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+            spike_train_1 = bin_spikes(
+                spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+
+            spikes_2 = df2[df2["unit_id"] == l2]["onset"].values
+            spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
+            spike_train_2 = bin_spikes(
+                spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end
+            )
+            _, shift = max_xcorr(
+                spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
+            )
+            tp, fp, fn = match_spike_trains(
+                spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+            )
+            denom = len(spikes_2)
+            match_score = tp / denom if denom > 0 else 0
+            delay = shift / fsamp
+            if match_score < threshold:
+                l2, tp, fp, fn, delay = None, 0, len(spikes_1), 0, None
+        else:
+            l2, tp, fp, fn, delay = None, 0, len(spikes_1), 0, None
+
+        results.append(
+            {
+                "unit_id": l1,
+                "unit_id_ref": l2,
+                "delay_seconds": delay,
+                "TP": tp,
+                "FN": fn,
+                "FP": fp,
+            }
+        )
+
+    return pd.DataFrame(results)

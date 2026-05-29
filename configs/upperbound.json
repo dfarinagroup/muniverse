@@ -1,17 +1,25 @@
 {
-    "Name": "UpperBound Configuration",
-    "Description": "Configuration parameters for UpperBound algorithm",
+    "Name": "UpperBound Pipeline Configuration",
+    "Description": "Configuration parameters for UpperBoundCBSS Pipeline",
 
-    "Config": {
-        "start_time": 0,
-        "end_time": -1,
-        "sampling_frequency": 2048,
-        "bandpass": [20, 500],
+    "preProcessingConfig": [
+        {
+            "step": "time_window",
+            "t_start": 0,
+            "t_end": -1
+        }
+    ],
+
+    "algorithmConfig": {
         "ext_fact": 12,
         "whitening_method": "ZCA",
+        "whitening_backend": "ed",
         "whitening_reg": "auto",
-        "cluster_method": "kmeans",
-        "sil_th": 0.85,
-        "min_num_spikes": 20
-    }
+        "spike_detection_exp": 2,
+        "spike_detection_min_delay": 0.01,
+        "win_alpha": 0.1,
+        "verbose": false
+    },
+
+    "postProcessingConfig": []
 }

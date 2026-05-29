@@ -298,9 +298,14 @@ events_sidecar = {
     }
 }
 
-dataset_sidecar = manual_metadata["DatasetDescription"] 
+dataset_sidecar = manual_metadata["DatasetDescription"]
+dataset_sidecar["GeneratedBy"][0]["Version"] = __version__
+dataset_sidecar["GeneratedBy"][0]["License"] = __license__ 
 
-Caillet_2023 = bids_dataset(datasetname='Caillet_et_al_2023', root=str(Path.home()) + '/Downloads/')
+Caillet_2023 = BIDSDataset(
+    datasetname='Caillet_et_al_2023', 
+    path=str(Path.home()) + '/Downloads/'
+)
 Caillet_2023.set_metadata(field_name='subjects_data', source=subjects_data)
 Caillet_2023.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
 Caillet_2023.readme = readme
@@ -361,7 +366,7 @@ for i in np.arange(n_sub):
         events = get_events_tsv(target, fsamp, mvc_level, mvc_rate=5)
 
         # Make a recording and add data and metadata
-        emg_recording = bids_emg_recording(
+        emg_recording = EMGBIDSRecording(
             parent_dataset=Caillet_2023,
             subject_label=str(i+1).zfill(2), 
             task_label=task_label, 
@@ -373,7 +378,7 @@ for i in np.arange(n_sub):
         emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
         emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
         emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata, overwrite=True)
-        emg_recording.set_data(field_name='emg_data', mydata=data,fsamp=2048)
+        emg_recording.set_data(field_name='data', mydata=data,fsamp=2048)
         emg_recording.set_metadata(field_name="events_sidecar", source=events_sidecar)
         emg_recording.set_metadata(field_name="events", source=events)
 

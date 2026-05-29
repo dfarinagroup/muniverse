@@ -1,3 +1,9 @@
+"""
+Classes to read and write EMG-BIDS datasets
+
+"""
+
+
 import json
 import os
 import re
@@ -5,25 +11,76 @@ import warnings
 import subprocess
 import shutil
 from pathlib import Path
+from typing import List, Literal, Optional
 
 import numpy as np
 import pandas as pd
-#from edfio import Edf, Bdf, EdfSignal, read_edf, read_bdf
 from pyedflib.highlevel import read_edf, write_edf, make_signal_headers
 
 
-class bids_dataset:
+class BIDSDataset:
+    """
+    Class to handle dataset level data and metadata
+    of a BIDS dataset
+
+    Attributes
+    ----------
+
+        root : str
+            The root folder of a BIDS dataset
+
+        datasetname : str
+            The name of a BIDS dataset
+
+        readme : str
+            The README file of a BIDS dataset stored as a string    
+
+        dataset_sidecar : dict
+            Dictonary capturing the content of a *_dataset.json file  
+
+        subjects_data : pd.DataFrame
+            Table with subject information and pre-defined columns 
+            "participant_id", "age", "sex", "handedness", "weight" and "height"
+
+        subjects_sidecar : dict 
+            Dictonary capturing the content of a *_subjects.json file 
+
+        BIDSIGNORE : list of str , default []
+            List of ignored files    
+
+    References
+    ----------
+
+    .. https://bids-specification.readthedocs.io/en/stable/
+
+    
+    """
+
 
     BIDSIGNORE = []
 
     def __init__(
         self, 
         datasetname="dataset_name", 
-        root="./", 
-        overwrite=False
+        path="./"
     ):
+        """
+        Init function for the BIDSDataset class
 
-        self.root = str(Path(root) / datasetname) + "/"
+        Args
+        ----
+
+            datasetname : str
+                The name of your BIDS dataset
+
+            path : str
+                Path to the folder in which your BIDS dataset
+                is/should be stored    
+
+        
+        """
+
+        self.root = str(Path(path) / datasetname) + "/"
         self.datasetname = datasetname
         self.dataset_sidecar = {
             "Name": datasetname,
@@ -32,7 +89,8 @@ class bids_dataset:
             "License": "The license for the dataset.",
             "Authors": ["LastName, FirstName", "LastName2, FirstName2", "..."]
         }
-        self.readme = """# Some BIDS Dataset
+        self.readme = """
+        # Some BIDS Dataset
 
         README is a required text file and should describe the dataset in more detail.
 
@@ -43,11 +101,16 @@ class bids_dataset:
         self.subjects_data = pd.DataFrame(
             columns=["participant_id", "age", "sex", "handedness", "weight", "height"]
         )
-        self.overwrite = overwrite
 
-    def write(self):
+    def write(self, overwrite=False):
         """
-        Export BIDS dataset
+        Save dataset in BIDS format
+
+        Args
+        ----
+
+            overwrite : bool , default False
+                Whether to overwrite already existing files or not 
 
         """
 
@@ -57,39 +120,39 @@ class bids_dataset:
 
         # write participant.tsv
         name = f"{self.root}participants.tsv"
-        if self.overwrite or not os.path.isfile(name):
+        if overwrite or not os.path.isfile(name):
             self.subjects_data.to_csv(name, sep="\t", index=False, header=True, na_rep="n/a")
-        elif not self.overwrite and os.path.isfile(name):
+        elif not overwrite and os.path.isfile(name):
             from_file = pd.read_table(name)
             if not from_file.equals(self.subjects_data):
                 self.subjects_data.to_csv(name, sep="\t", index=False, header=True, na_rep="n/a")
         # write participant.json
         name = f"{self.root}participants.json"
-        if self.overwrite or not os.path.isfile(name):
+        if overwrite or not os.path.isfile(name):
             with open(name, "w") as f:
                 json.dump(self.subjects_sidecar, f, indent=4)
         # write dataset.json
         name = f"{self.root}dataset_description.json"
-        if self.overwrite or not os.path.isfile(name):
+        if overwrite or not os.path.isfile(name):
             with open(name, "w") as f:
                 json.dump(self.dataset_sidecar, f, indent=4)
         # write README.md
         name = f"{self.root}README.md"
-        if self.overwrite or not os.path.isfile(name):
+        if overwrite or not os.path.isfile(name):
             with open(name, "w", encoding="utf-8") as f:
                 f.write(self.readme)    
 
         # write .bidsignore
         if len(self.BIDSIGNORE) > 0:
             fname = Path(self.root) / ".bidsignore"
-            if self.overwrite or not fname.exists():
+            if overwrite or not fname.exists():
                 fname.write_text("\n".join(self.BIDSIGNORE) + "\n")         
 
         return ()
 
     def read(self):
         """
-        Import data from BIDS dataset
+        Read data from BIDS dataset
 
         """
 
@@ -121,12 +184,20 @@ class bids_dataset:
 
     def set_metadata(self, field_name, source, overwrite=False):
         """
-        Generic metadata update function.
+        Function to update metadata fields.
 
-        Parameters:
-            field_name (str): name of the metadata attribute to update
-            source (dict, DataFrame, or str): data or file path
-            overwrite (bool): If False, the field is updated, otherwise overwritten by source
+        Args
+        ----
+            field_name : str 
+                name of the attribute/metadata field to be update
+
+            source : dict, DataFrame, or str 
+                Metadata (dict or str) or path to file (str) that should be used 
+                to update the metadata field
+     
+            overwrite : bool , default False 
+                If True, the attribute is overwritten by the given input.
+                Otherwise, the new input and aby existing content are merged. 
         """
 
         if field_name == "readme":
@@ -200,12 +271,20 @@ class bids_dataset:
         """
         Summarize all files with a given extension that are part of a BIDS folder
 
-        Args:
-            suffix (str): Data type (e.g., emg)
-            extension (str): File extension to be filtered (e.g. 'edf' for all *.edf files)
+        Args
+        ----
 
-        Returns:
-            df (DataFrame): Data frame listing all files in the given folder
+            suffix : str 
+                File type to be listed (e.g., "emg")
+
+            extension : str 
+                File extension to be filtered (e.g. 'edf' for all *.edf files)
+
+        Returns
+        -------
+
+            df : pd.DataFrame 
+                Table with all files in the given folder
         """
 
         root = Path(self.root)
@@ -253,10 +332,7 @@ class bids_dataset:
         return df
 
     def _set_participant_sidecar(self):
-        """
-        Return a template for initalizing the participant sidecar file
-
-        """
+        """Template for initalizing the participant sidecar file"""
 
         metadata = {
             "participant_id": {
@@ -297,16 +373,33 @@ class bids_dataset:
         """
         API to run the BIDS validator
 
-        Args:
-            ignored_codes (list of str): List of ignored error codes
-            ignored_fields (list of str): List of ignored metadata fields
-            ignored_files (list of str): List of ignored files
-            print_errors (bool): If True print all errors
-            print_errors (warnings): If True print all warnings
-        Returns:
-            err (list of objects): List of all errors
-            war (list of objects): List of all warnings
-            valid (bool): True if there are no errors
+        Args
+        ----
+            ignored_codes : list of str , default []
+                List of ignored error codes
+
+            ignored_fields : list of str , default [] 
+                List of ignored metadata fields
+
+            ignored_files : list of str , default []
+                List of ignored files
+
+            print_errors : bool , default True
+                If True print all errors
+
+            print_warnings : bool , default True 
+                If True print all warnings
+
+        Returns
+        -------
+            err : list of dict 
+                List of all errors
+
+            war : list of dict 
+                List of all warnings
+
+            valid : bool 
+                Returns True if there are no errors
         
         """
 
@@ -332,18 +425,115 @@ class bids_dataset:
         return bids_version
 
 
-class bids_emg_recording(bids_dataset):
+class EMGBIDSRecording(BIDSDataset):
     """
-    Class for handling EMG recordings in BIDS format.
+    Class for handling data and metadata files from EMG-BIDS dataset.
 
-    This class implements the BIDS standard for EMG data, including support for root, subject
-    or session-level inheritance of metadata files. By default, all metadata files are linked
-    to their respective recording files. However, certain metadata files can be inherited
-    at the session level to avoid duplication.
+    Attributes
+    ----------
+
+        root : str
+            The root folder of a BIDS dataset
+
+        datasetname : str
+            The name of a BIDS dataset
+
+        readme : str
+            The README file of a BIDS dataset stored as a string    
+
+        dataset_sidecar : dict
+            Dictonary capturing the content of a *_dataset.json file  
+
+        subjects_data : pd.DataFrame
+            Table with subject information and pre-defined columns 
+            "participant_id", "age", "sex", "handedness", "weight" and "height"
+
+        subjects_sidecar : dict 
+            Dictonary capturing the content of a *_subjects.json file
+
+        datapath : str
+            Folder where the recording file is/will be stored
+
+        subject_label : str , default "01"
+            Label of the subject the recording belongs to
+
+        session_label : str or None , default None
+            Label of the session the recording belongs to   
+
+        task_label : str , default "taskName"
+            Label of the task perfomed in this recording 
+
+        acq_label : str or None , default None
+            Label distnguish multiple aquisition modes 
+
+        run_label : str or None , default "01"
+            Label to distnguish multiple repetitions of the same task  
+
+        recording_label : str or None , default None 
+            Label to distnguish data files from different aquisition systems     
+
+        datatype : str , default "emg"
+            Type of data (for now always EMG) 
+
+        data : np.ndarray
+            Data matrx (n_channels, n_samples)  
+
+        fsamp : float
+            Sampling rate in Hz        
+
+        fileformat : {"edf", "bdf"} , default "edf"
+            File format used to store the data matrix 
+
+        emg_sidecar : dict
+            Dictonary corresponding to the "_emg.json" file    
+
+        channels : pd.DataFrame
+            Table with channel-specific metadata
+
+        channels_sidecar : dict
+            Dictonary corresponding to the "_channels.json" file        
+
+        electrodes : pd.DataFrame
+            Table with electrode-specific metadata   
+
+        electrodes_sidecar : dict
+            Dictonary corresponding to the "_electrodes.json" file   
+
+        coord_sidecar : dict of dict
+            Dictonary of dictonaries, whereby each key corresponds 
+            to one coordinate system  
+
+        events : pd.DataFrame
+            Table of events describing the experiment. Must contain
+            the columns "onset" and "duration"
+
+        events_sidecar : dict     
+            Dictonary corresponding to the "_events.json" file      
+
+        inherited_metadata : dict    
+            Dictonary of inherited metadata files
+
+        inherited_levels : dict    
+            Dictonary with the levels of the inherited metadata files          
+
+        BIDSIGNORE : list of str , default []
+            List of ignored files
+
+
+    References
+    ----------
+    - https://bids-specification.readthedocs.io/en/stable/modality-specific-files/electromyography.html
+
+
+    Notes
+    -----
+    By default, all metadata files are linked to their respective recording files. 
+    However, certain metadata files can be inherited at the root, session or 
+    subject-level to avoid duplication.
 
     Inheritance Rules:
     - By default, no metadata files are inherited (all are linked to _emg.edf)
-    - emg.json, channels.tsv, electrodes.tsv and coordsystem.json can be inherited at dataset, subject or session level
+    - electrodes.tsv and coordsystem.json can be inherited at dataset, subject or session level
     - Inherited files are stored at dataset, subject session level with names like:
       -> root/dataset/electrodes.tsv
       -> root/dataset/sub-01/sub-01_electrodes.tsv
@@ -353,60 +543,59 @@ class bids_emg_recording(bids_dataset):
     """
 
     # Define valid metadata files that can be inherited and valid inheritance levels
-    INHERITABLE_FILES = [
+    _INHERITABLE_FILES = [
         "electrodes.tsv", "electrodes.json", 
         "coordsystem.json", "events.tsv", "events.json"
     ]
-    INHERITABLE_LEVELS = ["dataset" , "task", "subject", "session"]
+    _INHERITABLE_LEVELS = ["dataset" , "task", "subject", "session"]
     # Define permissible raw data formats
-    FILE_FORMATS = ["edf", "edf+", "bdf", "bdf+"]
+    _FILE_FORMATS = ["edf", "edf+", "bdf", "bdf+"]
     # Predefined fields in tabular columns
-    CHANNELS_FIELDS = [
+    _CHANNELS_FIELDS = [
         "name", "type", "units", "description", "sampling_frequency",
         "signal_electrode", "reference", "group", "target_muscle",
         "placement_scheme", "placement_description", "interelectrode_distance", 
         "low_cutoff", "high_cutoff", "notch", "status", "status_description"
     ]
-    ELECTRODES_FIELDS = [
+    _ELECTRODES_FIELDS = [
         "name", "x", "y", "z", "coordinate_system", "type",
         "material", "impedance", "group"
     ]
-    EVENTS_FIELDS = ["onset", "duration"]
+    _EVENTS_FIELDS = ["onset", "duration"]
 
     def __init__(
         self,
-        subject_label="01",
-        session_label=None,
-        task_label="taskDescription",
-        acq_label = None,
-        run_label="01",
-        recording_label=None,
-        datatype="emg",
-        root="./",
-        datasetname="datasetName",
-        fileformat="edf",
-        fsamp=2048,
-        plfreq=50,
-        overwrite=False,
-        inherited_metadata=None,
-        inherited_level=None,
-        parent_dataset=None
+        subject_label: str = "01",
+        session_label: str | None =None,
+        task_label: str = "taskName",
+        acq_label: str | None = None,
+        run_label: str | None = "01",
+        recording_label: str | None = None,
+        datatype: Literal["emg"] = "emg",
+        path: str = "./",
+        datasetname: str = "datasetName",
+        fileformat: Literal["edf", "bdf"] = "edf",
+        fsamp: float = 2048,
+        plfreq: float = 50,
+        inherited_metadata: list | None =None,
+        inherited_level: list | None = None,
+        parent_dataset: BIDSDataset | None = None
     ):
 
         super().__init__(
             datasetname=datasetname,
-            root=root,
-            overwrite=overwrite,
+            path=path
         )
 
-        if isinstance(parent_dataset, bids_dataset):
+        if isinstance(parent_dataset, BIDSDataset):
             self.root = parent_dataset.root
             self.datasetname = parent_dataset.datasetname
             self.subjects_data = parent_dataset.subjects_data
 
         # Check if the function arguments are valid
         self._validate_arguments(
-            subject_label, session_label, task_label,  acq_label, run_label, recording_label, datatype
+            subject_label, session_label, task_label,  acq_label, 
+            run_label, recording_label, datatype
         )
 
         # Get the datapath
@@ -424,10 +613,9 @@ class bids_emg_recording(bids_dataset):
         self.run_label = run_label
         self.recording_label = recording_label
         self.datatype = datatype
-        #self.emg_data = Edf([EdfSignal(np.zeros(1), sampling_frequency=1)])
         self.fsamp = fsamp
-        self.emg_data = np.empty((0,))
-        if fileformat in self.FILE_FORMATS:
+        self.data = np.empty((0,))
+        if fileformat in self._FILE_FORMATS:
             self.fileformat = fileformat
         else:
             raise ValueError(f"Invalid fileformat: {fileformat}")
@@ -462,34 +650,36 @@ class bids_emg_recording(bids_dataset):
         """
         Set which metadata files should be inherited at session level.
 
-        Parameters:
-        -----------
+        Args
+        ----
         metadata_files : list of str
-            - List of metadata file names to inherit. Must be from INHERITABLE_FILES.
+            List of metadata file names to inherit. Must be from _INHERITABLE_FILES.
             Example: ['electrodes', 'coordsystem']
+
         inherited_level: list of str 
-            - Level of the inherited metadata. Must be from INHERITABLE_LEVELS
+            Level of the inherited metadata. Must be from _INHERITABLE_LEVELS
             Examples: ['session', 'subject'] or ['dataset', 'dataset]
 
-        Notes:
-        ------
-        - Only emg.sjon, channels.tsv, electrodes.tsv and coordsystem.json can be inherited
+        Notes
+        -----
+        - Only "_emg.json", "_channels.tsv", "_electrodes.tsv" and "_coordsystem.json" can be inherited
         - Inherited files are stored at dataset, subject of session level
         - Non-inherited files are stored with their respective recording files
+
         """
         # Validate input
-        invalid_files = [f for f in metadata_files if f not in self.INHERITABLE_FILES]
+        invalid_files = [f for f in metadata_files if f not in self._INHERITABLE_FILES]
         if invalid_files:
             raise ValueError(
                 f"Invalid metadata files for inheritance: {invalid_files}. "
-                f"Valid options are: {self.INHERITABLE_FILES}"
+                f"Valid options are: {self._INHERITABLE_FILES}"
             )
         
-        invalid_levels = [f for f in inherited_level if f not in self.INHERITABLE_LEVELS]
+        invalid_levels = [f for f in inherited_level if f not in self._INHERITABLE_LEVELS]
         if invalid_levels:
             raise ValueError(
                 f"Invalid metadata files for inheritance: {invalid_levels}. "
-                f"Valid options are: {self.INHERITABLE_LEVELS}"
+                f"Valid options are: {self._INHERITABLE_LEVELS}"
             )
         
         if len(inherited_level) != len(metadata_files):
@@ -562,11 +752,7 @@ class bids_emg_recording(bids_dataset):
         return name
     
     def _find_inherited_file(self, ending):
-        """
-        Automatically find metadata files that are potentially inherited.
-        
-
-        """
+        """Automatically find metadata files that are potentially inherited"""
 
         warnings.warn(
             f"File *_{ending} could not be found in the expected folder."
@@ -608,10 +794,7 @@ class bids_emg_recording(bids_dataset):
             run_label, 
             recording_label,
             datatype):
-        """
-        Return error if the selected arguments are invalid
-        
-        """
+        """Return error if the selected arguments are invalid"""
 
         if type(subject_label) is not str:
             raise ValueError("subject_label must be of type string")
@@ -639,10 +822,7 @@ class bids_emg_recording(bids_dataset):
             raise ValueError("datatype must be emg")
 
     def _init_emg_sidecar(self, fsamp, plfreq):
-        """
-        Initalize the required EMG sidecar metadata
-
-        """
+        """Initalize the required EMG sidecar metadata"""
 
         metadata = {
             "EMGPlacementScheme": "How electrode positions are determined (ChannelSpecific, Measured or Other)",
@@ -657,10 +837,15 @@ class bids_emg_recording(bids_dataset):
 
         return metadata
 
-    def write(self):
+    def write(self, overwrite=False):
         """
         Save dataset in BIDS format
-        
+
+        Args
+        ----
+            overwrite : bool , default False
+                Whether to overwrite already existing files or not 
+
         """
         super().write()
 
@@ -716,20 +901,19 @@ class bids_emg_recording(bids_dataset):
                 with open(filename, "w") as f:
                     json.dump(self.electrodes_sidecar, f, indent=4)        
 
-        if self.emg_data.size > 0:
+        if self.data.size > 0:
             filename = self._get_bids_filename(f"emg.{self.fileformat}")
-            #self.emg_data.write(filename)
-            if self.emg_data.shape[0] != len(self.channels):
-                channel_names = [f"Ch{i}" for i in range(self.emg_data.shape[0])]
+            if self.data.shape[0] != len(self.channels):
+                channel_names = [f"Ch{i}" for i in range(self.data.shape[0])]
             else:
                 channel_names = self.channels["name"].values.tolist()
             signal_headers = make_signal_headers(
                 channel_names, 
                 sample_frequency=self.fsamp
             )
-            write_edf(filename, self.emg_data, signal_headers)
+            write_edf(filename, self.data, signal_headers)
         else:
-            warnings.warn("Your emg_data field is empty.")
+            warnings.warn("Your data field is empty.")
 
         # Write events.tsv and sidecar
         if len(self.events) > 0:
@@ -737,7 +921,7 @@ class bids_emg_recording(bids_dataset):
             self.events.to_csv(filename, sep="\t", index=False, header=True, na_rep="n/a")
 
             name = self._get_bids_filename("events.json")
-            if ((self.overwrite or not os.path.isfile(name)) and self.events_sidecar):
+            if ((overwrite or not os.path.isfile(name)) and self.events_sidecar):
                 with open(name, "w") as f:
                     json.dump(self.events_sidecar, f, indent=4)
 
@@ -776,7 +960,7 @@ class bids_emg_recording(bids_dataset):
         if os.path.isfile(filename):
             with open(filename, "r") as f:
                 self.electrodes_sidecar = json.load(f)
-        elif not set(self.electrodes.columns).issubset(self.ELECTRODES_FIELDS):
+        elif not set(self.electrodes.columns).issubset(self._ELECTRODES_FIELDS):
             filename = self._find_inherited_file("electrodes.json")
             filename = filename[0] if filename else str()
             if os.path.isfile(filename):
@@ -801,8 +985,7 @@ class bids_emg_recording(bids_dataset):
 
         filename = self._get_bids_filename(f"emg.{self.fileformat}")
         if os.path.isfile(filename):
-            #self.emg_data = read_edf(filename)
-            self.emg_data, _ , _ = read_edf(filename)
+            self.data, _ , _ = read_edf(filename)
 
         # Read events .tsv
         filename = self._get_bids_filename("events.tsv")
@@ -826,6 +1009,22 @@ class bids_emg_recording(bids_dataset):
                     self.events_sidecar = json.load(f)                  
 
     def set_metadata(self, field_name, source, overwrite=False):
+        """
+        Function to update metadata fields.
+
+        Args
+        ----
+            field_name : str 
+                name of the attribute/metadata field to be update
+
+            source : dict, DataFrame, or str 
+                Metadata (dict or str) or path to file (str) that should be used 
+                to update the metadata field
+     
+            overwrite : bool , default False 
+                If True, the attribute is overwritten by the given input.
+                Otherwise, the new input and aby existing content are merged. 
+        """
 
         super().set_metadata(field_name, source, overwrite)
 
@@ -833,7 +1032,7 @@ class bids_emg_recording(bids_dataset):
             # Drop duplicates
             self.channels = self.channels.drop_duplicates(subset="name", keep="last")
             for col in self.channels.columns:
-                if (col not in self.CHANNELS_FIELDS and col not in self.channels_sidecar):
+                if (col not in self._CHANNELS_FIELDS and col not in self.channels_sidecar):
                     warnings.warn(
                         f"Field {col} needs to be defined in channels_sidecar."
                     )
@@ -847,7 +1046,7 @@ class bids_emg_recording(bids_dataset):
                 col = self.electrodes.pop("z")
                 self.electrodes.insert(3, "z", col)
             for col in self.electrodes.columns:
-                if (col not in self.ELECTRODES_FIELDS and col not in self.electrodes_sidecar):
+                if (col not in self._ELECTRODES_FIELDS and col not in self.electrodes_sidecar):
                     warnings.warn(
                         f"Field {col} needs to be defined in electrodes_sidecar."
                     )    
@@ -855,20 +1054,31 @@ class bids_emg_recording(bids_dataset):
             # Drop duplicates
             self.events = self.events.drop_duplicates(keep="last")
             for col in self.events.columns:
-                if (col not in self.EVENTS_FIELDS and col not in self.events_sidecar):
+                if (col not in self._EVENTS_FIELDS and col not in self.events_sidecar):
                     warnings.warn(
                         f"Field {col} needs to be defined in events_sidecar."
                     )
                   
 
-    def set_data(self, field_name, mydata, fsamp):
+    def set_data(
+            self, 
+            field_name: str, 
+            mydata: np.ndarray, 
+            fsamp: float
+    ):
         """
         Add raw data and convert it into edf format
 
-        Args:
-            field_name (str): name of the field to be updated
-            mydata (np.ndarry): data matrix (n_channels x n_samples)
-            fsamp (float): Sampling frequency in Hz
+        Args
+        ----
+            field_name : str 
+                Name of the field to be updated
+
+            mydata : np.ndarry 
+                Data matrix (n_channels, n_samples)
+
+            fsamp  : float 
+                Sampling frequency in Hz
 
         """
 
@@ -879,13 +1089,29 @@ class bids_emg_recording(bids_dataset):
 
         setattr(self, field_name, signal)
 
-        if field_name == "emg_data":
+        if field_name == "data":
             self.emg_sidecar["SamplingFrequency"] = fsamp
             self.emg_sidecar["RecordingDuration"] = seconds
             self.fsamp = fsamp
 
 
-    def read_data_frame(self, df, idx):
+    def read_data_frame(
+            self, 
+            df: pd.DataFrame, 
+            idx: int
+    ):
+        """
+        Read data from a table of recording files
+
+        Args
+        ----
+            df : pd.DataFrame
+                Table recordings belonging to a BIDS dataset
+
+            idx : int
+                Row index of the recording to be imported    
+        
+        """
         self.subject_label = df.loc[idx, "sub"]
         label = df.loc[idx, "ses"]
         self.session_label = label if type(label) is str else None
@@ -903,10 +1129,33 @@ class bids_emg_recording(bids_dataset):
         self.read()
 
 
-class bids_neuromotion_recording(bids_emg_recording):
+class EMGBIDSNeuromotionRecording(EMGBIDSRecording):
     """
     Class for handling neuromotion simulation data in BIDS format.
-    Inherits from bids_emg_recording and adds support for additional simulation-specific files.
+    Inherits from EMGBIDSRecording and adds support for additional 
+    simulation-specific files.
+
+    Extra Attributes
+    ----------------
+
+    spikes : pd.DataFrame
+        Table of the simulated (ground truth) motor unit spike labels
+
+    motor_units : pd.DataFrame
+        Table of motor unit properties with columns "source_id",
+        "recruitment_threshold", "depth", "innervation_zone",
+        "fibre_density", "fibre_length", "conduction_velocity" and "angle"  
+
+    internals : np.ndarray
+        Data matrix of internal states (n_states, n_samples)    
+
+    internals_sidecar : dict
+        Dictonary describing the data matrix in internals  
+
+    simulation_sidecar : dict
+        Dictonary of the simulation processing metadata           
+
+
     """
 
     BIDSIGNORE = [
@@ -919,26 +1168,25 @@ class bids_neuromotion_recording(bids_emg_recording):
 
     def __init__(
         self,
-        subject_label="sim01",
-        session_label=None,
-        task_label="isometric",
-        acq_label=None,
-        run_label="01",
-        recording_label=None,
-        datatype="emg",
-        parent_dataset=None,
-        root="./",
-        datasetname="dataset_name",
-        fileformat="edf",
-        fsamp=2048,
-        plfreq="n/a",
-        overwrite=False,
-        inherited_metadata=None,
+        subject_label: str = "sim01",
+        session_label: str | None = None,
+        task_label: str = "isometric",
+        acq_label: str | None = None,
+        run_label: str | None = "01",
+        recording_label: str | None = None,
+        datatype: Literal["emg"] = "emg",
+        parent_dataset: BIDSDataset | None = None,
+        path: str = "./",
+        datasetname: str = "dataset_name",
+        fileformat: Literal["edf", "bdf"] = "edf",
+        fsamp: float = 2048,
+        plfreq: float = "n/a",
+        inherited_metadata: list | None = None,
     ):
 
         # If no inherited_metadata is provided, use all inheritable files
         if inherited_metadata is None:
-            inherited_metadata = self.INHERITABLE_FILES
+            inherited_metadata = self._INHERITABLE_FILES
 
         super().__init__(
             subject_label=subject_label,
@@ -949,12 +1197,11 @@ class bids_neuromotion_recording(bids_emg_recording):
             recording_label=recording_label,
             datatype=datatype,
             parent_dataset=parent_dataset,
-            root=root,
+            path=path,
             datasetname=datasetname,
             fsamp=fsamp,
             plfreq=plfreq,
             fileformat=fileformat,
-            overwrite=overwrite,
             inherited_metadata=inherited_metadata,
         )
 
@@ -980,10 +1227,18 @@ class bids_neuromotion_recording(bids_emg_recording):
         )
         self.simulation_sidecar = {}
 
-    def write(self):
-        """Override write method to include simulated data"""
+    def write(self, overwrite=False):
+        """
+        Save dataset in BIDS format
+
+        Args
+        ----
+            overwrite : bool , default False
+                Whether to overwrite already existing files or not 
+
+        """
         # Call parent's write method to handle standard BIDS files
-        super().write()
+        super().write(overwrite=overwrite)
 
         # Write simulation-specific files
         filename = self._get_bids_filename("spikes.tsv")
@@ -1036,7 +1291,102 @@ class bids_neuromotion_recording(bids_emg_recording):
 
 
 
-class bids_decomp_derivatives(bids_emg_recording):
+class BIDSDecompositionDerivative(EMGBIDSRecording): 
+    """
+    Class for handling decomposition outputs as BIDS-derivatives.
+    Note that while the implementation follows BIDS-derivative rules
+    the obtained outputs do not represent a standardized format.
+
+    Attributes
+    ----------
+
+        root : str
+            The root folder of a BIDS dataset
+   
+        derivative_root : str
+            Root folder for the derivative files. If you select the
+            "standalone" option, derivative_root and root are the same.    
+
+        datasetname : str
+            The name of a BIDS dataset
+
+        pipelinename : str
+            Name of your processing pipeline  
+
+        fileformat : {"edf", "bdf"} , default "edf"
+            File format used to store a data matrix       
+
+        readme : str
+            The README file of your BIDS derivative   
+
+        dataset_sidecar : dict
+            Dictonary capturing the content of a *_dataset.json file  
+            corresponding to your derivative
+
+        subject_label : str , default "01"
+            Label of the subject the recording belongs to
+
+        session_label : str or None , default None
+            Label of the session the recording belongs to   
+
+        task_label : str , default "taskName"
+            Label of the task perfomed in this recording 
+
+        acq_label : str or None , default None
+            Label distnguish multiple aquisition modes 
+
+        run_label : str or None , default "01"
+            Label to distnguish multiple repetitions of the same task  
+
+        recording_label : str or None , default None 
+            Label to distnguish data files from different aquisition systems    
+
+        desc_label : str
+            Label to distnguish processed files from the raw data     
+
+        datatype : str , default "emg"
+            Type of data the derivatibe was derived from (for now always EMG) 
+
+        fsamp : float
+            Sampling rate in Hz    
+
+        source : np.ndarray
+            Data matrix of the predicted sources (n_sources, n_samples)
+
+        source_sidecar : dict     
+            Dictonary corresponding to the "_source.json" file             
+ 
+        events : pd.DataFrame
+            Table of motor unit spikes. Must contain
+            the columns "onset" and "duration"
+
+        events_sidecar : dict     
+            Dictonary corresponding to the "_events.json" file   
+
+        descriptions : pd.DataFrame
+            Table definining the utilized desc labels with
+            columns "desc_id" and "description"       
+
+        log : dict
+            Dictonary of proecessing metadata
+
+        code : str
+            Path to the script/code generated this derivative        
+
+        inherited_metadata : dict    
+            Dictonary of inherited metadata files
+
+        inherited_levels : dict    
+            Dictonary with the levels of the inherited metadata files
+
+        format : {"subdir", "standalone"} , default "standalone"  
+            Indicates whether your derivative is a standalone BIDS-dataset
+            or is included as a sub-directory in a raw BIDS-dataset.          
+
+        BIDSIGNORE : list of str , default []
+            List of files/endings ignored by the validator
+    
+    """
 
     BIDSIGNORE = [
         "*sources.edf",
@@ -1046,29 +1396,28 @@ class bids_decomp_derivatives(bids_emg_recording):
         "descriptions.tsv"
     ]
 
-    INHERITABLE_FILES = ["events.json"]
-    INHERITABLE_LEVELS = ["dataset" , "task", "subject", "session"]
+    _INHERITABLE_FILES = ["events.json"]
+    _INHERITABLE_LEVELS = ["dataset" , "task", "subject", "session"]
 
     def __init__(
         self,
-        pipelinename="pipelineName",
-        format="standalone",
-        parent_recording=None,
-        datasetname="datasetName",
-        datatype="emg",
-        subject_label="01",
-        session_label=None,
-        task_label="isometric",
-        acq_label=None,
-        run_label="01",
-        recording_label=None,
-        desc_label="decomposed",
-        inherited_metadata=None,
-        inherited_level = None,
-        fsamp = 2048,
-        root="./",
-        fileformat="edf",
-        overwrite=False,
+        pipelinename: str = "pipelineName",
+        format: Literal["subdir", "standalone"] = "standalone",
+        parent_recording: EMGBIDSRecording | None = None,
+        datasetname: str = "datasetName",
+        datatype: Literal["emg"] = "emg",
+        subject_label: str = "01",
+        session_label: str | None = None,
+        task_label: str = "isometric",
+        acq_label: str | None = None,
+        run_label: str | None = "01",
+        recording_label: str | None = None,
+        desc_label: str = "decomposed",
+        inherited_metadata: list | None = None,
+        inherited_level: list | None = None,
+        fsamp: float = 2048,
+        path: str = "./",
+        fileformat: Literal["edf", "bdf"] = "edf"
     ):
 
         # Check if the function arguments are valid
@@ -1091,15 +1440,14 @@ class bids_decomp_derivatives(bids_emg_recording):
         self.run_label = run_label
         self.recording_label = recording_label
         self.desc_label = desc_label
-        self.overwrite = overwrite
         self.datatype = datatype
         self.fileformat = fileformat
         self.datasetname = datasetname
         self.pipelinename = pipelinename
 
         # Adopt labels from an emg recording in BIDS format
-        if isinstance(parent_recording, bids_emg_recording):
-            root = str(Path(parent_recording.root).parent)
+        if isinstance(parent_recording, EMGBIDSRecording):
+            path = str(Path(parent_recording.root).parent)
             datasetname = parent_recording.datasetname
             self.root = parent_recording.root
             self.datasetname = parent_recording.datasetname
@@ -1114,12 +1462,12 @@ class bids_decomp_derivatives(bids_emg_recording):
         # Make a BIDS compatible folder structure
         if format == "standalone":
             self.datasetname = f"{datasetname}-{pipelinename}"
-            self.derivative_root = str(Path(root) / self.datasetname) + "/"
+            self.derivative_root = str(Path(path) / self.datasetname) + "/"
         else:
             self.datasetname = datasetname
-            self.derivative_root = str(Path(root) / datasetname) + f"/derivatives/{pipelinename}/"
+            self.derivative_root = str(Path(path) / datasetname) + f"/derivatives/{pipelinename}/"
 
-        self.root = str(Path(root) / self.datasetname) + "/"
+        self.root = str(Path(path) / self.datasetname) + "/"
         self.derivative_datapath = self.derivative_root + datapath
         self.format = format
 
@@ -1149,7 +1497,8 @@ class bids_decomp_derivatives(bids_emg_recording):
 
         self.code = []
 
-        self.readme = """# Some BIDS derivative
+        self.readme = """
+        # Some BIDS derivative
 
         Your dataset description goes here
 
@@ -1253,9 +1602,14 @@ class bids_decomp_derivatives(bids_emg_recording):
 
         return name
 
-    def write(self):
+    def write(self, overwrite=False):
         """
         Save dataset in BIDS format
+
+        Args
+        ----
+            overwrite : bool , default False
+                Whether to overwrite already existing files or not 
 
         """
         # Generate an empty set of folders for your BIDS dataset
@@ -1271,7 +1625,7 @@ class bids_decomp_derivatives(bids_emg_recording):
         )
         # write events.json
         fname = self._get_bids_filename("events.json")
-        if self.overwrite or not os.path.isfile(fname):
+        if overwrite or not os.path.isfile(fname):
             with open(fname, "w") as f:
                 json.dump(self.events_sidecar, f, indent=4)   
         # write *_log.json
@@ -1280,7 +1634,7 @@ class bids_decomp_derivatives(bids_emg_recording):
             if not os.path.exists(f"{self.derivative_root}logs/{subfolder}"):   
                 os.makedirs(f"{self.derivative_root}logs/{subfolder}")   
             fname = self._get_bids_filename("log.json")
-            if self.overwrite or not os.path.isfile(fname):
+            if overwrite or not os.path.isfile(fname):
                 with open(fname, "w") as f:
                     json.dump(self.log, f, indent=4)   
         # write *_desc-decomposed_sources.edf + sidecar file
@@ -1297,25 +1651,25 @@ class bids_decomp_derivatives(bids_emg_recording):
                 json.dump(self.source_sidecar, f, indent=4)
         # write dataset.json
         fname = f"{self.derivative_root}dataset_description.json"
-        if self.overwrite or not os.path.isfile(fname):
+        if overwrite or not os.path.isfile(fname):
             with open(fname, "w") as f:
                 json.dump(self.dataset_sidecar, f, indent=4)   
         # write descriptions.tsv
         fname = f"{self.derivative_root}descriptions.tsv" 
-        if self.overwrite or not os.path.isfile(fname):
+        if overwrite or not os.path.isfile(fname):
             self.descriptions.to_csv(
                 fname, sep="\t", index=False, header=True, na_rep="n/a"
             )
         # write README
         if self.format == "standalone":
             name = f"{self.derivative_root}README.md"
-            if self.overwrite or not os.path.isfile(name):
+            if overwrite or not os.path.isfile(name):
                 with open(name, "w", encoding="utf-8") as f:
                     f.write(self.readme)      
         # write .bidsignore
         if len(self.BIDSIGNORE) > 0:
             fname = Path(self.root) / ".bidsignore"
-            if self.overwrite or not fname.exists():
+            if overwrite or not fname.exists():
                 fname.write_text("\n".join(self.BIDSIGNORE) + "\n")
         # Save code files
         if len(self.code) > 0:  
@@ -1385,10 +1739,13 @@ class bids_decomp_derivatives(bids_emg_recording):
         """
         Convert a dictionary of spike times to long-format TSV-style DataFrame.
 
-        Parameters:
-            spikes (dict or DataFrame): {source_id: list of spike timings (in samples)} 
-                    or long-format table (must contain unit_id and one of onset or sample)
-            fsamp(float): Sampling frequency in Hz
+        Args
+        ----
+            spikes : dict or DataFrame 
+                Dictonary or Table with motor unit spikes
+
+            fsamp : float
+                Sampling frequency in Hz
 
         """
 
@@ -1446,18 +1803,37 @@ def run_bids_validator(
     """
     API to the official BIDS validator.
 
-    Args:
-        path (str): Absolute of relative path to your BIDS dataset 
-        ignored_codes (list of str): Ignored error codes (e.g. ["SIDECAR_KEY_RECOMMENDED"])
-        ignored_fileds (list of str): Errors corresponding to that field are ignored (e.g. ["DeviceSerialNumber"])
-        ignored_files (list of str): Ignored errors in these files (e.g. ["/dataset_description.json"])
-        print_errors (bool): Descides if errors should be printed 
-        print_warnings (bool): Descides if warnings should be printed 
+    Args
+    ----
 
-    Returns:
-        errors (list): List of detected errors
-        warnings (list): List of detected warnings  
-        valid (bool): True if there are no errors  
+        path : str 
+            Absolute or relative path to your BIDS dataset
+
+        ignored_codes : list of str 
+            Ignored error codes (e.g. ["SIDECAR_KEY_RECOMMENDED"])
+
+        ignored_fileds : list of str 
+            Errors corresponding to that field are ignored (e.g. ["DeviceSerialNumber"])
+
+        ignored_files : list of str 
+            Ignored errors in these files (e.g. ["/dataset_description.json"])
+
+        print_errors : bool 
+            Descides if errors should be printed 
+
+        print_warnings : bool
+            Descides if warnings should be printed 
+
+    Returns
+    -------
+        errors : list 
+            List of detected errors
+        
+        warnings : list 
+            List of detected warnings  
+
+        valid : bool 
+            Returns True if there were no errors deteced  
     
     """
 

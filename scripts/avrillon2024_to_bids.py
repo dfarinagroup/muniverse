@@ -389,15 +389,14 @@ dataset_sidecar["GeneratedBy"][0]["Version"] = __version__
 dataset_sidecar["GeneratedBy"][0]["License"] = __license__
 
 # Handle the dataset level metadata
-Avrillon_2024 = bids_dataset(
+Avrillon_2024 = BIDSDataset(
     datasetname='Avrillon_et_al_2024', 
-    root=str(Path.home()) + '/Downloads/',
-    overwrite=True
+    path=str(Path.home()) + '/Downloads/'
 )
 Avrillon_2024.readme = readme
 Avrillon_2024.set_metadata(field_name='subjects_data', source=subjects_data)
 Avrillon_2024.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
-Avrillon_2024.write()
+Avrillon_2024.write(overwrite=True)
 
 # ------------------------------------------ #
 # -------  Loop over all recordings -------- #
@@ -470,21 +469,20 @@ for i in np.arange(len(sub_id)):
         events = get_events_tsv(target, fsamp, mvc_level, mvc_rate=5)
 
         # Make a recording and add data and metadata
-        emg_recording = bids_emg_recording(
+        emg_recording = EMGBIDSRecording(
             parent_dataset=Avrillon_2024,
             subject_label=str(sub_id[i]).zfill(2), 
             task_label=task_label, 
             datatype="emg",
             inherited_metadata=["electrodes.tsv", "coordsystem.json", "events.json"],
-            inherited_level=["subject", "subject", "dataset"],
-            overwrite=False
+            inherited_level=["subject", "subject", "dataset"]
         )
         
         emg_recording.set_metadata(field_name='channels', source=ch_metadata)
         emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
         emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
         emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata, overwrite=True)
-        emg_recording.set_data(field_name='emg_data', mydata=emg_data,fsamp=fsamp)
+        emg_recording.set_data(field_name='data', mydata=emg_data,fsamp=fsamp)
         emg_recording.set_metadata(field_name="events_sidecar", source=events_sidecar)
         emg_recording.set_metadata(field_name="events", source=events)
         emg_recording.write()

@@ -1,9 +1,9 @@
 """
-High-level wrapper functions for EMG decomposition with logging.
+High-level wrapper functions for EMG decomposition pipelines with logging.
 
 These functions never raise exceptions. They always return (results, log_data),
-even on failure. Failed decompositions return {"sources": None, ...} with logs containing
-error details. Callers could check if results["sources"] is None to detect failures.
+even on failure. Failed decompositions return {"spikes": None, ...} with logs containing
+error details. Callers could check if results["spikes"] is None to detect failures.
 """
 
 import json
@@ -13,72 +13,114 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union, Literal
 
 import numpy as np
 import pandas as pd
+import pickle
 
 from ..utils.logging import AlgorithmLogger
-from .cbss import CBSS
-from .upperbound import UpperBound
-from .ae_decomposer import AEDecoder, AEDecoderConfig
+from .cbss import FastIcaCBSS
+from .upperbound import UpperBoundCBSS
+from .ae_decomposer import AEDecoder #, AEDecoderConfig
+from .pre_processing import PreProcessEMG
+from .post_processing import PostProcessSpikes
+from .core import map_spikes, spike_dict_to_long_df
+
+try:
+    import scd as scd
+    import torch
+except ImportError:
+    scd is None
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from a JSON file."""
     with open(config_path, "r") as f:
         return json.load(f)
-
-
+    
 def decompose_scd(
     data: np.ndarray,
+    fsamp: float,
     algorithm_config: Optional[Dict] = None,
-    engine: str = "singularity",
+    engine: Literal["local", "docker", "singularity"] = "singularity",
     container: str = "environment/muniverse_scd.sif",
-    metadata: Optional[Dict] = None,
-    repo_path: Optional[str] = None,
-    conda_env: Optional[str] = None,
+    metadata: Optional[Dict] = None
 ) -> Tuple[Dict, Dict]:
     """
-    Run SCD decomposition using container.
+    API to run SCD decomposition using a container or a local installation.
 
-    Args:
-        data: numpy array of EMG data (channels x samples)
-        algorithm_config: Optional dictionary containing algorithm configuration
-        engine: Container engine to use ("docker", "singularity" or "host")
-        container: Path to container image
-        metadata: Optional dictionary containing input data metadata for logging
-        repo_path: If SCD runs on your native OS provide the path to the folder hosting the code
-        conda_env: If SCD runs on your native OS specify which conda environment to be used
+    Args
+    ----
+        data : np.ndarray
+            EMG data (n_channels, n_samples)
 
-    Returns:
-        Tuple containing:
-        - Dictionary with decomposition results containing:
-          * sources: Estimated sources
-          * spikes: Spike timing dictionary
-          * silhouette: Quality metrics (if available)
-        - Dictionary with processing metadata
+        fsamp : float
+            Sampling rate in Hz
+
+        algorithm_config : dict 
+            Optional dictionary containing algorithm configuration
+
+        engine : {"docker", "singularity", "local"} , default "singularity"
+            Engine/container used to execute SCD. If "local" SCD is 
+            executed using your local installation (pip installed).
+
+        container : str
+             Path to container image
+
+        metadata: dict 
+            Optional dictionary containing metadata for logging
+
+
+    Returns
+    -------
+        results : dict
+            Dictonary with decomposition results containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log_data : dict
+            Dictionary with processing metadata    
+
+    References
+    ----------
+    .. [1] Grison et et al., "A Particle Swarm Optimised Independence Estimator 
+           for Blind Source Separation of Neurophysiological Time Series",
+           IEEE Transactions on Biomedical Engineering, 2024 
+    .. [2] Grison et et al., "Unlocking the full potential of high-density surface EMG: 
+           novel non-invasive high-yield motor unit decomposition",
+           The Journal of Physiology, 2025        
+    .. [3] Mamidanna et et al., "MUniverse: A Simulation and Benchmarking 
+           Suite for Motor Unit Decomposition", The Thirty-ninth Annual 
+           Conference on Neural Information Processing Systems 
+           Datasets and Benchmarks Track, 2025         
+
     """
     # Initialize logger
     logger = AlgorithmLogger()
-    logger.log_data["Pipeline"]["Name"] = "MUniverse-SCD"
+    logger.log_data["Pipeline"]["Name"] = "MUniverse-SCD-Pipeline"
     logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
         
-    if engine == "host":
-        if not os.path.isdir(repo_path):
-            raise ValueError(f"Invalid local repository path: {repo_path}")
-        try:
-            scd_git_info = logger._get_git_info(repo_path)
-            logger.add_generated_by(
-                name="Swarm Contrastive Decomposition",
-                url=scd_git_info["URL"],
-                commit=scd_git_info["Commit"],
-                branch=scd_git_info["Branch"],
-                license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
+    if engine == "local":
+        if scd is None:
+            raise ImportError(
+                "The scd package is not installed locally."
+                "If engine is 'local' scd needs to be installed or run it from a container."
             )
-        except:
-            raise ValueError(f"Failed to extract the local repository metadata")
-            
+        logger.add_generated_by(
+            name="Swarm Contrastive Decomposition",
+            version=scd.__version__,
+            url="https://github.com/AgneGris/swarm-contrastive-decomposition.git",
+            commit="n/a", 
+            license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
+        )
+  
     elif engine in ["docker", "singularity"]:
         logger.add_generated_by(
             name="Swarm Contrastive Decomposition",
@@ -89,7 +131,153 @@ def decompose_scd(
         )
     else:
         raise ValueError(f"Invalid engine {engine}")
+    
 
+    # Set input data information
+    if metadata:
+        logger.set_input_data(file_name=metadata["filename"], file_format=metadata["format"])
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
+    # Load and set algorithm configuration
+    algo_cfg = _get_config(algorithm_config, "scd")   
+    logger.set_algorithm_config(algo_cfg) 
+
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(data, steps, fsamp)  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            )  
+
+    algo_cfg["algorithmConfig"]["sampling_frequency"] = pre_meta["fsamp"]
+
+    # Run SCD decomposition
+    if engine == "local":
+        spikes, seg_sources, scores, state, return_code = _run_scd_local(
+            data=segmented_data, 
+            cfg=algo_cfg["algorithmConfig"]
+        )
+    else:
+        spikes, seg_sources, scores, state, return_code =_run_scd_container(
+            data=segmented_data, 
+            algo_cfg=algo_cfg["algorithmConfig"], 
+            engine=engine, 
+            container=container
+        )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="SCD",
+            details=algo_cfg["algorithmConfig"]
+        )    
+
+    # Apply post processing
+    if seg_sources is not None:
+        # Map spikes and sources to gloabl time
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
+    else:
+        sources = seg_sources    
+
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "model_state": state,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }   
+
+    # Always finalize logger to ensure metadata is captured
+    if engine == "local":
+        logger.finalize()
+    else:
+        logger.finalize(engine, container)
+        
+    return results, logger.log_data
+
+
+def decompose_upperbound(
+    data: np.ndarray,
+    muaps: np.ndarray,
+    fsamp: float,
+    algorithm_config: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> Tuple[Dict, Dict]:
+    """
+    Run upperbound decomposition.
+
+    Args
+    ----
+        data : np.ndarray (n_channels, n_samples)
+            EMG data 
+
+        muaps : np.ndarray (n_units, n_channels, n_samples)
+            Impulse response waveforms for each motor unit   
+
+        fsamp : float
+            Sampling rate in Hz     
+
+        algorithm_config : dict (Optional) 
+            Dictonary with the pipeline configuration
+
+        metadata: dict (Optional)
+            Optional dictionary containing input data metadata for logging
+
+    Returns
+    -------
+        results : dict
+            Dictonary containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log : dict
+            Dictonary of processing metadata        
+ 
+    """
+    # Initialize logger
+    logger = AlgorithmLogger()
+    logger.log_data["Pipeline"]["Name"] = "MUniverse-UpperBoundCBSS-Pipeline"
+    logger.log_data["Pipeline"]["Description"] = "Upper bound prediction for linear motor unit identification algorithms"
+    
     # Set input data information
     if metadata:
         logger.set_input_data(file_name=metadata["filename"], file_format=metadata["format"])
@@ -102,16 +290,475 @@ def decompose_scd(
         logger.set_algorithm_config(algo_cfg)
     else:
         # Load default configuration
-        config_dir = Path(__file__).parent.parent.parent / "configs"
-        algorithm_config = config_dir / "scd.json"
-        if not algorithm_config.exists():
+        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
+        algorithm_config_path = config_dir / "upperbound.json"
+        if not algorithm_config_path.exists():
             raise FileNotFoundError(
-                f"Default SCD config not found at {algorithm_config}"
+                f"Default UpperBound config not found at {algorithm_config_path}"
             )
-        algo_cfg = load_config(algorithm_config)
+        algo_cfg = load_config(str(algorithm_config_path))
         logger.set_algorithm_config(algo_cfg)
 
-    # Create single run directory following neuromotion pattern
+
+    # Validate muaps format
+    if muaps.ndim != 3:
+        raise ValueError(
+            "MUAPs must be a 3D array (n_units, n_channels, n_samples)"
+            )
+        
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(
+        data=data, 
+        steps=steps, 
+        fsamp=fsamp
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            ) 
+
+        # If the EMG was filtered, apply the same operations to the MUAPs
+        STEPS = {"bandpass", "highpass", "lowpass", "notch"}
+        filtered_steps = [d for d in pre_meta["steps"] if d.get("step") in STEPS]
+
+        if len(filtered_steps) > 0:
+            # Pad MUAPs with zeros to avoid edge effects
+            pad_len = 100
+            filt_muaps = np.pad(muaps, ((0,0), (0,0), (pad_len, pad_len)))
+            for i in range(muaps.shape[0]):
+                filt_muaps[i, : , :], _, _, _ = _pre_process_data(
+                    data=filt_muaps[i, :, :], 
+                    steps=filtered_steps, 
+                    fsamp=fsamp
+                )
+            muaps = filt_muaps[:, :, pad_len:-pad_len]
+
+        # If the data was downsampled, apply the same downsampling to the MUAPs
+        if pre_meta["fsamp"] != fsamp:
+            downsample = fsamp // pre_meta["fsamp"]
+            muaps = muaps[:, :, ::downsample]
+
+        # Apply the channel mask
+        muaps = muaps[:, pre_meta["ch_mask"], :]            
+
+     
+    # Run UpperBound decomposition
+    spikes, seg_sources, scores, state, return_code = _run_upper_bound(
+        data=segmented_data, 
+        muaps=muaps,
+        fsamp=pre_meta["fsamp"], 
+        cfg=SimpleNamespace(**algo_cfg["algorithmConfig"])
+    ) 
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="UpperBoundCBSS",
+            details=algo_cfg["algorithmConfig"]
+        ) 
+
+    # Apply post processing
+    if seg_sources is not None:
+        # Map spikes and sources to gloabl time
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
+    else:
+        sources = seg_sources
+
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "model_state": state,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }    
+
+    # Finalize logger to ensure metadata is captured
+    logger.finalize()
+    
+    return results, logger.log_data
+
+
+def decompose_cbss(
+    data: np.ndarray,
+    fsamp: float,
+    algorithm_config: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> Tuple[Dict, Dict, FastIcaCBSS]:
+    """
+    API to run a CBSS decomposition pipeline with optional
+    pre and post processing steps.
+
+    Args
+    ----
+        data : np.ndarray 
+            EMG data (n_channels, n_samples)
+
+        fsamp : float
+            Sampling rate in Hz     
+
+        algorithm_config : dict (Optional) 
+            Dictonary with the pipeline configuration
+
+        metadata: dict (Optional)
+            Optional dictionary containing input data metadata for logging
+
+    Returns
+    -------
+        results : dict
+            Dictonary containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log_data : dict
+            Dictonary of processing metadata        
+
+
+    """
+    # Initialize logger
+    logger = AlgorithmLogger()
+    logger.log_data["Pipeline"]["Name"] = "MUniverse-CBSS-Pipeline"
+    logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
+
+    # Set input data information
+    if metadata:
+        logger.set_input_data(file_name=metadata["filename"], file_format=metadata["format"])
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
+    # Load and set algorithm configuration
+    algo_cfg = _get_config(algorithm_config, "cbss")
+    logger.set_algorithm_config(algo_cfg)
+
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(
+        data=data, 
+        steps=steps, 
+        fsamp=fsamp
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            )    
+
+    # Run CBSS decomposition
+    spikes, seg_sources, scores, state, return_code = _run_cbss(
+        data=segmented_data, 
+        fsamp=pre_meta["fsamp"], 
+        cfg=SimpleNamespace(**algo_cfg["algorithmConfig"])
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="FastIcaCBSS",
+            details=algo_cfg["algorithmConfig"]
+        )
+
+    # Apply post processing
+    if seg_sources is not None:
+        # Map spikes and sources to gloabl time
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
+    else:
+        sources = seg_sources
+
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
+
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "model_state": state,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }
+
+    # Always finalize logger to ensure metadata is captured
+    logger.finalize()
+        
+    return results, logger.log_data
+
+def decompose_ae(
+    data: np.ndarray,
+    fsamp: float,
+    algorithm_config: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> Tuple[Dict, Dict]:
+    """
+    Run Autoencoder-based decomposition.
+
+    Args
+    ----
+        data : np.ndarray 
+            EMG data (n_channels, n_samples)
+
+        fsamp: float
+            Sampling rate in Hz
+
+        algorithm_config : dict (Optional) 
+            Dictonary with the pipeline configuration
+
+        metadata: dict (Optional)
+            Optional dictionary containing input data metadata for logging
+
+    Returns
+    -------
+        results : dict
+            Dictonary containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log_data : dict
+            Dictonary of processing metadata        
+
+
+    """
+    
+    logger = AlgorithmLogger()
+    logger.log_data["Pipeline"]["Name"] = "MUniverse-AE-Pipeline"
+    logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
+
+    # Input data metadata
+    if metadata:
+        logger.set_input_data(
+            file_name=metadata.get("filename", "numpy_array"),
+            file_format=metadata.get("format", "npy"),
+        )
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
+    # Load and set algorithm configuration
+    algo_cfg = _get_config(algorithm_config, "ae")
+    logger.set_algorithm_config(algo_cfg)
+
+    # Run preprocessing module
+    if "preProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(data, steps, fsamp)  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            )    
+
+    # Run AE decomposition
+    spikes, seg_sources, scores, state, return_code = _run_ae(
+        segmented_data, 
+        pre_meta["fsamp"], 
+        SimpleNamespace(**algo_cfg["algorithmConfig"])
+    )  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        logger.add_processing_step(
+            step_name="AEDecoder",
+            details=algo_cfg["algorithmConfig"]
+        )
+
+    # Apply post processing
+    if seg_sources is not None:
+        # Map spikes and sources to gloabl time
+        sources = np.zeros((seg_sources.shape[0], data.shape[1]))
+        sources[:, pre_meta["sample_mask"]] = seg_sources
+    else:
+        sources = seg_sources    
+
+    if pre_meta["t_start"] > 0:
+        spikes = map_spikes(spikes, pre_meta["fsamp"], pre_meta["t_start"])
+
+    if "postProcessingConfig" in algo_cfg.keys():
+        steps = algo_cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
+
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "model_state": state,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }
+
+    # Always finalize logger to ensure metadata is captured
+    logger.finalize()
+    
+    return results, logger.log_data
+
+def _get_config(cfg, method):
+
+    if isinstance(cfg, dict):
+        algo_cfg = cfg
+    elif isinstance(cfg, str):
+        algo_cfg = load_config(str(cfg))
+    else:
+        # Load default configuration
+        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
+        default_config = config_dir / f"{method}.json"
+        if not default_config.exists():
+            raise FileNotFoundError(
+                f"Default SCD config not found at {default_config}"
+            )
+        algo_cfg = load_config(str(default_config))
+
+    return algo_cfg
+
+def _run_scd_local(data, cfg):
+    """Run SCD decomposition locally"""
+
+    try:
+        # Configure SCD 
+        fsamp = cfg["sampling_frequency"]
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        cfg["device"] = device
+        config = scd.Config(**cfg)
+        seed = cfg.get("Seed", 42)
+        scd.set_random_seed(seed=seed)
+
+        # Convert data to torch
+        neural_data = torch.from_numpy(data.T).to(
+            device=device, dtype=torch.float32
+        )
+
+        # Build model and run decomposition
+        model = scd.SwarmContrastiveDecomposition()
+        _, dictionary = model.run(neural_data, config)
+
+        # Extract the output
+        n_units = len(dictionary["timestamps"])
+        spike_dict = {
+            i: dictionary["timestamps"][i].tolist() for i in range(n_units)}
+        spikes = spike_dict_to_long_df(spike_dict, fsamp)
+
+        if n_units > 0:
+            sources = np.hstack(dictionary["source"]).T
+
+            scores = {
+                "sil": torch.stack(
+                    dictionary["silhouettes"]).cpu().numpy().astype(float),
+                "cov_isi": torch.stack(
+                    dictionary["cov"]).cpu().numpy().astype(float) 
+            }
+        else:
+            sources = None
+            scores = None
+
+        return_code = {
+                "name": "scd", 
+                "value": 0
+            }
+        
+        state = dictionary
+
+    except Exception as e:
+            print(f"[ERROR] SCD decomposition failed: {str(e)}")
+            return_code = {
+                "name": "scd", 
+                "value": 1
+            }
+            spikes = None
+            sources = None
+            scores = None
+            state = None
+
+    return spikes, sources, scores, state, return_code         
+    
+def _run_scd_container(data, algo_cfg, engine, container):
+    """Run SCD decomposition in container"""
+
     with tempfile.TemporaryDirectory() as run_dir:
         run_dir = Path(run_dir)
 
@@ -140,321 +787,219 @@ def decompose_scd(
                 container,
                 str(script_path),
                 str(run_dir),
-                repo_path,
-                conda_env,
             ]
 
             # Run container
             subprocess.run(cmd, check=True, cwd=current_dir)
             print(f"[INFO] Decomposition completed successfully")
-            logger.set_return_code("run.sh", 0)
-
-            # Load results from container output files in run_dir
-            results = {}
-            
+            return_code = {
+                "name": "run_scd.sh", 
+                "value": 0
+            }
+        
             # Load sources if available
             sources_path = run_dir / "predicted_sources.npz"
             if sources_path.exists():
                 sources_data = np.load(sources_path)
-                results["sources"] = sources_data["predicted_sources"]
+                sources = sources_data["predicted_sources"]
             else:
-                results["sources"] = None
+                sources = None
             
             # Load spikes if available
             spikes_path = run_dir / "predicted_timestamps.tsv"
             if spikes_path.exists():
-                spikes_df = pd.read_csv(spikes_path, sep="\t")
-                # Convert back to dictionary format
-                spikes_dict = {}
-                for unit_id in spikes_df["unit_id"].unique():
-                    unit_spikes = spikes_df[spikes_df["unit_id"] == unit_id]["timestamp"].values
-                    spikes_dict[unit_id] = unit_spikes.tolist()
-                results["spikes"] = spikes_dict
+                spikes = pd.read_csv(spikes_path, sep="\t")
             else:
-                results["spikes"] = {}
-            
-            # SCD doesn't typically provide silhouette scores
-            # TODO: Compute silhouette scores
-            results["silhouette"] = None
-            
-            # Log output files for tracking
-            for root, _, files in os.walk(run_dir):
-                for file in files:
-                    if "input_data.npy" in file:
-                        continue
-                    file_path = os.path.join(root, file)
-                    logger.add_output(file_path, os.path.getsize(file_path))
+                spikes = None
+
+            # Load spikes if available
+            scores_path = run_dir / "predicted_scores.npz"
+            if scores_path.exists():
+                scores_data = np.load(scores_path, allow_pickle=True)
+                scores = {
+                    "sil": scores_data["sil"],
+                    "cov_isi": scores_data["cov_isi"]
+                }
+            else:
+                scores = None 
+
+            # Load the dictonary of the model state
+            dict_path = run_dir / "state.pkl"
+            if dict_path.exists():
+                with open(dict_path, "rb") as f:
+                    state = pickle.load(f) 
+            else:
+                state = None   
 
         except Exception as e:
             print(f"[ERROR] SCD decomposition failed: {str(e)}")
-            logger.set_return_code("run.sh", 1)
-            results = {"sources": None, "spikes": {}, "silhouette": None}
+            return_code = {
+                "name": "run_scd.sh", 
+                "value": 1
+            }
+            spikes = None
+            sources = None
+            scores = None
+            state = None
 
-        finally:
-            # Always finalize logger to ensure metadata is captured
-            if engine == "host":
-                logger.finalize()
-            else:
-                logger.finalize(engine, container)
-        
-        return results, logger.log_data
+        return spikes, sources, scores, state, return_code           
 
-
-def decompose_upperbound(
-    data: np.ndarray,
-    muaps: np.ndarray,
-    algorithm_config: Optional[Dict] = None,
-    metadata: Optional[Dict] = None,
-) -> Tuple[Dict, Dict]:
-    """
-    Run upperbound decomposition.
-
-    Args:
-        data: EMG data array (channels x samples)
-        muaps: MUAPs array (n_motor_units x n_channels x duration)
-        algorithm_config: Optional path to algorithm configuration JSON file
-        metadata: Optional dictionary containing input data metadata for logging
-
-    Returns:
-        Tuple containing:
-        - Dictionary with decomposition results containing:
-          * sources: Estimated sources
-          * spikes: Spike timing dictionary
-          * silhouette: Quality metrics
-          * mu_filters: Motor unit filters
-        - Dictionary with processing metadata
-    """
-    # Initialize logger
-    logger = AlgorithmLogger()
-    logger.log_data["Pipeline"]["Name"] = "MUniverse-UpperBound"
-    logger.log_data["Pipeline"]["Description"] = "Upper bound prediction for linear motor unit identification algorithms"
-    
-    # Set input data information
-    if metadata:
-        logger.set_input_data(file_name=metadata["filename"], file_format=metadata["format"])
-    else:
-        logger.set_input_data(file_name="numpy_array", file_format="npy")
-
-    # Load and set algorithm configuration
-    if algorithm_config:
-        # Handle nested Config structure if present
-        if "Config" in algorithm_config:
-            algo_cfg = algorithm_config["Config"]
-        else:
-            # Assume the dict is the config itself
-            algo_cfg = algorithm_config
-        logger.set_algorithm_config(algo_cfg)
-    else:
-        # Load default configuration
-        config_dir = Path(__file__).parent.parent.parent / "configs"
-        algorithm_config_path = config_dir / "upperbound.json"
-        if not algorithm_config_path.exists():
-            raise FileNotFoundError(
-                f"Default UpperBound config not found at {algorithm_config_path}"
-            )
-        algo_cfg = load_config(str(algorithm_config_path))["Config"]
-        logger.set_algorithm_config(algo_cfg)
-
-    # Get sampling frequency from config
-    fsamp = algo_cfg.get("sampling_frequency", 2048)
+def _run_upper_bound(data, muaps, fsamp, cfg):
+    """Run UpperBoundCBSS decomposition"""
 
     try:
-        # Initialize and run upperbound
-        # Apply start and end time to data
-        start_time = algo_cfg["start_time"] * algo_cfg["sampling_frequency"]
-        end_time = algo_cfg["end_time"] * algo_cfg["sampling_frequency"]
-        data = data[:, start_time:end_time].copy()
+        model = UpperBoundCBSS(config=cfg)
+
+        spikes, sources, scores = model.fit_predict(
+                sig=data, muaps=muaps, fsamp=fsamp
+            )
         
-        ub = UpperBound(config=SimpleNamespace(**algo_cfg))
-
-        # Validate muaps format
-        if muaps.ndim != 3:
-            raise ValueError("MUAPs must be a 3D array (n_motor_units x n_channels x duration)")
-
-        # Run decomposition
-        sources, spikes, sil, mu_filters = ub.decompose(data, muaps, fsamp=fsamp)
-
-        # Prepare results
-        results = {
-            "sources": sources,
-            "spikes": spikes,
-            "silhouette": sil,
-            "mu_filters": mu_filters,
-        }
-
-        logger.set_return_code("upperbound", 0)
-        print(f"[INFO] UpperBound decomposition completed successfully")
+        state = model.save_model()
+        
+        return_code = {
+            "name": "UpperBoundCBSS", 
+            "value": 0
+        } 
 
     except Exception as e:
-        print(f"[ERROR] UpperBound decomposition failed: {str(e)}")
-        logger.set_return_code("upperbound", 1)
-        results = {"sources": None, "spikes": {}, "silhouette": None, "mu_filters": None}
-    
-    finally:
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
-    
-    return results, logger.log_data
+        print(f"[ERROR] UpperBoundCBSS failed: {str(e)}")
+        return_code = {
+            "name": "UpperBoundCBSS", 
+            "value": 1
+        } 
+        spikes = None
+        sources = None
+        scores = None 
+        state = None
+        
+    return spikes, sources, scores, state, return_code
 
 
-def decompose_cbss(
-    data: np.ndarray,
-    algorithm_config: Optional[Dict] = None,
-    metadata: Optional[Dict] = None,
-) -> Tuple[Dict, Dict]:
-    """
-    Run CBSS decomposition.
-
-    Args:
-        data: numpy array of EMG data (channels x samples)
-        algorithm_config: Optional path to algorithm configuration JSON file
-        metadata: Optional dictionary containing input data metadata for logging
-
-    Returns:
-        Tuple containing:
-        - Dictionary with decomposition results containing:
-          * sources: Estimated sources
-          * spikes: Spike timing dictionary
-          * silhouette: Quality metrics
-        - Dictionary with processing metadata
-    """
-    # Initialize logger
-    logger = AlgorithmLogger()
-    logger.log_data["Pipeline"]["Name"] = "MUniverse-CBSS"
-    logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
-
-    # Set input data information
-    if metadata:
-        logger.set_input_data(file_name=metadata["filename"], file_format=metadata["format"])
-    else:
-        logger.set_input_data(file_name="numpy_array", file_format="npy")
-
-    # Load and set algorithm configuration
-    if algorithm_config:
-        # Handle nested Config structure if present
-        if "Config" in algorithm_config:
-            algo_cfg = algorithm_config["Config"]
-        else:
-            # Assume the dict is the config itself
-            algo_cfg = algorithm_config
-        logger.set_algorithm_config(algo_cfg)
-    else:
-        # Load default configuration
-        config_dir = Path(__file__).parent.parent.parent / "configs"
-        algorithm_config = config_dir / "cbss.json"
-        if not algorithm_config.exists():
-            raise FileNotFoundError(
-                f"Default CBSS config not found at {algorithm_config}"
-            )
-        algo_cfg = load_config(algorithm_config)["Config"]
-        logger.set_algorithm_config(algo_cfg)
+def _run_cbss(data, fsamp, cfg):
+    """Run CBSS decomposition"""
 
     try:
-        # Apply start and end time to data
-        start_time = algo_cfg["start_time"] * algo_cfg["sampling_frequency"]
-        end_time = algo_cfg["end_time"] * algo_cfg["sampling_frequency"]
-        data = data[:, int(start_time):int(end_time)]
+        model = FastIcaCBSS(config=cfg)
 
-        # Initialize and run CBSS with config
-        cbss = CBSS(config=SimpleNamespace(**algo_cfg))
-        sources, spikes, sil, _ = cbss.decompose(
-            data, fsamp=algo_cfg["sampling_frequency"]
+        spikes, sources, scores = model.fit_predict(
+                sig=data, fsamp=fsamp
+            )
+        
+        state = model.save_model()
+        
+        return_code = {
+            "name": "FastIcaCBSS", 
+            "value": 0
+        } 
+
+    except Exception as e:
+        print(f"[ERROR] FastIcaCBSS failed: {str(e)}")
+        return_code = {
+            "name": "FastIcaCBSS", 
+            "value": 1
+        } 
+        spikes = None
+        sources = None
+        scores = None 
+        state = None
+        
+    return spikes, sources, scores, state, return_code
+
+def _run_ae(data, fsamp, cfg):
+    """Run autoencoder decomposition"""
+
+    try:
+        model = AEDecoder(config=cfg)
+
+        spikes, sources, scores = model.fit_predict(
+                sig=data, fsamp=fsamp
+            )
+        
+        state = model.save_model()
+
+        return_code = {
+            "name": "AEDecoder", 
+            "value": 0
+        } 
+        
+    except Exception as e:
+        print(f"[ERROR] AEDecoder failed: {str(e)}")
+        return_code = {
+            "name": "AEDecoder", 
+            "value": 1
+        } 
+        spikes = None
+        sources = None
+        scores = None  
+        state = None
+
+    return spikes, sources, scores, state, return_code
+
+def _pre_process_data(data, steps, fsamp):
+    """Preprocess EMG Data"""
+    
+    try:
+    
+        module = PreProcessEMG(steps=steps)
+        data, pre_meta = module.pre_process(
+            data=data, fsamp=fsamp
         )
 
-        # Prepare results
-        results = {"sources": sources, "spikes": spikes, "silhouette": sil}
+        segmented_data = data
 
-        print(f"[INFO] CBSS decomposition completed successfully")
-        logger.set_return_code("cbss", 0)
+        if pre_meta["ch_mask"] is not None:
+            segmented_data = segmented_data[pre_meta["ch_mask"], :]
+        if pre_meta["sample_mask"] is not None:    
+            segmented_data = segmented_data[:, pre_meta["sample_mask"]]    
+
+        return_code = {
+            "name": "PreProcessEMG", 
+            "value": 0
+        }    
 
     except Exception as e:
-        print(f"[ERROR] CBSS decomposition failed: {str(e)}")
-        logger.set_return_code("cbss", 1)
-        results = {"sources": None, "spikes": {}, "silhouette": None}
-    
-    finally:
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
-        
-    return results, logger.log_data
-
-def decompose_ae(
-    data: np.ndarray,
-    algorithm_config: Optional[Dict] = None,
-    metadata: Optional[Dict] = None,
-) -> Tuple[Dict, Dict]:
-    """
-    Run Autoencoder-based decomposition.
-
-    Args:
-        data: EMG data (channels x samples)
-        algorithm_config: Optional dict with "Config" key or the raw config dict
-        metadata: Optional dict for logging (e.g., {"filename": "...", "format": "..."})
-
-    Returns:
-        results dict with:
-            - sources: (n_units x n_samples)
-            - spikes:  {unit_id: np.ndarray of sample indices}
-            - silhouette: np.ndarray
-            - mu_filters: (n_units x (m*R))
-        and the logger data dict
-    """
-    logger = AlgorithmLogger()
-    logger.log_data["Pipeline"]["Name"] = "MUniverse-AE"
-    logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
-
-    # Input data metadata
-    if metadata:
-        logger.set_input_data(
-            file_name=metadata.get("filename", "numpy_array"),
-            file_format=metadata.get("format", "npy"),
-        )
-    else:
-        logger.set_input_data(file_name="numpy_array", file_format="npy")
-
-    # Load config
-    if algorithm_config:
-        algo_cfg = algorithm_config.get("Config", algorithm_config)
-        logger.set_algorithm_config(algo_cfg)
-    else:
-        config_dir = Path(__file__).parent.parent.parent / "configs"
-        config_path = config_dir / "ae_decomposer.json"
-        if not config_path.exists():
-            raise FileNotFoundError(f"Default AE config not found at {config_path}")
-        algo_cfg = load_config(str(config_path))["Config"]
-        logger.set_algorithm_config(algo_cfg)
-
-    try:
-        # Build strongly-typed config directly (no key remapping)
-        ae_cfg = AEDecoderConfig(**algo_cfg)
-
-        # Slice time window using config (seconds)
-        fsamp = float(ae_cfg.sampling_frequency)
-        start_idx = int(round(ae_cfg.start_time * fsamp))
-        end_idx = int(round(ae_cfg.end_time * fsamp))
-        data = data[:, start_idx:end_idx].copy()
-
-        # Run AE
-        ae = AEDecoder(ae_cfg)
-        sources, spikes, sil, mu_filters = ae.decompose(data, fsamp=fsamp)
-
-        results = {
-            "sources": sources,
-            "spikes": spikes,
-            "silhouette": sil,
-            "mu_filters": mu_filters,
+        print(f"[ERROR] Preprocessing failed: {str(e)}")
+        return_code = {
+            "name": "PreProcessEMG", 
+            "value": 1
+        }
+        segmented_data = data
+        pre_meta = {
+            "fsamp": fsamp,
+            "ch_mask": np.ones(data.shape[0], dtype=bool),
+            "sample_mask": np.ones(data.shape[1], dtype=bool),
+            "steps": [],
+            "t_start": 0
         }
 
-        logger.set_return_code("ae_decomposer", 0)
-        print("[INFO] AE decomposition completed successfully")
+    return data, segmented_data, pre_meta, return_code
+
+def _post_process_spikes(spikes, sources, scores, fsamp, cfg):
+    """Postprocess Spikes"""
+    
+    try:
+    
+        module = PostProcessSpikes(steps=cfg)
+        spikes, sources, scores, post_meta = module.post_process(
+            spikes=spikes, 
+            fsamp=fsamp, 
+            scores=scores, 
+            sources=sources
+        )   
+
+        return_code = {
+            "name": "PostProcessSpikes", 
+            "value": 0
+        }    
 
     except Exception as e:
-        print(f"[ERROR] AE decomposition failed: {e}")
-        logger.set_return_code("ae_decomposer", 1)
-        results = {"sources": None, "spikes": {}, "silhouette": None, "mu_filters": None}
+        print(f"[ERROR] PostProcessSpikes failed: {str(e)}")
+        return_code = {
+            "name": "PostProcessSpikes", 
+            "value": 1
+        }
+        post_meta = {
+            "steps": []
+        }
 
-    finally:
-        # Always finalize logger to ensure metadata is captured
-        logger.finalize()
-    
-    return results, logger.log_data
+    return spikes, sources, scores, post_meta, return_code
