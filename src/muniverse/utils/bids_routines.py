@@ -10,7 +10,6 @@ import re
 import warnings
 import subprocess
 import shutil
-import textwrap
 from pathlib import Path
 from typing import List, Literal, Optional
 from dataclasses import dataclass, InitVar, field
@@ -165,9 +164,13 @@ class BIDSDataset(_BaseBIDS):
     BIDSIGNORE: list = field(default_factory=list)
     root: str = None
     datasetname: str = "dataset_name"
-    readme: str = None
+    readme: str = ""
     dataset_sidecar: dict = None
-    subjects_data: pd.DataFrame = None
+    subjects_data: pd.DataFrame = field(
+        default_factory=lambda: pd.DataFrame(columns=[
+            "participant_id", "age", "sex", "handedness", "weight", "height"
+        ])
+    )
     subjects_sidecar: dict = None
 
 
@@ -176,26 +179,18 @@ class BIDSDataset(_BaseBIDS):
         path   
     ):
 
-        self.root = str(Path(path) / self.datasetname) + "/"
-        self.dataset_sidecar = {
-            "Name": self.datasetname,
-            "BIDSVersion": self._get_bids_version(),
-            "DatasetType": "raw",
-            "License": "The license for the dataset.",
-            "Authors": ["LastName, FirstName", "LastName2, FirstName2", "..."]
-        }
-        self.readme = textwrap.dedent("""
-        # Some BIDS Dataset
+        # Make sure to have a valid root folder
+        if self.root is None:
+            self.root = str(Path(path) / self.datasetname) + "/"
+        else:
+            self.root = str(Path(self.root)) + "/"
 
-        README is a required text file and should describe the dataset in more detail.
-
-        The README file should be structured such that the dataset content can be easily understood.
-
-        """) 
-        self.subjects_sidecar = self._set_participant_sidecar()
-        self.subjects_data = pd.DataFrame(
-            columns=["participant_id", "age", "sex", "handedness", "weight", "height"]
-        )
+        # Set a minimal dataset sidecar
+        if self.dataset_sidecar is None:
+            self.dataset_sidecar = {
+                "Name": self.datasetname,
+                "BIDSVersion": self._get_bids_version()
+            }
 
     def write(self, overwrite=False):
         """
@@ -215,27 +210,29 @@ class BIDSDataset(_BaseBIDS):
 
         # write participant.tsv
         name = f"{self.root}participants.tsv"
-        if overwrite or not os.path.isfile(name):
-            self.subjects_data.to_csv(name, sep="\t", index=False, header=True, na_rep="n/a")
-        elif not overwrite and os.path.isfile(name):
-            from_file = pd.read_table(name)
-            if not from_file.equals(self.subjects_data):
-                self.subjects_data.to_csv(name, sep="\t", index=False, header=True, na_rep="n/a")
+        if len(self.subjects_data) > 0:
+            if overwrite or not os.path.isfile(name):
+                self.subjects_data.to_csv(
+                    name, sep="\t", index=False, header=True, na_rep="n/a"
+                )
         # write participant.json
         name = f"{self.root}participants.json"
-        if overwrite or not os.path.isfile(name):
-            with open(name, "w") as f:
-                json.dump(self.subjects_sidecar, f, indent=4)
+        if self.subjects_sidecar:
+            if overwrite or not os.path.isfile(name):
+                with open(name, "w") as f:
+                    json.dump(self.subjects_sidecar, f, indent=4)
         # write dataset.json
         name = f"{self.root}dataset_description.json"
-        if overwrite or not os.path.isfile(name):
-            with open(name, "w") as f:
-                json.dump(self.dataset_sidecar, f, indent=4)
+        if self.dataset_sidecar:
+            if overwrite or not os.path.isfile(name):
+                with open(name, "w") as f:
+                    json.dump(self.dataset_sidecar, f, indent=4)
         # write README.md
         name = f"{self.root}README.md"
         if overwrite or not os.path.isfile(name):
-            with open(name, "w", encoding="utf-8") as f:
-                f.write(self.readme)    
+            if self.readme:
+                with open(name, "w", encoding="utf-8") as f:
+                    f.write(self.readme)    
 
         # write .bidsignore
         if len(self.BIDSIGNORE) > 0:
@@ -364,10 +361,10 @@ class BIDSDataset(_BaseBIDS):
 
         return df
 
-    def _set_participant_sidecar(self):
+    def get_default_participant_sidecar(self):
         """Template for initalizing the participant sidecar file"""
 
-        metadata = {
+        self.subjects_sidecar = {
             "participant_id": {
                 "Description": "Unique subject identifier"
             },
@@ -392,8 +389,6 @@ class BIDSDataset(_BaseBIDS):
                 "Unit": "m"
             },
         }
-
-        return metadata
         
     def validate(
             self, 
@@ -635,10 +630,11 @@ class EMGBIDSRecording(_BaseBIDS):
 
         self.datapath = datapath
 
-        # Write placeholder templates 
+        # Init a minimal EMG sidecar 
         if not self.emg_sidecar:
             self.emg_sidecar = self._init_emg_sidecar(self.fsamp, self.plfreq)
 
+        # Init a placeholder coordinate system
         if not self.coord_sidecar:    
             self.coord_sidecar = {
                 "templateCoordSystemName": {
@@ -1220,10 +1216,10 @@ class BIDSDecompositionDerivative(_BaseBIDS):
             The root folder of the BIDS derivative dataset
    
         datasetname : str
-            The name of the BIDS derivative dataset
+            The name of the BIDS derivative dataset 
 
-        pipelinename : str
-            Name of your processing pipeline  
+        datapath : str
+            Folder where the derivative files are/will be stored    
 
         fileformat : {"edf", "bdf"} , default "edf"
             File format used to store a data matrix       
@@ -1286,7 +1282,6 @@ class BIDSDecompositionDerivative(_BaseBIDS):
     _INHERITABLE_LEVELS = ["dataset" , "task", "subject", "session"]
 
     root: str = "./datasetName"
-    pipelinename: str = "pipelineName"
     subject_label: str = "01"
     session_label: str | None = None
     task_label: str = "taskName"
@@ -1297,7 +1292,7 @@ class BIDSDecompositionDerivative(_BaseBIDS):
     datatype: str = "emg"
     fileformat: Literal["edf", "bdf"] = "edf"
     fsamp: float = 2048
-    sources: np.ndarray = field(default_factory=lambda: np.empty((0,)))
+    source: np.ndarray = field(default_factory=lambda: np.empty((0,)))
     source_sidecar: dict = field(default_factory=dict)
     events: pd.DataFrame = field(
         default_factory=lambda:pd.DataFrame(columns=[
