@@ -1,3 +1,3 @@
 """
-Scripts for running various tasks in the Muniverse Demo project.
+Scripts for running various tasks in the Muniverse project.
 """ 
