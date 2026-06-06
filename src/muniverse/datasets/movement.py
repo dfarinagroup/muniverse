@@ -57,14 +57,10 @@ def validate_effort_profile_config(params: Dict) -> Dict:
         pass
     elif params.get("EffortProfile") == "Ballistic":
         params["InitialEffort"] = 0
-        if params.get("NRepetitions") < 5:
-            warnings.warn(f"NRepetitions is less than 5. Setting to 5.")
-            params["NRepetitions"] = 5
         params["HoldDuration"] = 0
         params["SinFrequency"] = 0
     elif params.get("EffortProfile") == "Constant":
-        params["HoldDuration"] = 0
-        params["SinFrequency"] = 0
+        pass  # HoldDuration drives duration computation; SinFrequency belongs to angle profile
     else:
         raise ValueError(f"Unsupported effort profile type: '{params.get('EffortProfile')}'")
 
@@ -119,9 +115,10 @@ def _create_effort_profile(params: Dict, samples: int, fs: float) -> np.ndarray:
     elif profile_type == "Ballistic":
         ramp_duration = params.get("RampDuration")
         return _ballistic_profile(rest_duration, ramp_duration, target_effort, n_reps, samples, fs)
+    elif profile_type == "Constant":
+        return _trapezoid_profile(rest_duration, ramp_duration, hold_duration, target_effort, n_reps, samples, fs)
     else:
-        # Default to constant effort
-        return np.tile(np.full(samples, target_effort), n_reps)
+        raise ValueError(f"Unsupported effort profile type: '{profile_type}'")
 
 
 def _create_angle_profile(params: Dict, samples: int, fs: float, movement_dof: str) -> np.ndarray:
@@ -135,13 +132,15 @@ def _create_angle_profile(params: Dict, samples: int, fs: float, movement_dof: s
     n_reps = params.get("NRepetitions", 1)
     
     if profile_type == "Constant":
-        return np.tile(np.full(samples, target_angle), n_reps)
+        return np.full(samples, target_angle)
     elif profile_type == "Triangular":
         ramp_duration = params.get("RampDuration")
         return _triangular_angle_profile(rest_duration, ramp_duration, initial_angle, target_angle, n_reps, samples, fs, movement_dof)
     elif profile_type == "Sinusoid":
         sin_frequency = params.get("SinFrequency")
-        return _sinusoid_angle_profile(sin_frequency, initial_angle, target_angle, n_reps, samples, fs, movement_dof)
+        ramp_duration = params.get("RampDuration")
+        hold_duration = params.get("HoldDuration")
+        return _sinusoid_angle_profile(sin_frequency, rest_duration, ramp_duration, hold_duration, initial_angle, target_angle, n_reps, samples, fs, movement_dof)
     else:
         raise ValueError(f"Unsupported angle profile type: '{profile_type}'. Only 'Constant', 'Triangular', and 'Sinusoid' are supported.")
 
@@ -235,14 +234,27 @@ def _triangular_angle_profile(rest_duration: float, ramp_duration: float, initia
     return np.clip(profile, min_angle, max_angle)
 
 
-def _sinusoid_angle_profile(sin_frequency: float, initial_angle: float, target_angle: float, n_reps: int, samples: int, fs: float, movement_dof: str) -> np.ndarray:
-    """Create sinusoidal angle profile."""
-    t = np.arange(samples) / fs
-    offset = (target_angle + initial_angle)/2
-    amplitude = (target_angle - initial_angle)/2
-    profile = offset + amplitude * np.sin(2 * np.pi * sin_frequency * t - np.pi/2)
-    
-    profile = np.tile(profile, n_reps)
+def _sinusoid_angle_profile(sin_frequency: float, rest_duration: float, ramp_duration: float, hold_duration: float, initial_angle: float, target_angle: float, n_reps: int, samples: int, fs: float, movement_dof: str) -> np.ndarray:
+    """Create sinusoidal angle profile with rest/ramp/hold/ramp/rest structure."""
+    rest_samples = int(fs * rest_duration)
+    ramp_samples = int(fs * ramp_duration)
+    hold_samples = int(fs * hold_duration)
+
+    offset = (target_angle + initial_angle) / 2
+    signed_amplitude = initial_angle - offset  # = (initial - target) / 2
+
+    t_hold = np.arange(hold_samples) / fs
+    hold = offset + signed_amplitude * np.sin(2 * np.pi * sin_frequency * t_hold)
+
+    one_cycle = np.concatenate([
+        np.zeros(rest_samples),
+        np.linspace(0, offset, ramp_samples),
+        hold,
+        np.linspace(offset, 0, ramp_samples),
+        np.zeros(rest_samples),
+    ])
+
+    profile = np.tile(one_cycle, n_reps)
     profile = _adjust_length(profile, samples, fs)
     min_angle, max_angle = _get_angle_range(movement_dof)
     return np.clip(profile, min_angle, max_angle)

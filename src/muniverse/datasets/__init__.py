@@ -12,6 +12,7 @@ from ..utils.containers import pull_container, verify_container_engine
 from ..utils.logging import SimulationLogger
 from .simulate import generate_recording as _run_recording, validate_config
 from .movement import generate_effort_profile, generate_angle_profile
+from .postprocess import post_process_emg
 
 
 def init():
@@ -97,6 +98,8 @@ def generate_synthetic_recording(
         logger=logger,
         verbose=verbose,
     )
+
+    results["emg"] = post_process_emg(config_content, results["emg"])
 
     if output_dir is not None:
         output_dir = os.path.abspath(output_dir)

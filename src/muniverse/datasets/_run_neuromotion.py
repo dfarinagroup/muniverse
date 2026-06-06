@@ -62,6 +62,8 @@ def generate_emg(muaps, spikes, muap_angle_labels, angle_profile):
             continue
 
         for firing in unit_firings:
+            if firing >= time_samples:
+                continue
             # Get the nearest angle's MUAP for each firing
             curr_angle = angle_profile[firing]
             muap_idx = np.argmin(np.abs(muap_angle_labels - curr_angle))
@@ -132,15 +134,15 @@ def initialize_mu_properties(config, mn_pool, num_steps):
         num_steps: Number of movement steps
         
     Returns:
-        Tuple of (properties_dict, property_tensors, torch_generator)
+        Tuple of (properties_dict, property_tensors)
     """
     # Extract configuration parameters
     subject_cfg = config.get("SubjectConfiguration")
     ms_label = config.get("MovementConfiguration").get("TargetMuscle")
     fibre_density = subject_cfg.get("FibreDensity")
     num_mus = mn_pool.N
-    
-    # Assign physiological properties using dedicated RNG
+    subject_seed = subject_cfg.get("SubjectSeed")
+
     num_fb = np.round(MS_AREA[ms_label] * fibre_density)
     config_props = edict({
         "num_fb": num_fb,
@@ -182,8 +184,7 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
         num_steps: Number of movement steps
         ms_label: Target muscle label
         num_mus: Number of motor units
-        torch_generator: Torch generator for reproducible random number generation
-        
+
     Returns:
         np.ndarray: MUAP library with shape (n_units, steps, ch_rows, ch_cols, win)
     """
@@ -196,6 +197,8 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     model_pth = config.get("PathToBioMimeWeights", "./ckp/model_linear.pth")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
+    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
+
     # Load model config and setup generator
     model_config = update_config("./ckp/config.yaml")
     generator = Generator(model_config.Model.Generator)
@@ -221,10 +224,7 @@ def generate_muaps_biomime(config, mu_properties, d_mu_properties, num_steps, ms
     ch_cv = d_mu_properties["cv"].loc[:, tgt_ms_labels]
     ch_len = d_mu_properties["len"].loc[:, tgt_ms_labels]
 
-    subject_seed = config.get("SubjectConfiguration").get("SubjectSeed")
-    torch_generator = torch.Generator()
-    torch_generator.manual_seed(subject_seed)
-    zi = torch.randn(num_mus, model_config.Model.Generator.Latent, generator=torch_generator)
+    zi = torch.randn(num_mus, model_config.Model.Generator.Latent)
     if device == "cuda":
         zi = zi.cuda()
 
@@ -373,8 +373,7 @@ def main(args):
             default_pose_path="./NeuroMotion/MSKlib/models/poses.csv",
         )
         muaps, muap_angle_labels, properties = generate_muap_library(config, mn_pool, msk_model)
-    
-    # Generate spike trains
+
     fs = config.get("RecordingConfiguration").get("SamplingFrequency")
     spikes, firing_rates = generate_spike_trains(effort_profile, mn_pool, fs)
     
