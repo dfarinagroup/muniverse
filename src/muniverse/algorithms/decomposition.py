@@ -31,7 +31,7 @@ try:
     import scd as scd
     import torch
 except ImportError:
-    scd is None
+    scd = None
 
 
 def load_config(config_path: str) -> Dict[str, Any]:

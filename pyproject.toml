@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "muniverse"
-version = "0.0.1"
+version = "0.0.1.dev2"
 description = "A modular framework for simulated and experimental EMG dataset generation, motor unit decomposition algorithm benchmarking, and performance evaluation"
 readme = "readme.md"
 requires-python = ">=3.11"
@@ -43,17 +43,11 @@ dev = [
 ]
 
 [tool.setuptools]
-# map the "muniverse" top‐level package to your src/muniverse directory
-package-dir = { "muniverse" = "src/muniverse" }
+package-dir = {"" = "src"}
 
-# explicitly list which muniverse.* packages to install
-packages = [
-    "muniverse",
-    "muniverse.algorithms",
-    "muniverse.datasets",
-    "muniverse.evaluation",
-    "muniverse.utils",
-]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["muniverse*"]
 
 [tool.setuptools.package-data]
 "muniverse.datasets" = ["*.sh", "*.json"]
