@@ -25,17 +25,29 @@ def check_singularity_image_exists(image_name):
     Returns:
         bool: True if the Singularity image exists in src/environment, False otherwise
     """
-    # Convert Docker image name to Singularity image name
-    sif_name = f"{image_name.split('/')[-1].replace(':', '_')}.sif"
-
-    # Get the path to environment directory
-    current_dir = Path(__file__).parent.parent.parent
-    environment_dir = current_dir / "environment"
-
-    print(sif_name, environment_dir)
-    # Check if the image exists in the environment directory
-    image_path = environment_dir / sif_name
+    image_path = Path(get_container_ref(image_name, "singularity"))
     return image_path.exists()
+
+
+def get_container_ref(image_name, engine):
+    """
+    Return the appropriate container reference for the given engine.
+
+    For Docker this is just the image name; for Singularity it is the path to
+    the pre-pulled .sif file in src/environment/.
+
+    Args:
+        image_name (str): Docker Hub image name (e.g. "pranavm19/muniverse:neuromotion")
+        engine (str): "docker" or "singularity"
+
+    Returns:
+        str: Container reference suitable for passing to the shell script
+    """
+    if engine == "docker":
+        return image_name
+    sif_name = f"{image_name.split('/')[-1].replace(':', '_')}.sif"
+    environment_dir = Path(__file__).parent.parent.parent.parent / "environment"
+    return str(environment_dir / sif_name)
 
 
 def pull_docker_image(image_name):
@@ -62,7 +74,7 @@ def pull_singularity_image(image_name):
     sif_name = f"{image_name.split('/')[-1].replace(':', '_')}.sif"
 
     # Get the path to environment directory
-    current_dir = Path(__file__).parent.parent.parent
+    current_dir = Path(__file__).parent.parent.parent.parent
     environment_dir = current_dir / "environment"
 
     # Create environment directory if it doesn't exist

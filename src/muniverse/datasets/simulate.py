@@ -62,7 +62,7 @@ def validate_config(config_content, verbose=False):
         )
     
     # Validate movement DOF
-    valid_dofs = ["Flexion-Extension", "Radial-Ulnar-Deviation"]
+    valid_dofs = ["Flexion-Extension", "Radial-Ulnar-Deviation", "Test"]
     if movement_cfg["MovementDOF"] not in valid_dofs:
         raise ValueError(f"MovementDOF must be one of: {valid_dofs}")
     
@@ -152,7 +152,8 @@ def generate_recording(
         muap_angle_labels (np.ndarray, optional): Angle labels for each MUAP step.
             Required when ``muaps`` is provided.
         logger (SimulationLogger, optional): Logger instance.
-        verbose (bool): Print extra error detail on failure.
+        verbose (bool): If True, stream container stdout/stderr live.
+        If False (default), capture output silently and only print it on error.
 
     Returns:
         dict: Simulation outputs with keys:
@@ -209,17 +210,15 @@ def generate_recording(
         if not os.path.exists(run_script_path):
             raise FileNotFoundError(f"Shell script not found: {run_script_path}")
 
-        # Run container
         cmd = [run_script_path, engine, container, script_path, run_dir]
         try:
-            subprocess.run(cmd, check=True, cwd=current_dir, capture_output=verbose, text=verbose)
+            subprocess.run(cmd, check=True, cwd=current_dir, capture_output=not verbose, text=not verbose)
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Recording generation failed: {e}")
-            if verbose:
-                if e.stdout:
-                    print(f"[ERROR] stdout:\n{e.stdout}")
-                if e.stderr:
-                    print(f"[ERROR] stderr:\n{e.stderr}")
+            if e.stdout:
+                print(f"[ERROR] stdout:\n{e.stdout}")
+            if e.stderr:
+                print(f"[ERROR] stderr:\n{e.stderr}")
             logger.set_return_code("run.sh", e.returncode)
             logger.finalize(engine, container)
             raise

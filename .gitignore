@@ -36,6 +36,7 @@ ENV/
 .vscode/
 *.swp
 *.swo
+*.code-workspace
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -65,3 +66,6 @@ data/
 **/res/
 **/configs/
 **/outputs/
+
+# Test coverage <temporarily?>
+.coverage
