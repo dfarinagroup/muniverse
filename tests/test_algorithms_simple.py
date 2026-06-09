@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from muniverse.algorithms.cbss import FastIcaCBSS
 from muniverse.algorithms.ae_decomposer import AEDecoder
 
+from muniverse.algorithms import decompose_recording
+from muniverse.algorithms.decomposition import load_config
+
 # Some helper functions to make some simple test signal
 @dataclass
 class MU:
@@ -155,6 +158,118 @@ def test_ae_simple():
     assert np.isclose(scores["sil"], ref_results["scores"]["sil"]).all(), (
         "Predicted sil scores deviate from the reference results"
     )
+
+def test_decompose_recording():  
+
+    # Generate test data
+    data = _make_fake_emg()
+    fsamp = 100
+
+    # Pre-processing config
+    pre_cfg = [
+        {
+            "step": "bandpass",
+            "high_pass": 3,
+            "low_pass": 30,
+            "method": "butter",
+            "order": 2
+        },
+        {
+            "step": "time_window",
+            "t_start": 0,
+            "t_end": -1
+        }
+    ]
+    # Post-processing config
+    post_cfg = [
+        {
+            "step": "remove_duplicates",
+            "max_shift": 0.01,
+            "tolerance": 0.001,
+            "threshold": 0.3,
+            "quality_metric": "sil",
+            "mode": "max"
+        },
+        {
+            "step": "bad_source_detection",
+            "quality_metric": "sil",
+            "threshold": 0.9,
+            "min_spikes": 10,
+            "mode": "below"
+        }  
+    ]
+
+    # Run a FastIcaCBSS Pipeline
+    cfg = {
+        "preProcessingConfig": pre_cfg,
+        "algorithmConfig": {
+            "ext_fact": 3,
+            "ica_iterations": 3,
+            "ica_tol": 5e-2,
+        },
+        "postProcessingConfig": post_cfg
+    }
+
+    _, log = decompose_recording(
+        data=data, fsamp=fsamp, method="cbss", algorithm_config=cfg
+    )
+
+    return_codes = log["Execution"]["ReturnCodes"]
+
+    assert return_codes["PreProcessEMG"] == 0, "Pre-processing failed"
+    assert return_codes["FastIcaCBSS"] == 0, "FastIcaCBSS failed"
+    assert return_codes["PostProcessSpikes"] == 0, "Post-processing failed"  
+
+    # Run AE Pipeline
+    cfg = {
+        "preProcessingConfig": pre_cfg,
+        "algorithmConfig": {
+            "ext_fact": 3,
+            "latent_dim": 3
+        },
+        "postProcessingConfig": post_cfg
+    }
+
+    _, log = decompose_recording(
+        data=data, fsamp=fsamp, method="ae", algorithm_config=cfg
+    )
+
+    return_codes = log["Execution"]["ReturnCodes"]
+
+    assert return_codes["PreProcessEMG"] == 0, "Pre-processing failed"
+    assert return_codes["AEDecoder"] == 0, "AEDecoder failed"
+    assert return_codes["PostProcessSpikes"] == 0, "Post-processing failed"   
+
+    try:
+        import scd as scd
+        import torch
+
+        cfg = {
+            "preProcessingConfig": [],
+            "algorithmConfig": {
+                "sampling_frequency": fsamp,
+                "low_pass_cutoff": 30,
+                "high_pass_cutoff": 3,
+                "extension_factor": 3,
+                "max_iterations": 3,
+            },
+            "postProcessingConfig": []
+        }
+
+        _, log = decompose_recording(
+            data=data, fsamp=fsamp, method="scd", engine="local", algorithm_config=cfg
+        )
+
+        return_codes = log["Execution"]["ReturnCodes"]
+
+        assert return_codes["PreProcessEMG"] == 0, "Pre-processing failed"
+        assert return_codes["scd"] == 0, "SCD (local engine) failed"
+        assert return_codes["PostProcessSpikes"] == 0, "Post-processing failed" 
+
+
+    except ImportError:
+        scd is None
+
 
 
 
