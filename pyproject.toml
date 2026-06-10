@@ -62,6 +62,7 @@ include = ["muniverse*"]
 [tool.setuptools.package-data]
 "muniverse.datasets" = ["*.sh", "*.json"]
 "muniverse.algorithms" = ["*.sh", "*.json"]
+"muniverse" = ["configs/*.json"]
 
 [tool.setuptools_scm]
 
