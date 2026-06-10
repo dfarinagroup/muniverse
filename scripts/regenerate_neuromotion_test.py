@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import tempfile
+from importlib.resources import files
 
 import edfio
 import matplotlib.pyplot as plt
@@ -49,7 +50,8 @@ def translate_config(old_config: dict) -> dict:
       → new InitialAngle = centre + amplitude, TargetAngle = centre - amplitude
     - Triangular angle: InitialAngle defaults to 0
     """
-    default_path = os.path.join(REPO_ROOT, "configs", "neuromotion.json")
+    #default_path = os.path.join(REPO_ROOT, "configs", "neuromotion.json")
+    default_path = str(files("muniverse").joinpath("configs/neuromotion.json"))
     with open(default_path) as f:
         config = json.load(f)
 

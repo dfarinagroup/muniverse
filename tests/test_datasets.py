@@ -7,6 +7,7 @@ These tests require a container engine (Docker or Singularity) to run.
 import json
 import subprocess
 from pathlib import Path
+from importlib.resources import files
 
 import numpy as np
 import pytest
@@ -19,8 +20,9 @@ from muniverse.utils.containers import verify_container_engine, pull_container, 
 # Helpers
 # ---------------------------------------------------------------------------
 
-CONFIGS_DIR = Path(__file__).parent.parent / "configs"
-DEFAULT_CONFIG_PATH = CONFIGS_DIR / "neuromotion.json"
+# CONFIGS_DIR = Path(__file__).parent.parent / "configs"
+# DEFAULT_CONFIG_PATH = CONFIGS_DIR / "neuromotion.json"
+DEFAULT_CONFIG_PATH = files("muniverse").joinpath("configs/neuromotion.json")
 
 # Lightweight config override: short movement so the container finishes quickly.
 _SHORT_MOVEMENT_OVERRIDE = {
