@@ -515,7 +515,7 @@ class PreProcessEMG:
                     else:
                         t_end = step.t_end
                     sample_mask = (t >= step.t_start) & (t <= t_end)
-                    t_start = t_start
+                    t_start = step.t_start
                 elif isinstance(step, self.GetMetric):
                     if step.window is not None:
                         idx0 = int(step.window[0] / fsamp_new)
