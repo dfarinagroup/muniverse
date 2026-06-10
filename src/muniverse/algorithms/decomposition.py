@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple, Union, Literal
 from importlib.metadata import metadata
+from importlib.resources import files
 
 import numpy as np
 import pandas as pd
@@ -291,13 +292,14 @@ def decompose_upperbound(
         logger.set_algorithm_config(algo_cfg)
     else:
         # Load default configuration
-        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
-        algorithm_config_path = config_dir / "upperbound.json"
-        if not algorithm_config_path.exists():
+        # config_dir = Path(__file__).parent.parent.parent.parent / "configs"
+        # algorithm_config_path = config_dir / "upperbound.json"
+        config_path = files("muniverse").joinpath("configs/upperbound.json")
+        if not config_path.is_file():
             raise FileNotFoundError(
-                f"Default UpperBound config not found at {algorithm_config_path}"
+                f"Default config file for upperbound method not found"
             )
-        algo_cfg = load_config(str(algorithm_config_path))
+        algo_cfg = load_config(str(config_path))
         logger.set_algorithm_config(algo_cfg)
 
 
@@ -687,13 +689,14 @@ def _get_config(cfg, method):
         algo_cfg = load_config(str(cfg))
     else:
         # Load default configuration
-        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
-        default_config = config_dir / f"{method}.json"
-        if not default_config.exists():
+        # config_dir = Path(__file__).parent.parent.parent.parent / "configs"
+        # default_config = config_dir / f"{method}.json"
+        config_path = files("muniverse").joinpath(f"configs/{method}.json")
+        if not config_path.is_file():
             raise FileNotFoundError(
-                f"Default SCD config not found at {default_config}"
+                f"Default config file for method = {method} not found"
             )
-        algo_cfg = load_config(str(default_config))
+        algo_cfg = load_config(str(config_path))
 
     return algo_cfg
 
