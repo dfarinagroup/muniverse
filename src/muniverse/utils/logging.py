@@ -8,7 +8,6 @@ import os
 import platform
 import subprocess
 import time
-from muniverse import __version__, __license__
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
