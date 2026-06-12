@@ -1033,7 +1033,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
                         fsamp=fsamp,
                         spikes=filtered_spikes,
                         max_delay=step.max_delay,
-                        whitening = step.rewhiten,
+                        rewhiten=step.rewhiten,
                         mask=source_mask
                     )
                     scores.update(local_scores)
