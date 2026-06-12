@@ -1,7 +1,7 @@
 import warnings
 import numpy as np
 import pandas as pd
-from scipy.stats import zscore, norm
+from scipy.stats import median_abs_deviation
 from scipy.signal import find_peaks
 from pydantic import BaseModel, TypeAdapter, Field
 from typing import Literal, List, Union, Annotated
@@ -159,6 +159,15 @@ class PostProcessSpikes:
         mode: Literal["max", "min", "first"] = "max"
         description: str = "Duplicate source"
 
+    class GetDischargeMetric(BaseModel):
+        step: Literal["get_discharge_metric"]
+        metric: Literal["cov_isi", "cod_isi", "mean_fr", "med_fr"] = "mean_fr"
+        window: tuple[float, float] | None = None
+        reject_outliers: bool = False
+        rejection_method: Literal["zscore", "threshold"] = "zscore"
+        rejection_threshold: float = 3
+        rejection_mode: Literal["above", "below", "two-sided"] = "above"    
+
     class BadSourceDetection(BaseModel):
         step: Literal["bad_source_detection"]
         quality_metric: str = "sil"
@@ -199,6 +208,100 @@ class PostProcessSpikes:
         self.steps.append(
             self._adapter.validate_python(step)
         )
+
+    def _get_discharge_metric(
+            self, 
+            spikes: pd.DataFrame, 
+            metric: Literal["cov_isi", "cod_isi", "mean_fr", "med_fr"], 
+            window: tuple[float, float] | None,
+            reject_outliers: bool,  
+            rejection_method: Literal["zscore", "threshold"], 
+            rejection_theshold: float, 
+            rejection_mode: Literal["above", "below", "two-sided"] = "above"
+    ):
+        """
+        Compute spike-based metrics
+
+        Args
+        ----
+            spikes : pd.DataFrame
+                Table of motor unit spikes    
+            metric: {"cov_isi", "cod_isi", "mean_fr", "med_fr"}
+                Metric to be computed  
+            window : tuple or None
+                Time window used to calculate the given metric     
+            reject_outliers : bool
+                If True, outlier spikes are removed to calculate 
+                the given metric     
+            rejection_method : {"zscore", "threshold"}
+                Method used to detect outlier spikes. If "zscore" 
+                scores are z-score normalized prior to thresholding.
+            rejection_threshold : float
+                Treshold for bad spike detection
+            mode : {"above", "below", "two-sided"} , default "above"
+                If "above" flag all values above the threshold;
+                If "below" flag all values below the threshold;
+                If "two-sided" (only availible if method = "zscore"), flag all 
+                channels with an absolute score above the threshold                    
+
+        Returns
+        -------
+            values : np.array
+                Array of spike-based metrics (n_units, )  
+        
+        """
+
+        # Get unique units
+        units = sorted(spikes["unit_id"].unique())
+        n_source = len(units)
+
+        # Init output
+        values = np.zeros(n_source)
+
+        for i, label in enumerate(units):
+            # Get spike times
+            spike_times = spikes[spikes["unit_id"] == label]["onset"].values 
+
+            # Apply window
+            if window is not None:
+                if window[1] == -1:
+                    window[1] = np.max(spike_times) + 0.1
+                spike_times = spike_times[
+                    (spike_times >= window[0]) & (spike_times < window[1])
+                ]
+
+            # Get ISI
+            isi = np.diff(spike_times)
+
+            # Reject outlier spikes for the metric calculation
+            if reject_outliers:
+                if rejection_method == "zscore":
+                    mask = find_outliers(
+                        isi, rejection_theshold, max_iter=1, mode=rejection_mode
+                    )
+                elif rejection_method == "threshold": 
+                    if rejection_mode =="above":
+                        mask = isi > rejection_theshold
+                    elif rejection_mode == "below":
+                        mask = isi < rejection_theshold
+                    else:
+                        raise ValueError(
+                            f"For rejection_method '{rejection_method}'" 
+                             "the rejection mode must be 'above' or 'below'."
+                        )
+                    
+                isi = isi[~mask]
+
+            if metric == "cov_isi":
+                values[i] = np.std(isi) / np.mean(isi)
+            elif metric == "cod_isi":
+                values[i] = median_abs_deviation(isi) / np.median(isi)
+            elif metric == "mean_fr":
+                values[i] = np.mean(1 / isi)
+            elif metric == "med_fr":
+                values[i] = np.median(1 / isi)
+
+        return values    
 
     def _apply_base_step(
         self,
@@ -261,6 +364,20 @@ class PostProcessSpikes:
             unit_status.loc[
                 ~local_mask, "status_description"
             ] = step.description
+
+        elif isinstance(step, self.GetDischargeMetric):
+
+            values = self._get_discharge_metric(
+                spikes=spikes,
+                metric=step.metric,
+                window=step.window,
+                reject_outliers=step.reject_outliers,
+                rejection_method=step.rejection_method,
+                rejection_theshold=step.rejection_threshold,
+                rejection_mode=step.rejection_mode
+            )
+            scores[step.metric] = values
+
         elif isinstance(step, self.MaskSources):
 
             n_source = len(spikes["unit_id"].unique())
@@ -560,6 +677,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
 
     class FitFromSpikes(BaseModel):
         step: Literal["fit_from_spikes"]
+        rewhiten: bool = True
         t_start: float = 0
         t_end: float = -1
         max_delay: float = 0.01    
@@ -568,6 +686,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         Union[
             PostProcessSpikes.RemoveDuplicates, 
             PostProcessSpikes.BadSourceDetection,
+            PostProcessSpikes.GetDischargeMetric,
             PostProcessSpikes.MaskSources,
             PostProcessSpikes.ValidateSpikePrediction,
             PredictSpikes,
@@ -609,6 +728,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             spikes: pd.DataFrame, 
             fsamp: float, 
             max_delay: float = 0.01,
+            rewhiten: bool = True,
             mask: np.ndarray | None = None
         ):
         """
@@ -649,7 +769,10 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
 
         ext_sig = self._extension(sig)
 
-        white_sig = self._whitening(ext_sig)
+        if rewhiten or (self.whiten_ is None):
+            white_sig = self._whitening(ext_sig)
+        else:
+            white_sig = self.whiten_ @ ext_sig
 
         units = sorted(spikes["unit_id"].unique())
         n_units = len(units)
@@ -910,6 +1033,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
                         fsamp=fsamp,
                         spikes=filtered_spikes,
                         max_delay=step.max_delay,
+                        whitening = step.rewhiten,
                         mask=source_mask
                     )
                     scores.update(local_scores)
