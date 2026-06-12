@@ -73,6 +73,22 @@ class PostProcessSpikes:
             "description": str, # default "Below quality threshold"
         } 
 
+    **Get Discharge Metric**: Calculate a spike-based metric that provides 
+    insights on the physiological pluasibility of a detected spike train.
+    Implemented metrics are the mean firing rate, the median firing rate,
+    the cofficient of variation of the interspike intervalls and the 
+    coefficient of dispersion of the interspike intervalls. Outlier spikes 
+    can be exluded based on statistical outlieres or fixed thresholds::
+
+        {
+            "step": "get_discharge_metric",
+            "metric": "mean_fr" | "med_fr" | "cov_isi" | "cod_isi" , # default "mean_fr"
+            "window": tuple | None, # default None
+            "reject_outliers": bool, # default False
+            "rejection_method": "zscore" | "threshold", # default "zscore"
+            "rejection_threshold": float, # default 3
+            "rejection_mode": "above" | "below" | "two-sided" # dfault "above"     
+
     **Mask Sources**: Mask all sources given in "sources_list" 
     to be excluded in the following. Can be either used to reject 
     known bad sources or limit the analysis to a subset of your data::  
@@ -589,6 +605,23 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             "mode": "below" | "above", # default "below"
             "description": str, # default "Below quality threshold"
         } 
+
+    **Get Discharge Metric**: Calculate a spike-based metric that provides 
+    insights on the physiological pluasibility of a detected spike train.
+    Implemented metrics are the mean firing rate, the median firing rate,
+    the cofficient of variation of the interspike intervalls and the 
+    coefficient of dispersion of the interspike intervalls. Outlier spikes 
+    can be exluded based on statistical outlieres or fixed thresholds::
+
+        {
+            "step": "get_discharge_metric",
+            "metric": "mean_fr" | "med_fr" | "cov_isi" | "cod_isi" , # default "mean_fr"
+            "window": tuple | None, # default None
+            "reject_outliers": bool, # default False
+            "rejection_method": "zscore" | "threshold", # default "zscore"
+            "rejection_threshold": float, # default 3
+            "rejection_mode": "above" | "below" | "two-sided" # dfault "above"     
+    
 
     **Mask Sources**: Mask all sources given in "sources_list" 
     to be excluded in the following. Can be either used to reject 
