@@ -332,8 +332,8 @@ class SimulationLogger(BaseMetadataLogger):
             commit=muniverse_info["Commit"],
             branch=muniverse_info["Branch"],
             file="src/muniverse/data_generation/generate_data.py",
-            version= metadata("muniverse")["version"],
-            license= metadata("muniverse")["license"], 
+            version= metadata("muniverse-emg")["version"],
+            license= metadata("muniverse-emg")["license"],
         )
 
         # Add NeuroMotion generator info
@@ -397,8 +397,8 @@ class AlgorithmLogger(BaseMetadataLogger):
             commit=muniverse_info["Commit"],
             branch=muniverse_info["Branch"],
             file="src/muniverse/algorithms/decomposition.py",
-            version= metadata("muniverse")["version"],
-            license= metadata("muniverse")["license"] 
+            version= metadata("muniverse-emg")["version"],
+            license= metadata("muniverse-emg")["license"]
         )
 
     def set_input_data(self, file_name: str, file_format: str):

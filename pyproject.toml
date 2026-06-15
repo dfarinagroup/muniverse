@@ -48,6 +48,7 @@ dependencies = [
     "python-dateutil",
     "bids-validator-deno",
     "pydantic",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
