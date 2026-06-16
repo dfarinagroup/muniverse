@@ -60,8 +60,8 @@ dev = [
     "mypy",
     "jupyter",
     "ipykernel",
-    "matplotlib",
     "seaborn",
+    "swarm-contrastive-decomposition",
 ]
 
 [tool.setuptools]

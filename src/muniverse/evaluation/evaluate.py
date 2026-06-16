@@ -217,14 +217,28 @@ def max_xcorr(
 
     """
 
-    corr = correlate(sig1, sig2, mode="full")
-    lags = correlation_lags(len(sig1), len(sig2), mode="full")
-    mask = (lags >= -max_shift) & (lags <= max_shift)
-    corr_win = corr[mask]
-    lags_win = lags[mask]
+    # corr = correlate(sig1, sig2, mode="full")
+    # lags = correlation_lags(len(sig1), len(sig2), mode="full")
+    # mask = (lags >= -max_shift) & (lags <= max_shift)
+    # corr_win = corr[mask]
+    # lags_win = lags[mask]
+    # best_idx = np.argmax(corr_win)
+    # overlap = corr_win[best_idx]
+    # best_shift = lags_win[best_idx]
+
+    corr = correlate(sig1, sig2, mode="full", method="fft")
+
+    center = len(sig2) - 1
+
+    start = max(0, center - max_shift)
+    stop = min(len(corr), center + max_shift + 1)
+
+    corr_win = corr[start:stop]
+
     best_idx = np.argmax(corr_win)
+
     overlap = corr_win[best_idx]
-    best_shift = lags_win[best_idx]
+    best_shift = (start + best_idx) - center
 
     return overlap, best_shift
 
@@ -286,10 +300,10 @@ def label_sources(
             spikes_2 = spikes_2[(spikes_2 >= t_start) & (spikes_2 < t_end)]
             st2 = bin_spikes(spikes_2, fsamp=fsamp, t_start=t_start, t_end=t_end)
             _, shift = max_xcorr(st1, st2, max_shift=int(max_shift * fsamp))
-            #tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift / fsamp, tol=tol)
-            tp, _, _ = match_spike_trains(
-                    st1, st2, shift=shift, tol=tol, fsamp=fsamp
-                )
+            tp, _, _ = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+            # tp, _, _ = match_spike_trains(
+            #         st1, st2, shift=shift, tol=tol, fsamp=fsamp
+            #     )
             denom = max(len(spikes_1), len(spikes_2))
             match_score = tp / denom if denom > 0 else 0
 
@@ -624,11 +638,12 @@ def evaluate_spike_matches(
                 _, shift = max_xcorr(
                     spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
                 )
-                tp, fp, fn = match_spike_trains(
-                    spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
-                )
-                denom = len(spikes_2)
-                match_score = tp / denom if denom > 0 else 0
+                tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+                # tp, fp, fn = match_spike_trains(
+                #     spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+                # )
+                denom = 2*tp + fp + fn
+                match_score = 2*tp / denom if denom > 0 else 0
 
                 cost_matrix[i, j] = 1 - match_score
 
@@ -659,11 +674,12 @@ def evaluate_spike_matches(
             _, shift = max_xcorr(
                 spike_train_1, spike_train_2, max_shift=int(max_shift * fsamp)
             )
-            tp, fp, fn = match_spike_trains(
-                spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
-            )
-            denom = len(spikes_2)
-            match_score = tp / denom if denom > 0 else 0
+            tp, fp, fn = match_spikes(spikes_1, spikes_2, shift=shift/fsamp, tol=tol)
+            # tp, fp, fn = match_spike_trains(
+            #     spike_train_1, spike_train_2, shift=shift, tol=tol, fsamp=fsamp
+            # )
+            denom = 2*tp + fp + fn
+            match_score = 2*tp / denom if denom > 0 else 0
             delay = shift / fsamp
             if match_score < threshold:
                 l2, tp, fp, fn, delay = None, 0, len(spikes_1), 0, None

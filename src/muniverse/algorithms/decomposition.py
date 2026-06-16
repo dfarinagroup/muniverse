@@ -117,7 +117,7 @@ def decompose_scd(
             )
         logger.add_generated_by(
             name="Swarm Contrastive Decomposition",
-            version=metadata("scd")["version"],
+            version=metadata("swarm-contrastive-decomposition")["version"],
             url="https://github.com/AgneGris/swarm-contrastive-decomposition.git",
             commit="n/a", 
             license="Creative Commons Attribution-NonCommercial 4.0 International Public License",
@@ -365,7 +365,7 @@ def decompose_upperbound(
     if return_code["value"] == 0:
         logger.add_processing_step(
             step_name="UpperBoundCBSS",
-            details=algo_cfg["algorithmConfig"]
+            details=state["parameters"]
         ) 
 
     # Apply post processing
@@ -500,7 +500,7 @@ def decompose_cbss(
     if return_code["value"] == 0:
         logger.add_processing_step(
             step_name="FastIcaCBSS",
-            details=algo_cfg["algorithmConfig"]
+            details=state["parameters"]
         )
 
     # Apply post processing
@@ -633,7 +633,7 @@ def decompose_ae(
     if return_code["value"] == 0:
         logger.add_processing_step(
             step_name="AEDecoder",
-            details=algo_cfg["algorithmConfig"]
+            details=state["parameters"]
         )
 
     # Apply post processing

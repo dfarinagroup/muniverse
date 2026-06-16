@@ -693,7 +693,8 @@ def peel_off(
         sig: np.ndarray, # (n_channels, n_samples) 
         spikes: np.ndarray, # (n_spikes, ) 
         win: float = 0.02, 
-        fsamp: float = 2048
+        fsamp: float = 2048,
+        method: Literal["sparse", "fft_conv"] = "sparse"
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Peel off the signal contribution of a source with finite impulse
@@ -711,6 +712,12 @@ def peel_off(
             Window size in seconds for MUAP template     
         fsamp : float , default 2048
             Sampling frequency in Hz
+        method : {"sparse", "fft_conv"}  
+            Method used for peel-of. If "sparse" (default), 
+            the function loops over all spikes and inserts a 
+            the waveform reconstructed from spike-triggered averaging. 
+            If "fft_conv" the signal is reconstructed by convolving
+            (fft-based) the waveform with the spike train.  
 
     Returns
     -------
@@ -726,29 +733,40 @@ def peel_off(
 
     width = int(win * fsamp)
     spikes = spikes[(spikes >= width + 1) & (spikes < sig.shape[1] - width - 1)]
-    firings = np.zeros(sig.shape[1])
-    firings[spikes] = 1
 
-    # Zero-pad waveform to match signal shape
-    L = sig.shape[1]
-    pad_len = L - waveform.shape[1]
-    waveform_padded = np.pad(waveform, ((0, 0), (0, pad_len)), mode="constant")
+    if method == "sparse":
+        comp_sig = np.zeros_like(sig)
+        for s in spikes:
+            start = s - width
+            end = s + width + 1
+            comp_sig[:, start:end] = waveform
 
-    # FFT of firings (same for all channels)
-    fft_firings = rfft(firings)
+    elif method == "fft_conv":
+        firings = np.zeros(sig.shape[1])
+        firings[spikes] = 1
 
-    # FFT of waveform for each channel
-    fft_waveform = rfft(waveform_padded, axis=1)
+        # Zero-pad waveform to match signal shape
+        L = sig.shape[1]
+        pad_len = L - waveform.shape[1]
+        waveform_padded = np.pad(
+            waveform, ((0, 0), (0, pad_len)), mode="constant"
+        )
 
-    # Multiply in frequency domain (broadcasting firings to each channel)
-    fft_product = fft_waveform * fft_firings
+        # FFT of firings (same for all channels)
+        fft_firings = rfft(firings)
 
-    # IFFT to get time domain component signal
-    comp_sig = irfft(fft_product, n=L, axis=1)
+        # FFT of waveform for each channel
+        fft_waveform = rfft(waveform_padded, axis=1)
 
-    # Correct time shift due to FFT convolution (center of kernel)
-    shift = (waveform.shape[1] - 1) // 2
-    comp_sig = np.roll(comp_sig, -shift, axis=1)
+        # Multiply in frequency domain (broadcasting firings to each channel)
+        fft_product = fft_waveform * fft_firings
+
+        # IFFT to get time domain component signal
+        comp_sig = irfft(fft_product, n=L, axis=1)
+
+        # Correct time shift due to FFT convolution (center of kernel)
+        shift = (waveform.shape[1] - 1) // 2
+        comp_sig = np.roll(comp_sig, -shift, axis=1)
 
     residual_sig = sig - comp_sig
 
