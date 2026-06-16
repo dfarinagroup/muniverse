@@ -54,6 +54,7 @@ class BaseMetadataLogger:
                     "Start": self.start_time.isoformat(),
                     "End": None,
                 },
+                "Runtime": None,
                 "ReturnCodes": {},
             },
         }
@@ -183,8 +184,19 @@ class BaseMetadataLogger:
             engine: Optional container engine name
             container: Optional container name/path
         """
+
+        # Set end time
         end_time = datetime.now()
         self.log_data["Execution"]["Timing"]["End"] = end_time.isoformat()
+
+        # Calculate the total runtime
+        t0 = datetime.fromisoformat(
+            self.log_data["Execution"]["Timing"]["Start"]
+        )
+        t1 = datetime.fromisoformat(
+            self.log_data["Execution"]["Timing"]["End"]
+        )
+        self.log_data["Execution"]["Runtime"] = (t1 - t0).total_seconds()
 
         # Update container info if engine and container are provided
         if engine and container:
