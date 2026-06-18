@@ -205,7 +205,7 @@ def decompose_scd(
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
     if return_code["value"] == 0:
-        for step in pre_meta["steps"]:
+        for step in post_meta["steps"]:
             logger.add_processing_step(
                 step_name="PostProcessing",
                 details=step
@@ -390,7 +390,7 @@ def decompose_upperbound(
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
     if return_code["value"] == 0:
-        for step in pre_meta["steps"]:
+        for step in post_meta["steps"]:
             logger.add_processing_step(
                 step_name="PostProcessing",
                 details=step
@@ -525,7 +525,7 @@ def decompose_cbss(
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
     if return_code["value"] == 0:
-        for step in pre_meta["steps"]:
+        for step in post_meta["steps"]:
             logger.add_processing_step(
                 step_name="PostProcessing",
                 details=step
@@ -658,7 +658,7 @@ def decompose_ae(
     # Update the logger
     logger.set_return_code(return_code["name"], return_code["value"])
     if return_code["value"] == 0:
-        for step in pre_meta["steps"]:
+        for step in post_meta["steps"]:
             logger.add_processing_step(
                 step_name="PostProcessing",
                 details=step

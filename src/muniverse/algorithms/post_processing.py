@@ -393,6 +393,7 @@ class PostProcessSpikes:
                 rejection_mode=step.rejection_mode
             )
             scores[step.metric] = values
+            unit_status[step.metric] = values
 
         elif isinstance(step, self.MaskSources):
 
@@ -422,8 +423,7 @@ class PostProcessSpikes:
             unit_status = pd.merge(unit_status, df, on="unit_id", how="left")    
 
         return source_mask, unit_status
-       
-
+           
     def post_process(
             self, 
             spikes: pd.DataFrame, 
@@ -463,6 +463,15 @@ class PostProcessSpikes:
         
         """
 
+        # Handle empty spikes file
+        if spikes.empty:
+            warnings.warn(
+                "Empty spikes file is empty"
+                "Cannot continue savely"
+            )
+            
+            return spikes, sources, scores, {"steps": []}
+
         # Mask bad sources
         unit_ids = sorted(spikes["unit_id"].unique())
         n_units = len(unit_ids)
@@ -480,7 +489,7 @@ class PostProcessSpikes:
         else:
             for k, v in scores.items():
                 unit_status[k] = v
-
+               
         if self.steps is not None:
             for step in self.steps:
 
@@ -993,6 +1002,14 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         
         """
 
+        # Handle empty spikes file
+        if spikes.empty:
+            warnings.warn(
+                "Empty spikes file is empty"
+                "Cannot continue savely"
+            )
+            return spikes, sources, scores, {"steps": []}
+
         self.unmixing_weights_ = unmixing_weights
         self.whiten_ = whitening_matrix
         self.unmixing_format_ = unmixing_format
@@ -1014,7 +1031,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         else:
             for k, v in scores.items():
                 unit_status[k] = v
-
+         
         if self.steps is not None:
             for step in self.steps:
                 
