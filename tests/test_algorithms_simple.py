@@ -268,7 +268,7 @@ def test_decompose_recording():
 
 
     except ImportError:
-        scd is None
+        scd = None
 
 
 
