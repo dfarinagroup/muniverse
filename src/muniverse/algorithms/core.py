@@ -785,8 +785,7 @@ def spike_dict_to_long_df(
     - "duration": Duration of the event (0 for neural spikes) 
     - "sample": Sample indice of the event  
     - "unit_id": Unique unit ID (integer)
-    - "description": Free-text event description
-
+    - "event_type": Event classifier (here: "motor-unit-spike")
 
     Args
     ----
@@ -801,7 +800,7 @@ def spike_dict_to_long_df(
             Table of motor unit spikes
     """
 
-    columns = ["onset", "duration", "sample", "unit_id", "description"]
+    columns = ["onset", "duration", "sample", "unit_id", "event_type"]
 
     rows = []
     for unit_id, spikes in spike_dict.items():
@@ -811,7 +810,7 @@ def spike_dict_to_long_df(
                 "duration": 0,
                 "sample": t,
                 "unit_id": unit_id, 
-                "description": "motor-unit-spike"
+                "event_type": "motor-unit-spike"
             })
 
     # If no spikes were found, create an empty DataFrame 

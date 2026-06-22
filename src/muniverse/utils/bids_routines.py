@@ -1340,7 +1340,7 @@ class BIDSDecompositionDerivative(_BaseBIDS):
     source_sidecar: dict = field(default_factory=dict)
     events: pd.DataFrame = field(
         default_factory=lambda:pd.DataFrame(columns=[
-            "onset", "duration", "sample", "unit_id", "description"])
+            "onset", "duration", "sample", "unit_id", "event_type"])
     )
     events_sidecar: dict = field(default_factory=dict)
     log: dict = field(default_factory=dict)
@@ -1404,8 +1404,11 @@ class BIDSDecompositionDerivative(_BaseBIDS):
                 "Description": "Unique identifier (integer value) of the motor unit corresponding to the detected spike.",
                 "Unit": "Integer-based ID"
             },
-            "description": {
-                "Description": "Free text event description."
+            "event_type": {
+                "Description": "Unique event classifier.",
+                "Levels": {
+                    "motor-unit-spike": "Motor unit discharge"
+                }
             }
         }
     
@@ -1582,12 +1585,14 @@ class BIDSDecompositionDerivative(_BaseBIDS):
                         "duration": 0,
                         "sample": t,
                         "unit_id": unit_id, 
-                        "description": "motor-unit-spike"
+                        "event_type": "motor-unit-spike"
                     })
 
             frames = [self.events, pd.DataFrame(rows)]
             
         elif isinstance(spikes, pd.DataFrame):
+
+            spikes = pd.read_table(spikes)
 
             if "onset" not in spikes.columns:
                 spikes["onset"] = spikes["sample"] / fsamp
@@ -1595,10 +1600,10 @@ class BIDSDecompositionDerivative(_BaseBIDS):
                 spikes["sample"] = spikes["onset"] * fsamp      
             if "duration" not in spikes.columns:
                 spikes["duration"] = 0
-            if "description" not in spikes.columns:
-                spikes["description"] =  "motor-unit-spike"
+            if "event_type" not in spikes.columns:
+                spikes["event_type"] =  "motor-unit-spike"
 
-            spikes = spikes.loc[:, ["onset", "duration", "sample", "unit_id", "description"]]      
+            spikes = spikes.loc[:, ["onset", "duration", "sample", "unit_id", "event_type"]]      
             frames = [self.events, spikes] 
 
         frames = [f for f in frames if not f.empty]
