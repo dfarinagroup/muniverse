@@ -602,10 +602,19 @@ def evaluate_spike_matches(
 
     """
 
+    if "event_type" in df1.columns:
+        df1 = df1[
+            df1["event_type"] == "motor-unit-spike"
+        ]
+    if "event_type" in df2.columns:
+        df2 = df2[
+            df2["event_type"] == "motor-unit-spike"
+        ]    
+
     if t_end == -1:
         t_end = max(
                 df1["onset"].max(), df2["onset"].max()
-            )  + 0.1
+            )  + 0.1    
 
     source_labels_1 = sorted(df1["unit_id"].unique())
     source_labels_2 = sorted(df2["unit_id"].unique())
