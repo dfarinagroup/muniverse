@@ -313,6 +313,19 @@ class FastIcaCBSS(_BaseCBSS):
             Method used to avoid repeaded convergence to the same source in 
             the fastICA fixed point algorithm.  
 
+        clip_source : bool , default
+            If True, the values of the predicted sources are cliped during the fixed point
+            algorithm. This can help to limit the effect of outliers / artifacts
+
+        clip_method : {"threshold", "prctile"} , default threshold
+            Method used for clipping sources. If "threshold", a fixed value is used.
+            If "prctile" values are cliped at the specified percentile (in percent) 
+            given the distribution of the predcted source. 
+
+        clip_value : float , default 20
+            Value at which the predicted sources are cliped or the percentile at which 
+            the predicted source is clipped.           
+
         refinement_loop : bool , default True
             If True, the unmixing weights w are updated through self-supervised 
             learning. The updated unmixing weights are the mean of the 
@@ -415,6 +428,9 @@ class FastIcaCBSS(_BaseCBSS):
             ica_max_iter: int = 100,
             ica_tol: float = 5e-4,
             ica_orthogonalization: Literal["gram-schmidt", "projection_deflation", None] = "gram-schmidt",
+            clip_source: bool = False,
+            clip_method: Literal["threshold", "prctile"] = "threshold",
+            clip_value: float = 20,
             refinement_loop: bool = True,
             refinement_loss: Literal["cov_isi", "sil"] = "cov_isi", 
             refinement_max_iter: int = 100,
@@ -446,6 +462,9 @@ class FastIcaCBSS(_BaseCBSS):
         self.ica_max_iter = ica_max_iter
         self.ica_tol  = ica_tol
         self.ica_orthogonalization = ica_orthogonalization
+        self.clip_source = clip_source,
+        self.clip_method = clip_method,
+        self.clip_value = clip_value,
         self.refinement_loop = refinement_loop
         self.refinement_min_spikes = refinement_min_spikes
         self.refinement_loss = refinement_loss
@@ -641,6 +660,12 @@ class FastIcaCBSS(_BaseCBSS):
             w_last = w.copy()
 
             wTX = w.T @ X  # shape: (n_samples,)
+            if self.clip_source:
+                if self.clip_method == "prctile":
+                    value = np.percentile(wTX, self.clip_value)
+                else:
+                    value = self.clip_value
+                wTX = np.clip(wTX, a_max=value, a_min=-value)
             # First derivative G'(x)
             g = (
                 (self.ica_opt_fun_eps + wTX**2) ** ((self.ica_opt_fun_exp - 3) / 2) 
