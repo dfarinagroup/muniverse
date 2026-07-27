@@ -462,9 +462,9 @@ class FastIcaCBSS(_BaseCBSS):
         self.ica_max_iter = ica_max_iter
         self.ica_tol  = ica_tol
         self.ica_orthogonalization = ica_orthogonalization
-        self.clip_source = clip_source,
-        self.clip_method = clip_method,
-        self.clip_value = clip_value,
+        self.clip_source = clip_source
+        self.clip_method = clip_method
+        self.clip_value = clip_value
         self.refinement_loop = refinement_loop
         self.refinement_min_spikes = refinement_min_spikes
         self.refinement_loss = refinement_loss
