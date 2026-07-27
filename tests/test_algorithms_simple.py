@@ -5,6 +5,7 @@ Simple tests of the algorithms
 
 import numpy as np
 import pickle
+from pathlib import Path
 
 from dataclasses import dataclass
 
@@ -13,6 +14,10 @@ from muniverse.algorithms.ae_decomposer import AEDecoder
 
 from muniverse.algorithms import decompose_recording
 from muniverse.algorithms.decomposition import load_config
+
+# Get the directory containing this test file
+TEST_DIR = Path(__file__).parent
+EXPECTED_RESULTS_DIR = TEST_DIR / "expected_results"
 
 # Some helper functions to make some simple test signal
 @dataclass
@@ -99,7 +104,7 @@ def test_cbss_simple():
     }
 
     # Load reference results
-    file = "./expected_results/simple_cbss_prediction.pkl"
+    file = EXPECTED_RESULTS_DIR / "simple_cbss_prediction.pkl"
     with open(file, "rb") as f:
         ref_results = pickle.load(f)
 
@@ -136,7 +141,7 @@ def test_ae_simple():
     }
 
     # Load reference results
-    file = "./expected_results/simple_ae_prediction.pkl"
+    file = EXPECTED_RESULTS_DIR / "simple_ae_prediction.pkl"
     with open(file, "rb") as f:
         ref_results = pickle.load(f)
 
