@@ -4,6 +4,7 @@ from scipy.io import loadmat
 import h5py, os, json
 from muniverse import __license__, __version__
 from muniverse.utils.bids_routines import *
+from muniverse.algorithms.core import get_duplicates_mask, spike_dict_to_long_df, filter_spikes
 from pathlib import Path
 
 # ------------------------------------------ #
@@ -260,7 +261,8 @@ def get_events_tsv(requested_path, fsamp, mvc_level, mvc_rate):
 # ------------------------------------------ #
 
 # Import the manually curated metadata
-metadatapath = str(Path(__file__).parent.parent) + '/bids_metadata/' 
+#metadatapath = str(Path(__file__).parent.parent) + '/bids_metadata/' 
+metadatapath = str(Path.home()) + "/Documents/CBM/github/muniverse-demo" + '/bids_metadata/' 
 with open(metadatapath + 'avrillon_et_al_2024.json', 'r') as f:
     manual_metadata = json.load(f)
 
@@ -281,7 +283,8 @@ n_sub = len(sub_id)
 # Set population level metadata
 subjects_data = {
     'participant_id': [
-        'sub-01', 'sub-02', 'sub-03', 'sub-04', 'sub-05', 'sub-06', 'sub-07', 'sub-08',
+        'sub-01', 'sub-02', 'sub-03', 
+        'sub-04', 'sub-05', 'sub-06', 'sub-07', 'sub-08',
         'sub-11', 'sub-12', 'sub-13', 'sub-14', 'sub-15', 'sub-16', 'sub-17', 'sub-18'
     ], 
     'sex': [
@@ -399,10 +402,33 @@ Avrillon_2024.set_metadata(field_name='subjects_data', source=subjects_data)
 Avrillon_2024.set_metadata(field_name='dataset_sidecar', source=dataset_sidecar)
 Avrillon_2024.write(overwrite=True)
 
+# Init the derivative
+Avrillon_2024_labels = BIDSDataset(
+    root=Avrillon_2024.root + 'derivatives/muedit/',
+    datasetname='Avrillon_et_al_2024',
+    readme=""
+)
+derivative_sidecar = {
+    "Name": "Manual Outputs",
+    "BIDSVersion": Avrillon_2024_labels._get_bids_version(),
+    "DatasetType": "derivative",
+    "GeneratedBy": [
+        {
+            "Name": "MUEdit",
+            "Description": "Automated expert-curated reference decomposition based on surface EMG"
+        }
+    ]
+}
+Avrillon_2024_labels.set_metadata(field_name="dataset_sidecar", source=derivative_sidecar)
+Avrillon_2024_labels.write()
+
 # ------------------------------------------ #
 # -------  Loop over all recordings -------- #
 # ------------------------------------------ #
 for i in np.arange(len(sub_id)):
+
+    if i < 12:
+        continue
 
     print(f"Bidsifying data of sub-{str(sub_id[i]).zfill(2)}")
 
@@ -442,12 +468,26 @@ for i in np.arange(len(sub_id)):
             data = matfile['signal'].data
             target = matfile['signal'].target
             path = matfile['signal'].path
+            spikes = matfile["edition"].Distimeclean
+            sil = matfile["edition"].silval
+            is_hdf5 = False
         except NotImplementedError:
             with h5py.File(filename, "r") as f:
                 signal = f['signal']
                 data = np.array(signal['data']).T
                 target = np.array(signal['target']).T
                 path = np.array(signal['path']).T
+
+                dset = f["edition"]["Dischargetimes"]
+                spikes = np.empty(dset.shape, dtype=object)
+
+                for idx in np.ndindex(dset.shape):
+                    ref = dset[idx]
+                    spikes[idx] = f[ref][()] if ref else None
+
+                spikes = spikes.T
+
+                is_hdf5 = True
 
         emg_data = np.zeros((64*ngrids+2,data.shape[1]))
         emg_data[:64*ngrids,:] = data[:64*ngrids,:] / 150 # Divide by the gain to obtain EMG amplitudes in mV
@@ -482,11 +522,78 @@ for i in np.arange(len(sub_id)):
         emg_recording.set_metadata(field_name='channels', source=ch_metadata)
         emg_recording.set_metadata(field_name='electrodes', source=el_metadata) 
         emg_recording.set_metadata(field_name='emg_sidecar', source=emg_sidecar)
-        emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata, overwrite=True)
+        #emg_recording.set_metadata(field_name='coord_sidecar', source=coordsystem_metadata, overwrite=True)
+        for coord_name, coord_metadata in coordsystem_metadata.items():
+                emg_recording.add_coordinate_system(coord_name, coord_metadata)
         emg_recording.set_data(field_name='data', mydata=emg_data,fsamp=fsamp)
         emg_recording.set_metadata(field_name="events_sidecar", source=events_sidecar)
         emg_recording.set_metadata(field_name="events", source=events)
         emg_recording.write()
+
+        try:
+
+            if is_hdf5:
+                all_spikes = {}
+                all_sil = []
+                idx = 0
+
+                for grid_idx in range(spikes.shape[0]):
+                    for unit_idx in range(spikes.shape[1]):
+                        if spikes[grid_idx, unit_idx].ndim == 2:
+                            tmp = list(
+                                spikes[grid_idx, unit_idx].flatten().astype(int)
+                            )
+                            all_spikes.update({idx: tmp})
+                            all_sil.append(1)
+                            idx += 1
+                        else:
+                            continue
+
+            else:
+                # Get the spike labels
+                all_spikes = {}
+                all_sil = []
+                idx = 0
+                for grid_idx in range(spikes.shape[0]):
+                    for unit_idx in range(spikes[grid_idx].shape[0]):
+                        tmp = spikes[grid_idx][unit_idx]
+                        if np.isscalar(tmp):
+                            tmp = [int(tmp)]
+                        else:
+                            tmp = list(tmp)
+
+                        if len(tmp) == 0:
+                            continue   
+
+                        all_spikes.update({idx: tmp})
+
+                        
+                        #all_sil.append(sil[grid_idx][unit_idx])
+                        all_sil.append(1)
+                        idx += 1
+
+
+            spike_events = spike_dict_to_long_df(all_spikes, fsamp)
+            mask, labels = get_duplicates_mask(spike_events, np.array(all_sil), fsamp, mode="first")
+            filt_spikes, _ = filter_spikes(spike_events, mask)
+
+            # Add the annotaed spike labels
+            ref_labels = BIDSDecompositionDerivative(
+                inherited_metadata=["events.json"],
+                inherited_level=["subject"],
+                root=Avrillon_2024_labels.root,
+                subject_label=str(sub_id[i]).zfill(2), 
+                task_label=task_label, 
+                desc_label="groundtruthspikes",
+                run_label=None,
+                datatype="emg"
+            )
+
+            ref_labels.events = filt_spikes
+            ref_labels.set_default_events_sidecar()
+            ref_labels.write(overwrite=True)
+        except:
+            print(f"Failed with obtaining labels from recording: {sub_id[i]}, {task_label}")
 
 # ------------------------------------------ #
 # ---------  Validate outputs -------------- #
