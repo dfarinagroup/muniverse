@@ -109,7 +109,7 @@ class _BaseBIDS:
         Returns
         -------
             label : str 
-                Öabel corresponding to the requested BIDS key
+                Label corresponding to the requested BIDS key
         """    
 
         filename = Path(file).name
@@ -745,7 +745,7 @@ class EMGBIDSRecording(_BaseBIDS):
                 folder = f"{self.root}sub-{self.subject_label}/{self.datatype}/"
             elif level == "session":
                 fname = f"sub-{self.subject_label}_ses-{self.session_label}_"
-                folder = f"{self.root}sub-{self.subject_label}/ses-{self.session_label}/{self.datatype}"
+                folder = f"{self.root}sub-{self.subject_label}/ses-{self.session_label}/{self.datatype}/"
 
         if extension is None:
             name = folder + fname

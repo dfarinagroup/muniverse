@@ -1,0 +1,79 @@
+{
+    "Name": "Ensemble Decomposition Pipeline Configuration",
+    "Description": "Configuration parameters for a MUniverse ensemble decomposition pipeline",
+
+    "preProcessingConfig": [
+        {
+            "step": "bandpass",
+            "high_pass": 20,
+            "low_pass": 500,
+            "method": "butter",
+            "order": 2
+        },
+        {
+            "step": "notch",
+            "freqs": [50, 100, 150],
+            "method": "butter",
+            "order": 2
+        },
+        {
+            "step": "time_window",
+            "t_start": 0,
+            "t_end": -1
+        }
+    ],
+
+    "baseModels": [
+        {
+            "method": "cbss",
+            "preProcessingConfig": [],
+            "algorithmConfig": {
+                "ext_fact": 12,
+                "ica_iterations": 3
+            },
+            "postProcessingConfig": [
+                {
+                    "step": "remove_duplicates",
+                    "max_shift": 0.01,
+                    "tolerance": 0.001,
+                    "threshold": 0.3,
+                    "quality_metric": "sil",
+                    "mode": "max"
+                },
+                {
+                    "step": "bad_source_detection",
+                    "quality_metric": "sil",
+                    "threshold": 0.9,
+                    "min_spikes": 10,
+                    "mode": "below"
+                }  
+            ]
+        },
+        {
+            "method": "scd",
+            "enginge": "local",
+            "container": null,
+            "preProcessingConfig": [],
+            "algorithmConfig": {
+                "notch_params": null,
+                "low_pass_cutoff": null,
+                "high_pass_cutoff": null,
+                "max_ica_steps": 100,
+                "extension_factor": 8,
+                "max_iterations": 5
+            },
+            "postProcessingConfig": []
+        }
+    ],
+
+    "postProcessingConfig": [
+        {
+            "step": "remove_duplicates",
+            "max_shift": 0.01,
+            "tolerance": 0.001,
+            "threshold": 0.3,
+            "quality_metric": "sil",
+            "mode": "max"
+        }
+    ]
+}

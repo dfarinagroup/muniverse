@@ -87,7 +87,8 @@ class PostProcessSpikes:
             "reject_outliers": bool, # default False
             "rejection_method": "zscore" | "threshold", # default "zscore"
             "rejection_threshold": float, # default 3
-            "rejection_mode": "above" | "below" | "two-sided" # dfault "above"     
+            "rejection_mode": "above" | "below" | "two-sided" # dfault "above" 
+        }        
 
     **Mask Sources**: Mask all sources given in "sources_list" 
     to be excluded in the following. Can be either used to reject 

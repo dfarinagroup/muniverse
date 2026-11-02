@@ -400,7 +400,7 @@ def pseudo_sil_score(
         fsamp: float, 
         min_peak_dist: float = 0.01, 
         match_dist: float = 0.001
-) -> tuple[float, np.ndarray, tuple]:
+) -> tuple[float, np.ndarray]:
     """
     Computes a silhouette-like quality score for predicted spikes based on
     peak detection and background spike amplitudes.

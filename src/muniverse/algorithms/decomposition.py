@@ -22,6 +22,7 @@ import pandas as pd
 import pickle
 
 from ..utils.logging import AlgorithmLogger
+from ..evaluation.evaluate import pseudo_sil_score
 from .cbss import FastIcaCBSS
 from .upperbound import UpperBoundCBSS
 from .ae_decomposer import AEDecoder #, AEDecoderConfig
@@ -684,6 +685,231 @@ def decompose_ae(
     
     return results, logger.log_data
 
+def ensemble_decomposition(
+    data: np.ndarray,
+    fsamp: float,
+    algorithm_config: Optional[Dict] = None,
+    meta: Optional[Dict] = None,
+    outpath: Optional[str] = "./base_decomposition_outputs/",
+    basename: Optional[str] = "base_decomposition_output",
+) -> Tuple[Dict, Dict]:
+    """
+    Run ensemble decomposition.
+
+    Args
+    ----
+        data : np.ndarray 
+            EMG data (n_channels, n_samples)
+
+        fsamp: float
+            Sampling rate in Hz
+
+        algorithm_config : dict (Optional) 
+            Dictonary with the pipeline configuration
+
+        meta: dict (Optional)
+            Optional dictionary containing input data metadata for logging
+
+        outpath : str (Optional)
+            Folder where the outputs of the base decompositions are stored
+
+        basename : str (Optional)
+            Name for the base decomposition output         
+
+    Returns
+    -------
+        results : dict
+            Dictonary containing
+                - data (np.ndarray): Pre-processed data
+                - spikes (pd.DataFrame): Table of motor unit spikes
+                - sources (np.ndarray): Predicted sources
+                - scores (dict): Source quality metrics
+                - pre_process_metadata (dict): Metadata correspoding to
+                pre processing steps (Optional)
+                - post_process_metadata (dict): Metadata correspoding to
+                post processing steps (Optional)
+
+        log_data : dict
+            Dictonary of processing metadata        
+
+
+    """
+
+    logger = AlgorithmLogger()
+    logger.log_data["Pipeline"]["Name"] = "MUniverse-Ensemble-Decomposition-Pipeline"
+    logger.log_data["Pipeline"]["Description"] = "Motor unit identification algorithm"
+
+    # Input data metadata
+    if meta:
+        logger.set_input_data(
+            file_name=meta.get("filename", "numpy_array"),
+            file_format=meta.get("format", "npy"),
+        )
+    else:
+        logger.set_input_data(file_name="numpy_array", file_format="npy")
+
+    # Load and set algorithm configuration
+    cfg = _get_config(algorithm_config, "ensemble_decomposition")
+    logger.set_algorithm_config(cfg)
+
+    # Run preprocessing module
+    if "preProcessingConfig" in cfg.keys():
+        steps = cfg["preProcessingConfig"]
+    else:
+        steps = []
+    data, segmented_data, pre_meta, return_code = _pre_process_data(data, steps, fsamp)  
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in pre_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PreProcessing",
+                details=step
+            )
+
+    # Loop over the individual decompositions
+    n_configs = len(cfg["baseModels"])
+
+    for cfg_idx in range(n_configs): 
+
+        alg = cfg["baseModels"][cfg_idx]["method"]
+        alg_cfg = cfg["baseModels"][cfg_idx]
+
+        if alg == "cbss":
+            res, log = decompose_cbss(segmented_data, pre_meta["fsamp"], alg_cfg)
+            offset = 0
+
+        elif alg == "scd":   
+
+            try:
+                engine = cfg["baseModels"][cfg_idx]["engine"]
+                container = cfg["baseModels"][cfg_idx]["container"]
+            except:
+                engine = "local"
+                container = None
+
+            res, log = decompose_scd(
+                segmented_data, pre_meta["fsamp"], alg_cfg,
+                engine=engine, container=container
+            )   
+            offset = 0
+
+        elif alg == "ae":
+            res, log = decompose_ae(segmented_data, pre_meta["fsamp"], alg_cfg)
+            offset = 0
+
+        # Get unified SIL scores between algorithms    
+        if isinstance(res["sources"], np.ndarray):  
+ 
+            units = sorted(res["spikes"]["unit_id"].unique())
+            res["scores"]["sil_unified"] = np.zeros(len(units))
+            for unit in units:
+                mu_spikes = res["spikes"][
+                    res["spikes"]["unit_id"] == unit
+                ]
+                spike_times = mu_spikes["sample"].to_numpy() + offset
+                res["scores"]["sil_unified"][unit], _ = pseudo_sil_score(
+                    source=res["sources"][unit, :],
+                    spikes=spike_times,
+                    fsamp=pre_meta["fsamp"],
+                    min_peak_dist=0.005,
+                    match_dist=0.001
+                )
+
+        # Save results
+        res.pop("data")
+        res["sources"] = np.array(res["sources"], dtype=np.float16)
+
+        if not os.path.exists(outpath):
+            os.makedirs(outpath)
+
+        with open(f"{outpath}{basename}_desc-cfg{cfg_idx}_log.json", "w") as f:
+            json.dump(log, f, indent=4)
+        with open(f"{outpath}{basename}_desc-cfg{cfg_idx}.pkl", 'wb') as f:  
+            pickle.dump(res, f)
+
+    # Merge results from the individual decompositions
+    # TODO
+    sources = np.array([])
+    sil = np.array([])
+    spikes = pd.DataFrame(
+        columns=["onset", "duration", "sample", "unit_id", "event_type"]
+    )
+
+    unit_offset = 0
+
+    for cfg_idx in range(n_configs):
+
+        with open(f"{outpath}{basename}_desc-cfg{cfg_idx}.pkl", 'rb') as f:  
+            out = pickle.load(f)
+
+        if (
+            isinstance(out["sources"], np.ndarray) 
+            and out["sources"].ndim == 2
+            and "sil_unified" in out["scores"]
+        ):    
+
+            if len(sources) == 0:
+                sources = out["sources"]
+                sil = out["scores"]["sil_unified"]
+                spikes = out["spikes"]
+            else:
+                sources = np.concatenate((sources, out["sources"]),axis=0)
+                sil = np.concatenate((sil, out["scores"]["sil_unified"]),axis=0)
+                current = out["spikes"]
+                current["unit_id"] = current["unit_id"] + unit_offset
+                spikes = pd.concat(
+                    [spikes, current], ignore_index=True
+                )   
+
+            unit_offset += out["sources"].shape[0]
+
+        else:
+            continue
+
+    # Check if there are valid MUs        
+    if len(sil) == 0:
+        spikes = None
+        sources = None
+        scores = None 
+    else:
+        scores = {"sil": sil}
+
+
+    # Apply post processing
+    if "postProcessingConfig" in cfg.keys():
+        steps = cfg["postProcessingConfig"]   
+    else:
+        steps = []
+
+    spikes, sources, scores, post_meta, return_code = _post_process_spikes(
+        spikes, sources, scores, pre_meta["fsamp"], steps
+    )
+    # Update the logger
+    logger.set_return_code(return_code["name"], return_code["value"])
+    if return_code["value"] == 0:
+        for step in post_meta["steps"]:
+            logger.add_processing_step(
+                step_name="PostProcessing",
+                details=step
+            )    
+
+
+    # Prepare results
+    results = {
+        "data": data,
+        "sources": sources, 
+        "spikes": spikes, 
+        "scores": scores,
+        "pre_process_meta": pre_meta,
+        "post_process_meta": post_meta
+    }
+
+    # Always finalize logger to ensure metadata is captured
+    logger.finalize() 
+
+    return results, logger.log_data
+
 def _get_config(cfg, method):
 
     if isinstance(cfg, dict):
@@ -711,7 +937,19 @@ def _run_scd_local(data, cfg):
         fsamp = cfg["sampling_frequency"]
         device = "cuda" if torch.cuda.is_available() else "cpu"
         cfg["device"] = device
-        config = scd.Config(**cfg)
+        print(f"Running SCD on hardware: {device}")
+
+        valid_fields = scd.Config().__dataclass_fields__.keys()
+
+        unknown_fields = set(cfg) - valid_fields
+        if unknown_fields:
+            print(f"Ignoring unknown fields: {unknown_fields}")
+        filtered_cfg = {
+            k: v for k, v in cfg.items()
+            if k in valid_fields
+        }
+
+        config = scd.Config(**filtered_cfg)
         seed = cfg.get("Seed", 42)
         scd.set_random_seed(seed=seed)
 

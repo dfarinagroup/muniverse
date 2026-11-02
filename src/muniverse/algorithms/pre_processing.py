@@ -9,7 +9,8 @@ from .core import (
     notch_signals, 
     highpass_signals, 
     lowpass_signals,
-    find_outliers
+    find_outliers,
+    peel_off
 )
 
 
@@ -133,6 +134,13 @@ class PreProcessEMG:
             "window": (t0, t1) | None, # Given in seconds, if None consider the full data
         } 
 
+    **Peel off**: Peel of contributions of known MU activity.
+
+        {
+            "step": "peel_off",
+            "window_size": float, # Half-length of the peel off window in seconds
+        }    
+
     Examples:
     ---------
     Pre process HD-EMG data using a bandpass and a notch filter.
@@ -241,7 +249,11 @@ class PreProcessEMG:
         metric: Literal["std", "rms", "medfreq", "medpower", "cumpower"]
         window: tuple[float, float] | None = None
         bandwidth: tuple[float, float] | None = None 
-        description: str = ""      
+        description: str = ""
+
+    class PeelOff(BaseModel):
+        step: Literal["peel_off"]
+        window_size: float = 0.02          
 
     PreprocessStep = Annotated[
         Union[Bandpass, 
@@ -252,7 +264,8 @@ class PreProcessEMG:
             MaskChannels, 
             Downsample,
             TimeWindow,
-            GetMetric
+            GetMetric,
+            PeelOff
         ],
         Field(discriminator="step")
     ]  
@@ -393,6 +406,7 @@ class PreProcessEMG:
             self, 
             data: np.ndarray, # (n_channels x n_samples)
             fsamp: float = 2048,
+            spikes: pd.DataFrame | None = None
     ):
         
         """
@@ -405,6 +419,8 @@ class PreProcessEMG:
                 Raw time series data 
             fsamp : float 
                 Sampling rate in Hz
+            spikes : pd.DataFrame
+                Prior knowledge motor unit spike times    
 
         Returns
         -------
@@ -497,10 +513,11 @@ class PreProcessEMG:
                         max_iter=step.max_iter,
                         mode=step.mode
                     )
+                    new_true = bad_mask & ch_mask
                     ch_mask = ch_mask & ~bad_mask
                     ch_status.loc[bad_mask, "status"] = "off"
                     ch_status.loc[
-                        bad_mask, "status_description"
+                        new_true, "status_description"
                     ] = step.description
                     ch_status[step.metric] = scores
                 elif isinstance(step, self.Downsample):
@@ -526,6 +543,23 @@ class PreProcessEMG:
                     scores = self._get_scores(data[:, idx0:idx1], step.metric)
                     col_name = f"{step.metric}{step.description}"
                     ch_status[col_name] = scores
+                elif isinstance(step, self.PeelOff):
+
+                    units = sorted(spikes["unit_id"].unique())
+
+                    for unit in units:
+
+                        mu_spikes = spikes[
+                            spikes["unit_id"] == unit
+                        ]["sample"].to_numpy(dtype=np.int64)
+                        
+                        data, _, _ = peel_off(
+                            sig=data,
+                            spikes=mu_spikes, 
+                            win=step.window_size, 
+                            fsamp=fsamp_new,
+                            method="sparse"
+                        )    
                 else:
                     raise ValueError(
                         "Invalid step type"

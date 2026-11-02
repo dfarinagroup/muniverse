@@ -313,7 +313,7 @@ class FastIcaCBSS(_BaseCBSS):
             Method used to avoid repeaded convergence to the same source in 
             the fastICA fixed point algorithm.  
 
-        clip_source : bool , default
+        clip_source : bool , default False
             If True, the values of the predicted sources are cliped during the fixed point
             algorithm. This can help to limit the effect of outliers / artifacts
 
@@ -569,6 +569,7 @@ class FastIcaCBSS(_BaseCBSS):
                 ValueError("The specified initalization method is not implemented")
 
             # fastICA fixedpoint optimization
+            w = w / np.linalg.norm(w)
             w = self._fixed_point_alg(w, white_sig, i)         
 
             # Predict source and estimate the source quality
@@ -786,5 +787,4 @@ class FastIcaCBSS(_BaseCBSS):
         
         return G
     
-        
        
