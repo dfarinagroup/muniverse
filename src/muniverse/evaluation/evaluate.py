@@ -626,6 +626,7 @@ def evaluate_spike_matches(
 
     if mask is None:
         mask = np.ones(len(source_labels_1), dtype=bool)
+    mask = np.asarray(mask, dtype=bool)
 
     # Asign source labels using the Hungarian method
     if not pre_matched:
@@ -633,8 +634,9 @@ def evaluate_spike_matches(
 
         for i, l1 in enumerate(source_labels_1):
 
-            if ~mask[i]:
-                cost_matrix[i, :] = 100
+            # Masked sources (e.g. duplicates) do not take part in the assignment
+            if not mask[i]:
+                continue
 
             spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
             spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
@@ -661,7 +663,10 @@ def evaluate_spike_matches(
 
                 cost_matrix[i, j] = 1 - match_score
 
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        # Solve for the unmasked rows only and map back to row positions
+        unmasked_rows = np.flatnonzero(mask)
+        row_ind, col_ind = linear_sum_assignment(cost_matrix[unmasked_rows])
+        row_ind = unmasked_rows[row_ind]
 
     else:
         row_ind = np.arange(len(source_labels_1))
@@ -669,13 +674,16 @@ def evaluate_spike_matches(
 
     results = []
 
-    for l1 in source_labels_1:
-        if l1 in row_ind:
-            idx = np.argmax(row_ind == l1)
+    # row_ind holds row positions (i), not unit labels (l1)
+    for i, l1 in enumerate(source_labels_1):
+
+        spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
+        spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
+
+        if i in row_ind:
+            idx = np.argmax(row_ind == i)
             l2 = source_labels_2[col_ind[idx]]
 
-            spikes_1 = df1[df1["unit_id"] == l1]["onset"].values
-            spikes_1 = spikes_1[(spikes_1 >= t_start) & (spikes_1 < t_end)]
             spike_train_1 = bin_spikes(
                 spikes_1, fsamp=fsamp, t_start=t_start, t_end=t_end
             )
