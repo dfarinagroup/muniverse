@@ -1072,6 +1072,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
                 elif isinstance(step, self.FitFromSpikes):
 
                     duration = (data.shape[1] - 1) / fsamp
+                    t_end = step.t_end
                     if step.t_end > duration or step.t_end == -1:
                         t_end = duration
 
