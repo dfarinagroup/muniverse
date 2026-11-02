@@ -109,7 +109,7 @@ class _BaseBIDS:
         Returns
         -------
             label : str 
-                Öabel corresponding to the requested BIDS key
+                Label corresponding to the requested BIDS key
         """    
 
         filename = Path(file).name

@@ -313,7 +313,7 @@ class FastIcaCBSS(_BaseCBSS):
             Method used to avoid repeaded convergence to the same source in 
             the fastICA fixed point algorithm.  
 
-        clip_source : bool , default
+        clip_source : bool , default False
             If True, the values of the predicted sources are cliped during the fixed point
             algorithm. This can help to limit the effect of outliers / artifacts
 
