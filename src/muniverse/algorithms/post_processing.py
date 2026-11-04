@@ -724,7 +724,9 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
         rewhiten: bool = True
         t_start: float = 0
         t_end: float = -1
-        max_delay: float = 0.01    
+        max_delay: float = 0.01
+        min_spikes: int = 10
+        estimate_spikes: bool = False    
 
     PostProcessStep = Annotated[
         Union[
@@ -773,6 +775,10 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             fsamp: float, 
             max_delay: float = 0.01,
             rewhiten: bool = True,
+            t_start: float = 0,
+            t_end: float = -1,
+            min_spikes: int = 10,
+            estimate_spikes: bool = False,
             mask: np.ndarray | None = None
         ):
         """
@@ -836,18 +842,28 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
 
         for i in range(n_units):
 
-            local_spikes = spikes[
-                spikes["unit_id"] == units[i]]["sample"].values
+            mu_spikes = spikes[
+                spikes["unit_id"] == units[i]]["sample"].to_numpy()
+            
+            local_spikes = mu_spikes[
+                (mu_spikes > t_start * fsamp) &
+                (mu_spikes < t_end * fsamp)
+            ].astype(int)
+
+            if len(local_spikes) < min_spikes:
+                new_spikes[i] = mu_spikes
+                continue
             
             if ~mask[i]:
-                new_spikes[i] = local_spikes
+                new_spikes[i] = mu_spikes
                 continue
 
             w, new_spikes[i], sil = self._optimze_delay(
                 X = white_sig,
                 spikes=local_spikes,
                 fsamp=fsamp,
-                max_delay=max_delay
+                max_delay=max_delay,
+                estimate_spikes=estimate_spikes
             )
 
             sources[i, :] = w @ white_sig
@@ -864,7 +880,7 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
 
         return new_spikes, sources, scores
 
-    def _optimze_delay(self, X, spikes, fsamp, max_delay):
+    def _optimze_delay(self, X, spikes, fsamp, max_delay, estimate_spikes):
         """
         Helper function to find optimal delay for 
         a set of motor unit spike labels (single unit)
@@ -875,31 +891,44 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
             delays = [0]
         else:
             max_shift = int(max_delay * fsamp)
-            delays = range(-max_shift,max_shift+1)
+            delays = np.arange(-max_shift,max_shift+1)
 
         W = np.zeros((X.shape[0], len(delays)))
         local_scores = np.zeros(len(delays))   
 
-        for j in delays:
+        local_spikes = {
+            i: spikes + delays[i] 
+            for i, j in enumerate(delays)
+        }
 
-            local_spikes = spikes + delays[j]
+        for i, j in enumerate(delays):
 
-            w = np.mean(X[:, local_spikes], axis=1)
+            # local_spikes = spikes + delays[j]
+
+            w = np.mean(X[:, local_spikes[i]], axis=1)
             w = w / np.linalg.norm(w)
             local_source = w.T @ X
-            local_scores[j], _ = pseudo_sil_score(
+            local_scores[i], _ = pseudo_sil_score(
                 source=local_source,
-                spikes=local_spikes,
+                spikes=local_spikes[i],
                 fsamp=fsamp,
                 min_peak_dist=self.spike_detection_min_delay,
                 match_dist=0.001
             )
-            W[:, j] = w 
+            W[:, i] = w 
+
+            if estimate_spikes:
+                est_spike_times()
+                local_spikes[i], _ = est_spike_times(
+                    source=local_source, 
+                    fsamp=fsamp,
+                    min_delay=self.spike_detection_min_delay
+                )
 
         idx = np.argmax(local_scores)
         w = W[:, idx]
         sil = local_scores[idx]
-        new_spikes = spikes + delays[idx]
+        new_spikes = local_spikes[idx]
  
         return w, new_spikes, sil  
     
@@ -1072,21 +1101,26 @@ class PostProcessCBSS(_BaseCBSS, PostProcessSpikes):
                 elif isinstance(step, self.FitFromSpikes):
 
                     duration = (data.shape[1] - 1) / fsamp
+                    t_start = step.t_start
                     t_end = step.t_end
                     if step.t_end > duration or step.t_end == -1:
                         t_end = duration
 
-                    filtered_spikes = spikes[
-                        (spikes["onset"] > step.t_start) &
-                        (spikes["onset"] < t_end)
-                    ]
+                    # filtered_spikes = spikes[
+                    #     (spikes["onset"] > step.t_start) &
+                    #     (spikes["onset"] < t_end)
+                    # ]
 
                     spikes, sources, local_scores = self.fit_predict_from_spike_labels(
                         sig=data,
                         fsamp=fsamp,
-                        spikes=filtered_spikes,
+                        spikes=spikes,
                         max_delay=step.max_delay,
                         rewhiten=step.rewhiten,
+                        t_start=t_start,
+                        t_end=t_end,
+                        min_spikes=step.min_spikes,
+                        estimate_spikes=step.estimate_spikes,
                         mask=source_mask
                     )
                     scores.update(local_scores)
