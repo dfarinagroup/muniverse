@@ -446,7 +446,7 @@ def pseudo_sil_score(
 
     # Step 3: Compute amplitudes
     if len(spikes) < 2 or len(background_spikes) == 0:
-        return 0.0
+        return 0.0, background_spikes
 
     pred_amps = sig[spikes].reshape(-1, 1)
     back_amps = sig[background_spikes].reshape(-1, 1)
